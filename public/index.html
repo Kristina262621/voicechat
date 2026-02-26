@@ -14,7 +14,8 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      height: 100vh;
+      min-height: 100vh;
+      padding-bottom: 50vh;
     }
 
     .container {
@@ -77,15 +78,8 @@
       display: none;
     }
 
-    .mic-status.active {
-      display: block;
-      color: #4caf50;
-    }
-
-    .mic-status.muted {
-      display: block;
-      color: #e94560;
-    }
+    .mic-status.active { display: block; color: #4caf50; }
+    .mic-status.muted  { display: block; color: #e94560; }
 
     .btn-mic {
       width: 100%;
@@ -103,6 +97,57 @@
     }
 
     .btn-mic:hover { background: #1a4a7a; }
+
+    /* Участники */
+    .participants {
+      margin-top: 24px;
+      display: none;
+    }
+
+    .participants-title {
+      font-size: 13px;
+      color: #888;
+      margin-bottom: 10px;
+      text-align: left;
+    }
+
+    .participant {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      background: #0f3460;
+      border-radius: 10px;
+      margin-bottom: 8px;
+    }
+
+    .participant-name {
+      font-size: 13px;
+      flex: 1;
+      text-align: left;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Индикатор громкости */
+    .volume-bar-wrap {
+      width: 60px;
+      height: 6px;
+      background: #1a1a2e;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .volume-bar {
+      height: 100%;
+      width: 0%;
+      border-radius: 3px;
+      background: #4caf50;
+      transition: width 0.1s;
+    }
+
+    .volume-bar.loud { background: #e94560; }
 
     #hidden-audios { display: none; }
   </style>
@@ -122,6 +167,11 @@
     <button class="btn btn-leave" id="btn-leave" style="display:none">Выйти из чата</button>
 
     <div class="mic-status" id="mic-status"></div>
+
+    <div class="participants" id="participants">
+      <div class="participants-title">Участники</div>
+      <div id="participants-list"></div>
+    </div>
   </div>
 
   <div id="hidden-audios"></div>
