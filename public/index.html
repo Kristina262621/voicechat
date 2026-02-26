@@ -108,6 +108,7 @@
       display:flex; align-items:center; gap:8px;
       padding:7px 10px; background:#0f3460;
       border-radius:10px; margin-bottom:6px;
+      flex-wrap: wrap;
     }
     .participant-name {
       font-size:12px; flex:1; text-align:left;
@@ -137,6 +138,50 @@
     .reconnect-banner.visible { display:block; }
 
     @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.5;} }
+
+    /* ── КНОПКА ПОНЯЛ ── */
+    .btn-understood {
+      flex-basis: 100%;
+      margin-top: 4px;
+      padding: 6px 14px;
+      background: #2a7a3b;
+      color: #fff;
+      border: none;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+      text-align: center;
+    }
+    .btn-understood:hover    { background: #358a48; }
+    .btn-understood:active   { transform: scale(0.96); }
+    .btn-understood:disabled { background: #444; color: #777; cursor: default; }
+
+    /* ── БАННЕР "ПОНЯЛ" ── */
+    .understood-banner {
+      position: fixed;
+      top: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1a6b2a;
+      color: #fff;
+      padding: 12px 28px;
+      border-radius: 24px;
+      font-size: 16px;
+      font-weight: bold;
+      z-index: 9999;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      pointer-events: none;
+      animation: understoodAnim 3s ease forwards;
+    }
+
+    @keyframes understoodAnim {
+      0%   { opacity:0; transform: translateX(-50%) translateY(-12px); }
+      15%  { opacity:1; transform: translateX(-50%) translateY(0);     }
+      75%  { opacity:1;                                                  }
+      100% { opacity:0; transform: translateX(-50%) translateY(-8px);  }
+    }
 
     /* ── ЧАТ ── */
     .chat-panel {
