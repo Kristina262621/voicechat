@@ -33,14 +33,13 @@ app.post('/auth', (req, res) => {
 });
 
 const io = new Server(server, {
-  pingTimeout:   60000,
-  pingInterval:  10000,
-  upgradeTimeout:30000,
-  // Увеличиваем лимит для зашифрованных файлов
-  maxHttpBufferSize: 50 * 1024 * 1024,
-  transports:    ['websocket', 'polling'],
-  allowUpgrades: true,
-  cors:          { origin: '*' }
+  pingTimeout:        60000,
+  pingInterval:       10000,
+  upgradeTimeout:     30000,
+  maxHttpBufferSize:  50 * 1024 * 1024,
+  transports:         ['websocket', 'polling'],
+  allowUpgrades:      true,
+  cors:               { origin: '*' }
 });
 
 const users         = new Set();
@@ -88,16 +87,24 @@ io.on('connection', (socket) => {
   // Чат — сервер видит только зашифрованный blob, не знает содержимого
   socket.on('chat-message', (data) => {
     if (!authenticated.has(socket.id)) return;
-    // Пересылаем всем остальным как есть — не трогаем
     socket.broadcast.emit('chat-message', {
       from:      socket.id,
-      encrypted: data.encrypted,   // зашифрованный текст/файл
-      iv:        data.iv,          // вектор инициализации
-      type:      data.type,        // 'text' | 'image' | 'video'
-      fileName:  data.fileName,    // только для файлов
-      fileSize:  data.fileSize,    // только для файлов
+      encrypted: data.encrypted,
+      iv:        data.iv,
+      type:      data.type,
+      fileName:  data.fileName,
+      fileSize:  data.fileSize,
+      mimeType:  data.mimeType,
       timestamp: Date.now()
     });
+  });
+
+  // ── Кнопка "Понял" ──
+  // Сервер не знает содержания — просто пересылает сигнал всем остальным
+  socket.on('understood', () => {
+    if (!authenticated.has(socket.id)) return;
+    socket.broadcast.emit('understood', { from: socket.id });
+    console.log('Understood signal from:', socket.id);
   });
 
   socket.on('leave', () => handleLeave(socket));
