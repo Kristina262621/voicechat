@@ -1,12 +1,21 @@
 const socket = io({
-  reconnection:           true,
-  reconnectionAttempts:   Infinity,
-  reconnectionDelay:      1000,
-  reconnectionDelayMax:   5000,
-  timeout:                20000,
-  transports:             ['websocket', 'polling'],
+  reconnection:         true,
+  reconnectionAttempts: Infinity,
+  reconnectionDelay:    1000,
+  reconnectionDelayMax: 5000,
+  timeout:              20000,
+  transports:           ['websocket', 'polling'],
+  // Не подключаемся автоматически — ждём пока пройдёт auth
+  autoConnect:          false,
 });
 
+// ── DOM ──
+const screenPassword   = document.getElementById('screen-password');
+const screenChat       = document.getElementById('screen-chat');
+const pwInput          = document.getElementById('pw-input');
+const pwError          = document.getElementById('pw-error');
+const btnEnter         = document.getElementById('btn-enter');
+const btnTogglePw      = document.getElementById('btn-toggle-pw');
 const btnJoin          = document.getElementById('btn-join');
 const btnLeave         = document.getElementById('btn-leave');
 const btnMic           = document.getElementById('btn-mic');
@@ -25,11 +34,10 @@ let micEnabled      = true;
 let pendingOffers   = [];
 let joined          = false;
 let audioCtx        = null;
+let wakeLock        = null;
+let savedPassword   = '';        // держим в памяти для реконнекта
 const analysers     = {};
 const qualityTimers = {};
-
-// WakeLock — не даёт телефону гасить экран (Chrome Android)
-let wakeLock = null;
 
 // ═══════════════════════════════════════════════
 //  ЛОГ
@@ -55,55 +63,108 @@ function log(msg) {
 }
 
 // ═══════════════════════════════════════════════
-//  WAKELOCK — не даём телефону заморозить вкладку
+//  ЭКРАН ПАРОЛЯ
 // ═══════════════════════════════════════════════
-async function requestWakeLock() {
-  if (!('wakeLock' in navigator)) {
-    log('WakeLock API not supported');
+
+// Показать/скрыть пароль
+btnTogglePw.addEventListener('click', () => {
+  const isText = pwInput.type === 'text';
+  pwInput.type       = isText ? 'password' : 'text';
+  btnTogglePw.textContent = isText ? '👁' : '🙈';
+});
+
+// Enter в поле пароля
+pwInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') attemptEnter();
+});
+
+btnEnter.addEventListener('click', attemptEnter);
+
+async function attemptEnter() {
+  const pw = pwInput.value.trim();
+  if (!pw) {
+    showPwError('Введи пароль');
     return;
   }
+
+  btnEnter.disabled      = true;
+  btnEnter.textContent   = '⏳ Проверяем…';
+  pwError.textContent    = '';
+
+  try {
+    const res  = await fetch('/auth', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ password: pw })
+    });
+    const data = await res.json();
+
+    if (data.ok) {
+      savedPassword = pw;
+      enterChat();
+    } else {
+      showPwError('❌ Неверный пароль');
+      pwInput.classList.add('error');
+      setTimeout(() => pwInput.classList.remove('error'), 400);
+    }
+  } catch (e) {
+    showPwError('⚠️ Ошибка соединения с сервером');
+    log('Auth fetch error: ' + e.message);
+  } finally {
+    btnEnter.disabled    = false;
+    btnEnter.textContent = '🔑 Войти';
+  }
+}
+
+function showPwError(msg) {
+  pwError.textContent = msg;
+  setTimeout(() => { pwError.textContent = ''; }, 3000);
+}
+
+function enterChat() {
+  screenPassword.style.display = 'none';
+  screenChat.style.display     = 'block';
+
+  // Подключаем socket только после успешной авторизации
+  socket.connect();
+}
+
+// ═══════════════════════════════════════════════
+//  WAKELOCK
+// ═══════════════════════════════════════════════
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) return;
   try {
     wakeLock = await navigator.wakeLock.request('screen');
     log('WakeLock acquired');
-    wakeLock.addEventListener('release', () => {
-      log('WakeLock released');
-    });
-  } catch (e) {
-    log('WakeLock error: ' + e.message);
-  }
+    wakeLock.addEventListener('release', () => log('WakeLock released'));
+  } catch (e) { log('WakeLock error: ' + e.message); }
 }
 
 async function releaseWakeLock() {
   if (wakeLock) {
     try { await wakeLock.release(); } catch (_) {}
     wakeLock = null;
-    log('WakeLock released manually');
   }
 }
 
 // ═══════════════════════════════════════════════
-//  KEEP-ALIVE AUDIO — держит аудио-сессию на iOS
-//  Воспроизводим тихий (нулевой) аудио-буфер
+//  KEEP-ALIVE AUDIO (iOS)
 // ═══════════════════════════════════════════════
 function startKeepAlive() {
   try {
-    // Создаём тишину через AudioContext и подаём в audio-элемент
-    const ctx         = new (window.AudioContext || window.webkitAudioContext)();
-    const buffer      = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
-    const source      = ctx.createBufferSource();
-    const dest        = ctx.createMediaStreamDestination();
-
+    const ctx    = new (window.AudioContext || window.webkitAudioContext)();
+    const buffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    const source = ctx.createBufferSource();
+    const dest   = ctx.createMediaStreamDestination();
     source.buffer = buffer;
     source.loop   = true;
     source.connect(dest);
     source.start();
-
     keepAliveAudio.srcObject = dest.stream;
-    keepAliveAudio.play().catch(e => log('KeepAlive play error: ' + e.message));
-    log('KeepAlive audio started');
-  } catch (e) {
-    log('KeepAlive error: ' + e.message);
-  }
+    keepAliveAudio.play().catch(e => log('KeepAlive error: ' + e.message));
+    log('KeepAlive started');
+  } catch (e) { log('KeepAlive init error: ' + e.message); }
 }
 
 function stopKeepAlive() {
@@ -112,74 +173,60 @@ function stopKeepAlive() {
 }
 
 // ═══════════════════════════════════════════════
-//  ВОССТАНОВЛЕНИЕ ТРЕКА ПРИ БЛОКИРОВКЕ ЭКРАНА
+//  ВОССТАНОВЛЕНИЕ ПОСЛЕ БЛОКИРОВКИ ЭКРАНА
 // ═══════════════════════════════════════════════
 document.addEventListener('visibilitychange', async () => {
   log('Visibility: ' + document.visibilityState);
+  if (document.visibilityState !== 'visible' || !joined || !localStream) return;
 
-  if (document.visibilityState === 'visible' && joined && localStream) {
+  await requestWakeLock();
 
-    // Переполучаем WakeLock — он снимается когда экран гас
-    await requestWakeLock();
+  const audioTracks = localStream.getAudioTracks();
+  const allDead     = audioTracks.every(t => t.readyState === 'ended');
 
-    // Проверяем треки — на iOS они могут стать "ended" после блокировки
-    const audioTracks = localStream.getAudioTracks();
-    const allDead     = audioTracks.every(t => t.readyState === 'ended');
-
-    if (allDead) {
-      log('Tracks ended after screen lock — reacquiring mic...');
-      try {
-        const newStream = await navigator.mediaDevices.getUserMedia({
-          video: false,
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl:  true,
-            sampleRate:       48000,
-            sampleSize:       16,
-            channelCount:     2,
-            latency:          0,
-          }
-        });
-
-        const newTrack = newStream.getAudioTracks()[0];
-        log('Got new track: ' + newTrack.label);
-
-        // Заменяем трек во всех peers
-        for (const [userId, peer] of Object.entries(peers)) {
-          const sender = peer.getSenders().find(s => s.track?.kind === 'audio');
-          if (sender) {
-            await sender.replaceTrack(newTrack);
-            log('Replaced track for peer ' + userId);
-          }
+  if (allDead) {
+    log('Tracks ended — reacquiring mic...');
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: false,
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl:  true,
+          sampleRate:       48000,
+          sampleSize:       16,
+          channelCount:     2,
+          latency:          0,
         }
+      });
 
-        // Заменяем в localStream
-        audioTracks.forEach(t => { localStream.removeTrack(t); t.stop(); });
-        localStream.addTrack(newTrack);
+      const newTrack = newStream.getAudioTracks()[0];
 
-        // Обновляем анализ громкости
-        stopVolumeAnalysis(socket.id);
-        startVolumeAnalysis(socket.id, localStream);
-
-        // Восстанавливаем состояние mute
-        newTrack.enabled = micEnabled;
-
-        log('Mic restored after screen lock');
-      } catch (e) {
-        log('Failed to restore mic: ' + e.message);
+      for (const [userId, peer] of Object.entries(peers)) {
+        const sender = peer.getSenders().find(s => s.track?.kind === 'audio');
+        if (sender) {
+          await sender.replaceTrack(newTrack);
+          log('Replaced track for ' + userId);
+        }
       }
-    } else {
-      // Треки живые — просто убеждаемся что enabled правильный
-      audioTracks.forEach(t => { t.enabled = micEnabled; });
-      log('Tracks alive, enabled=' + micEnabled);
-    }
 
-    // AudioContext может быть suspended после блокировки
-    if (audioCtx && audioCtx.state === 'suspended') {
-      await audioCtx.resume();
-      log('AudioContext resumed');
+      audioTracks.forEach(t => { localStream.removeTrack(t); t.stop(); });
+      localStream.addTrack(newTrack);
+
+      stopVolumeAnalysis(socket.id);
+      startVolumeAnalysis(socket.id, localStream);
+      newTrack.enabled = micEnabled;
+      log('Mic restored');
+    } catch (e) {
+      log('Failed to restore mic: ' + e.message);
     }
+  } else {
+    audioTracks.forEach(t => { t.enabled = micEnabled; });
+  }
+
+  if (audioCtx?.state === 'suspended') {
+    await audioCtx.resume();
+    log('AudioContext resumed');
   }
 });
 
@@ -213,21 +260,21 @@ function playBeep(type) {
 // ═══════════════════════════════════════════════
 const iceServers = {
   iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun.l.google.com:19302'  },
     { urls: 'stun:stun1.l.google.com:19302' },
     {
-      urls: 'turn:openrelay.metered.ca:80',
-      username: 'openrelayproject',
+      urls:       'turn:openrelay.metered.ca:80',
+      username:   'openrelayproject',
       credential: 'openrelayproject'
     },
     {
-      urls: 'turn:openrelay.metered.ca:443',
-      username: 'openrelayproject',
+      urls:       'turn:openrelay.metered.ca:443',
+      username:   'openrelayproject',
       credential: 'openrelayproject'
     },
     {
-      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-      username: 'openrelayproject',
+      urls:       'turn:openrelay.metered.ca:443?transport=tcp',
+      username:   'openrelayproject',
       credential: 'openrelayproject'
     }
   ]
@@ -265,54 +312,6 @@ function renderSignal(userId, level) {
   wrap.className = 'signal-wrap signal-' + level;
 }
 
-// Для удалённых пиров — смотрим inbound-rtp
-async function measureRemoteQuality(peer) {
-  try {
-    const stats = await peer.getStats();
-    let rtt = null, lost = 0, received = 0, jitter = 0;
-
-    stats.forEach(r => {
-      if (r.type === 'inbound-rtp' && r.kind === 'audio') {
-        lost     = r.packetsLost    || 0;
-        received = r.packetsReceived || 0;
-        jitter   = r.jitter         || 0;
-      }
-      if (r.type === 'candidate-pair' && r.state === 'succeeded') {
-        if (r.currentRoundTripTime != null) rtt = r.currentRoundTripTime * 1000;
-      }
-    });
-
-    return calcLevel(rtt, lost, received, jitter);
-  } catch (e) {
-    log('getStats error: ' + e.message);
-    return 'none';
-  }
-}
-
-// Для себя — смотрим outbound-rtp и remote-inbound-rtp (RTT исходящего потока)
-async function measureLocalQuality(peer) {
-  try {
-    const stats = await peer.getStats();
-    let rtt = null, lost = 0, sent = 0, jitter = 0;
-
-    stats.forEach(r => {
-      // remote-inbound-rtp содержит RTT и потери с точки зрения получателя
-      if (r.type === 'remote-inbound-rtp' && r.kind === 'audio') {
-        lost   = r.packetsLost    || 0;
-        jitter = r.jitter         || 0;
-        if (r.roundTripTime != null) rtt = r.roundTripTime * 1000;
-      }
-      if (r.type === 'outbound-rtp' && r.kind === 'audio') {
-        sent = r.packetsSent || 0;
-      }
-    });
-
-    return calcLevel(rtt, lost, sent, jitter);
-  } catch (e) {
-    return 'none';
-  }
-}
-
 function calcLevel(rtt, lost, total, jitter) {
   if (rtt === null) return 'none';
   const lossRate = (lost + total) > 0 ? lost / (lost + total) : 0;
@@ -320,6 +319,39 @@ function calcLevel(rtt, lost, total, jitter) {
   if (rtt < 150 && lossRate < 0.05 && jitter < 0.05) return 'good';
   if (rtt < 300 && lossRate < 0.10 && jitter < 0.10) return 'fair';
   return 'poor';
+}
+
+async function measureRemoteQuality(peer) {
+  try {
+    const stats = await peer.getStats();
+    let rtt = null, lost = 0, received = 0, jitter = 0;
+    stats.forEach(r => {
+      if (r.type === 'inbound-rtp' && r.kind === 'audio') {
+        lost = r.packetsLost || 0; received = r.packetsReceived || 0; jitter = r.jitter || 0;
+      }
+      if (r.type === 'candidate-pair' && r.state === 'succeeded' && r.currentRoundTripTime != null) {
+        rtt = r.currentRoundTripTime * 1000;
+      }
+    });
+    return calcLevel(rtt, lost, received, jitter);
+  } catch { return 'none'; }
+}
+
+async function measureLocalQuality(peer) {
+  try {
+    const stats = await peer.getStats();
+    let rtt = null, lost = 0, sent = 0, jitter = 0;
+    stats.forEach(r => {
+      if (r.type === 'remote-inbound-rtp' && r.kind === 'audio') {
+        lost = r.packetsLost || 0; jitter = r.jitter || 0;
+        if (r.roundTripTime != null) rtt = r.roundTripTime * 1000;
+      }
+      if (r.type === 'outbound-rtp' && r.kind === 'audio') {
+        sent = r.packetsSent || 0;
+      }
+    });
+    return calcLevel(rtt, lost, sent, jitter);
+  } catch { return 'none'; }
 }
 
 function startQualityMonitor(userId, peer, isLocal) {
@@ -333,10 +365,7 @@ function startQualityMonitor(userId, peer, isLocal) {
 }
 
 function stopQualityMonitor(userId) {
-  if (qualityTimers[userId]) {
-    clearInterval(qualityTimers[userId]);
-    delete qualityTimers[userId];
-  }
+  if (qualityTimers[userId]) { clearInterval(qualityTimers[userId]); delete qualityTimers[userId]; }
 }
 
 // ═══════════════════════════════════════════════
@@ -347,7 +376,6 @@ function shortId(id) { return id.slice(0, 6); }
 function addParticipant(userId, label) {
   if (document.getElementById('p-' + userId)) return;
   participantsBox.style.display = 'block';
-
   const div = document.createElement('div');
   div.className = 'participant';
   div.id = 'p-' + userId;
@@ -357,10 +385,8 @@ function addParticipant(userId, label) {
       <div class="volume-bar" id="vol-${userId}"></div>
     </div>
     <div class="signal-wrap signal-none" id="sig-${userId}">
-      <div class="bar"></div>
-      <div class="bar"></div>
-      <div class="bar"></div>
-      <div class="bar"></div>
+      <div class="bar"></div><div class="bar"></div>
+      <div class="bar"></div><div class="bar"></div>
     </div>
   `;
   participantsList.appendChild(div);
@@ -369,9 +395,7 @@ function addParticipant(userId, label) {
 function removeParticipant(userId) {
   const el = document.getElementById('p-' + userId);
   if (el) el.remove();
-  if (participantsList.children.length === 0) {
-    participantsBox.style.display = 'none';
-  }
+  if (participantsList.children.length === 0) participantsBox.style.display = 'none';
 }
 
 // ═══════════════════════════════════════════════
@@ -382,12 +406,10 @@ function startVolumeAnalysis(userId, stream) {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
   }
   stopVolumeAnalysis(userId);
-
   const source   = audioCtx.createMediaStreamSource(stream);
   const analyser = audioCtx.createAnalyser();
   analyser.fftSize = 512;
   source.connect(analyser);
-
   const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
   function tick() {
@@ -403,7 +425,6 @@ function startVolumeAnalysis(userId, stream) {
     }
     analysers[userId].animFrame = requestAnimationFrame(tick);
   }
-
   analysers[userId] = { analyser, source, animFrame: requestAnimationFrame(tick) };
 }
 
@@ -416,15 +437,33 @@ function stopVolumeAnalysis(userId) {
 }
 
 // ═══════════════════════════════════════════════
-//  SOCKET
+//  SOCKET СОБЫТИЯ
 // ═══════════════════════════════════════════════
 socket.on('connect', () => {
   log('Socket connected: ' + socket.id);
   reconnectBanner.classList.remove('visible');
+
+  // При каждом (пере)подключении аутентифицируемся через socket
+  socket.emit('authenticate', savedPassword);
+});
+
+socket.on('auth-ok', () => {
+  log('Socket auth OK');
+  // Если были в чате — переподключаемся
   if (joined && localStream) {
     log('Rejoining after reconnect...');
     socket.emit('join');
   }
+});
+
+socket.on('auth-fail', () => {
+  log('Socket auth FAILED — возвращаем на экран пароля');
+  savedPassword = '';
+  screenPassword.style.display = 'block';
+  screenChat.style.display     = 'none';
+  showPwError('❌ Сессия истекла, войди заново');
+  hangUp();
+  joined = false;
 });
 
 socket.on('disconnect', (reason) => {
@@ -433,6 +472,7 @@ socket.on('disconnect', (reason) => {
 });
 
 socket.on('reconnect_attempt', n => log('Reconnect attempt #' + n));
+
 socket.on('reconnect', () => {
   log('Reconnected!');
   reconnectBanner.classList.remove('visible');
@@ -441,7 +481,7 @@ socket.on('reconnect', () => {
 socket.on('user-count', count => { userCount.textContent = count; });
 
 // ═══════════════════════════════════════════════
-//  КНОПКИ
+//  КНОПКИ ЧАТА
 // ═══════════════════════════════════════════════
 btnJoin.addEventListener('click', async () => {
   log('Join clicked');
@@ -464,7 +504,6 @@ btnJoin.addEventListener('click', async () => {
       log('Track: ' + t.label + ' ' + JSON.stringify(t.getSettings()))
     );
 
-    // Запускаем механизмы удержания сессии
     await requestWakeLock();
     startKeepAlive();
 
@@ -475,7 +514,6 @@ btnJoin.addEventListener('click', async () => {
     secureBadge.style.display = 'inline-flex';
     joined = true;
 
-    // Добавляем себя в список с шкалой сигнала
     addParticipant(socket.id, '🟢 Вы (' + shortId(socket.id) + ')');
     startVolumeAnalysis(socket.id, localStream);
 
@@ -497,7 +535,6 @@ btnJoin.addEventListener('click', async () => {
 });
 
 btnLeave.addEventListener('click', () => {
-  log('Leave clicked');
   socket.emit('leave');
   hangUp();
   joined = false;
@@ -556,13 +593,11 @@ async function handleOffer(from, offer) {
   const improved = { type: answer.type, sdp: forceOpusMaxQuality(answer.sdp) };
   await peer.setLocalDescription(improved);
   socket.emit('answer', { to: from, answer: improved });
-  log('Sent answer to ' + from);
 }
 
 socket.on('answer', async ({ from, answer }) => {
-  log('Got answer from ' + from);
   const peer = peers[from];
-  if (peer && peer.signalingState === 'have-local-offer') {
+  if (peer?.signalingState === 'have-local-offer') {
     await peer.setRemoteDescription(new RTCSessionDescription(answer));
   }
 });
@@ -608,18 +643,11 @@ function createPeer(userId, isInitiator) {
 
   peer.addEventListener('connectionstatechange', () => {
     log('Peer ' + userId + ' state: ' + peer.connectionState);
-
     if (peer.connectionState === 'connected') {
-      // Запускаем мониторинг: для первого пира меряем свою связь
       const isFirstPeer = Object.keys(peers).length === 1;
-      if (isFirstPeer) {
-        // Шкала для себя — через outbound/remote-inbound этого пира
-        startQualityMonitor(socket.id, peer, true);
-      }
-      // Шкала для удалённого участника
+      if (isFirstPeer) startQualityMonitor(socket.id, peer, true);
       startQualityMonitor(userId, peer, false);
     }
-
     if (peer.connectionState === 'failed') {
       log('Connection failed, restarting ICE...');
       peer.restartIce();
@@ -635,8 +663,6 @@ function createPeer(userId, isInitiator) {
       audio.autoplay    = true;
       audio.playsInline = true;
       audio.muted       = false;
-      audio.setAttribute('playsinline', '');
-      audio.setAttribute('webkit-playsinline', '');
       hiddenAudios.appendChild(audio);
     }
     audio.srcObject = event.streams[0];
@@ -656,10 +682,7 @@ function createPeer(userId, isInitiator) {
 
   peer.oniceconnectionstatechange = () => {
     log('Peer ' + userId + ' ICE: ' + peer.iceConnectionState);
-    if (peer.iceConnectionState === 'failed') {
-      log('ICE failed, restarting...');
-      peer.restartIce();
-    }
+    if (peer.iceConnectionState === 'failed') peer.restartIce();
   };
 
   if (isInitiator) {
@@ -686,13 +709,8 @@ function hangUp() {
   Object.keys(qualityTimers).forEach(id => stopQualityMonitor(id));
   Object.values(peers).forEach(p => p.close());
   peers = {};
-
-  if (localStream) {
-    localStream.getTracks().forEach(t => t.stop());
-    localStream = null;
-  }
-  if (audioCtx) { audioCtx.close(); audioCtx = null; }
-
+  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  if (audioCtx)    { audioCtx.close(); audioCtx = null; }
   hiddenAudios.innerHTML     = '';
   pendingOffers              = [];
   participantsList.innerHTML = '';
