@@ -114,7 +114,10 @@ const qualityTimers = {};
 // ═══════════════════════════════════════════════
 //  ЛОГ
 // ═══════════════════════════════════════════════
+const DEBUG = false; // true — включить логи, false — выключить
+
 function log(msg) {
+  if (!DEBUG) return;
   console.log(msg);
   let box = document.getElementById('log-box');
   if (!box) {
@@ -764,7 +767,6 @@ function addParticipant(userId, label) {
 
   participantsList.appendChild(div);
 
-  // Вешаем обработчик на кнопку
   const btn = div.querySelector('.btn-understood');
   if (btn) {
     btn.addEventListener('click', () => {
@@ -1012,8 +1014,8 @@ function createPeer(userId, isInitiator) {
     let audio = document.getElementById('audio-'+userId);
     if (!audio) {
       audio = document.createElement('audio');
-      audio.id        = 'audio-'+userId;
-      audio.autoplay  = true;
+      audio.id          = 'audio-'+userId;
+      audio.autoplay    = true;
       audio.playsInline = true;
       hiddenAudios.appendChild(audio);
     }
