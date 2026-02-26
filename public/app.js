@@ -10,6 +10,8 @@ const hiddenAudios = document.getElementById('hidden-audios');
 let localStream = null;
 let peers = {};
 let micEnabled = true;
+let pendingOffers = []; // буфер для offer которые пришли до получения микрофона
+let joined = false;
 
 const iceServers = {
   iceServers: [
@@ -29,7 +31,15 @@ btnJoin.addEventListener('click', async () => {
     btnJoin.style.display = 'none';
     btnLeave.style.display = 'block';
     btnMic.style.display = 'block';
+    joined = true;
     socket.emit('join');
+
+    // Обрабатываем offer которые пришли пока получали микрофон
+    for (const { from, offer } of pendingOffers) {
+      await handleOffer(from, offer);
+    }
+    pendingOffers = [];
+
   } catch (err) {
     alert('Не удалось получить доступ к микрофону: ' + err.message);
   }
@@ -38,6 +48,7 @@ btnJoin.addEventListener('click', async () => {
 btnLeave.addEventListener('click', () => {
   socket.emit('leave');
   hangUp();
+  joined = false;
   btnJoin.style.display = 'block';
   btnLeave.style.display = 'none';
   btnMic.style.display = 'none';
@@ -63,13 +74,6 @@ function setMicStatus(active) {
   }
 }
 
-// Новый участник — мы создаём offer (мы инициатор)
-socket.on('user-joined', async (userId) => {
-  const peer = createPeer(userId, true);
-  peers[userId] = peer;
-});
-
-// Уже существующие пользователи — мы создаём offer для каждого
 socket.on('existing-users', async (userIds) => {
   for (const userId of userIds) {
     const peer = createPeer(userId, true);
@@ -77,8 +81,21 @@ socket.on('existing-users', async (userIds) => {
   }
 });
 
-// Получили offer — мы не инициатор, создаём peer и отвечаем
+socket.on('user-joined', async (userId) => {
+  // Ничего не делаем — инициатор тот кто зашёл новым
+  // Он получит existing-users и сам создаст offer
+});
+
 socket.on('offer', async ({ from, offer }) => {
+  if (!localStream) {
+    // Микрофон ещё не получен — буферизируем
+    pendingOffers.push({ from, offer });
+    return;
+  }
+  await handleOffer(from, offer);
+});
+
+async function handleOffer(from, offer) {
   const peer = createPeer(from, false);
   peers[from] = peer;
 
@@ -86,9 +103,8 @@ socket.on('offer', async ({ from, offer }) => {
   const answer = await peer.createAnswer();
   await peer.setLocalDescription(answer);
   socket.emit('answer', { to: from, answer });
-});
+}
 
-// Получили answer — только инициатор сюда попадает
 socket.on('answer', async ({ from, answer }) => {
   const peer = peers[from];
   if (peer && peer.signalingState === 'have-local-offer') {
@@ -140,7 +156,6 @@ function createPeer(userId, isInitiator) {
     }
   };
 
-  // Только инициатор создаёт offer
   if (isInitiator) {
     peer.onnegotiationneeded = async () => {
       try {
@@ -164,4 +179,5 @@ function hangUp() {
     localStream = null;
   }
   hiddenAudios.innerHTML = '';
+  pendingOffers = [];
 }
