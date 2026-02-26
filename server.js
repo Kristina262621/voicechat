@@ -10,7 +10,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
 // ── Пароль задаётся через переменную окружения или дефолт ──
-const ROOM_PASSWORD = process.env.ROOM_PASSWORD || 'secret123';
+const ROOM_PASSWORD = process.env.ROOM_PASSWORD || '333666';
 
 let server;
 try {
