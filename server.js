@@ -19,21 +19,37 @@ io.on('connection', (socket) => {
   console.log('Подключился:', socket.id);
 
   socket.on('join', () => {
+    // Отправляем новому пользователю список всех в чате
+    socket.emit('existing-users', [...activeUsers]);
     activeUsers.add(socket.id);
     io.emit('user-count', activeUsers.size);
-    console.log('Вошёл в чат:', socket.id);
+    // Сообщаем всем о новом участнике
+    socket.broadcast.emit('user-joined', socket.id);
   });
 
   socket.on('leave', () => {
     activeUsers.delete(socket.id);
     io.emit('user-count', activeUsers.size);
-    console.log('Вышел из чата:', socket.id);
+    socket.broadcast.emit('user-left', socket.id);
+  });
+
+  // Передаём WebRTC сигналы между пользователями
+  socket.on('offer', ({ to, offer }) => {
+    io.to(to).emit('offer', { from: socket.id, offer });
+  });
+
+  socket.on('answer', ({ to, answer }) => {
+    io.to(to).emit('answer', { from: socket.id, answer });
+  });
+
+  socket.on('ice-candidate', ({ to, candidate }) => {
+    io.to(to).emit('ice-candidate', { from: socket.id, candidate });
   });
 
   socket.on('disconnect', () => {
     activeUsers.delete(socket.id);
     io.emit('user-count', activeUsers.size);
-    console.log('Отключился:', socket.id);
+    socket.broadcast.emit('user-left', socket.id);
   });
 });
 
