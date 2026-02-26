@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voice Chat</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      background: #1a1a2e;
+      color: white;
+    }
+    h1 { margin-bottom: 30px; }
+    button {
+      padding: 15px 30px;
+      font-size: 18px;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      margin: 10px;
+    }
+    #joinBtn { background: #4ecca3; color: #000; }
+    #leaveBtn { background: #e94560; color: #fff; display: none; }
+    #status { margin-top: 20px; font-size: 14px; color: #aaa; }
+    #users { margin-top: 10px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <h1>🎙️ Voice Chat</h1>
+  <button id="joinBtn">Войти в чат</button>
+  <button id="leaveBtn">Выйти</button>
+  <div id="status">Не подключён</div>
+  <div id="users"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
