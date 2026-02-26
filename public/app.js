@@ -41,7 +41,18 @@ socket.on('user-count', (count) => {
 
 btnJoin.addEventListener('click', async () => {
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // Android требует максимально простой запрос
+    const constraints = {
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        sampleRate: 44100
+      },
+      video: false
+    };
+
+    localStream = await navigator.mediaDevices.getUserMedia(constraints);
+
     setMicStatus(true);
     btnJoin.style.display = 'none';
     btnLeave.style.display = 'block';
@@ -55,7 +66,18 @@ btnJoin.addEventListener('click', async () => {
     pendingOffers = [];
 
   } catch (err) {
-    alert('Не удалось получить доступ к микрофону: ' + err.message);
+    console.error('Mic error:', err.name, err.message);
+
+    // Понятные сообщения об ошибках для пользователя
+    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      alert('❌ Доступ к микрофону запрещён.\n\nОткрой настройки браузера → Разрешения сайтов → Микрофон → разреши для этого сайта.');
+    } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+      alert('❌ Микрофон не найден на устройстве.');
+    } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+      alert('❌ Микрофон занят другим приложением. Закрой другие приложения и попробуй снова.');
+    } else {
+      alert('❌ Ошибка микрофона: ' + err.name + '\n' + err.message);
+    }
   }
 });
 
@@ -96,7 +118,7 @@ socket.on('existing-users', async (userIds) => {
 });
 
 socket.on('user-joined', async (userId) => {
-  // Новый пользователь сам инициирует соединение через existing-users
+  // Новый пользователь сам инициирует через existing-users
 });
 
 socket.on('offer', async ({ from, offer }) => {
@@ -158,6 +180,8 @@ function createPeer(userId, isInitiator) {
       audio.id = 'audio-' + userId;
       audio.autoplay = true;
       audio.playsInline = true;
+      audio.setAttribute('playsinline', '');
+      audio.setAttribute('webkit-playsinline', '');
       hiddenAudios.appendChild(audio);
     }
     audio.srcObject = event.streams[0];
@@ -168,6 +192,10 @@ function createPeer(userId, isInitiator) {
     if (event.candidate) {
       socket.emit('ice-candidate', { to: userId, candidate: event.candidate });
     }
+  };
+
+  peer.onconnectionstatechange = () => {
+    console.log(`Peer ${userId} state:`, peer.connectionState);
   };
 
   if (isInitiator) {
