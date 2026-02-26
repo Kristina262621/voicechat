@@ -139,7 +139,7 @@ function log(msg) {
 // ═══════════════════════════════════════════════
 btnTogglePw.addEventListener('click', () => {
   const isText = pwInput.type === 'text';
-  pwInput.type        = isText ? 'password' : 'text';
+  pwInput.type            = isText ? 'password' : 'text';
   btnTogglePw.textContent = isText ? '👁' : '🙈';
 });
 
@@ -300,7 +300,6 @@ fileInput.addEventListener('change', async () => {
     return;
   }
 
-  // Обычный файл
   await sendMediaBlob(file, file.type, file.name, 'file');
 });
 
@@ -421,8 +420,8 @@ function updateMessage(id, updates) {
 function buildMsgHTML(msg) {
   const time   = new Date(msg.timestamp||Date.now()).toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'});
   const sender = msg.mine ? '' : `<div class="msg-sender">👤 ${shortId(msg.from)}</div>`;
-  const statusText  = msg.status==='ok' ? '🔓 расшифровано'
-    : msg.status==='error'              ? '⚠️ ошибка расшифровки'
+  const statusText  = msg.status==='ok'    ? '🔓 расшифровано'
+    : msg.status==='error'                 ? '⚠️ ошибка расшифровки'
     : '⏳ расшифровываем…';
   const statusClass = msg.status==='ok' ? 'ok' : msg.status==='error' ? 'err' : '';
   const showStatus  = msg.mine ? '' : `<div class="msg-decrypt-status ${statusClass}">${statusText}</div>`;
@@ -613,6 +612,34 @@ function playBeep(type) {
 }
 
 // ═══════════════════════════════════════════════
+//  ЗВУК "ОК" — двойной тон когда друг нажал "Понял"
+// ═══════════════════════════════════════════════
+function playOkSound() {
+  try {
+    const ctx  = new (window.AudioContext||window.webkitAudioContext)();
+    const gain = ctx.createGain();
+    gain.connect(ctx.destination);
+
+    [
+      { freq: 880,  start: 0.00 },
+      { freq: 1100, start: 0.22 },
+    ].forEach(({ freq, start }) => {
+      const osc = ctx.createOscillator();
+      osc.type  = 'sine';
+      osc.connect(gain);
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+      gain.gain.setValueAtTime(0,    ctx.currentTime + start);
+      gain.gain.linearRampToValueAtTime(0.4,   ctx.currentTime + start + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + 0.20);
+      osc.start(ctx.currentTime + start);
+      osc.stop(ctx.currentTime  + start + 0.22);
+    });
+
+    setTimeout(() => ctx.close(), 1500);
+  } catch(e) { log('OkSound: '+e.message); }
+}
+
+// ═══════════════════════════════════════════════
 //  ICE
 // ═══════════════════════════════════════════════
 const iceServers = {
@@ -718,15 +745,38 @@ function addParticipant(userId, label) {
   if (document.getElementById('p-'+userId)) return;
   participantsBox.style.display = 'block';
   const div = document.createElement('div');
-  div.className = 'participant'; div.id = 'p-'+userId;
+  div.className = 'participant';
+  div.id        = 'p-'+userId;
+
+  const isMe          = userId === socket.id;
+  const understoodBtn = isMe
+    ? ''
+    : `<button class="btn-understood" data-uid="${userId}">👍 Понял</button>`;
+
   div.innerHTML = `
     <span class="participant-name">${label}</span>
     <div class="volume-bar-wrap"><div class="volume-bar" id="vol-${userId}"></div></div>
     <div class="signal-wrap signal-none" id="sig-${userId}">
       <div class="bar"></div><div class="bar"></div>
       <div class="bar"></div><div class="bar"></div>
-    </div>`;
+    </div>
+    ${understoodBtn}`;
+
   participantsList.appendChild(div);
+
+  // Вешаем обработчик на кнопку
+  const btn = div.querySelector('.btn-understood');
+  if (btn) {
+    btn.addEventListener('click', () => {
+      socket.emit('understood');
+      btn.textContent = '✅ Отправлено';
+      btn.disabled    = true;
+      setTimeout(() => {
+        btn.textContent = '👍 Понял';
+        btn.disabled    = false;
+      }, 3000);
+    });
+  }
 }
 
 function removeParticipant(userId) {
@@ -799,6 +849,18 @@ socket.on('disconnect', reason => {
 
 socket.on('user-count', count => { userCount.textContent = count; });
 
+// ── Получаем сигнал "Понял" от друга ──
+socket.on('understood', ({ from }) => {
+  log('Understood from: '+from);
+  playOkSound();
+
+  const banner = document.createElement('div');
+  banner.className   = 'understood-banner';
+  banner.textContent = '✅ Понял! (' + shortId(from) + ')';
+  document.body.appendChild(banner);
+  setTimeout(() => banner.remove(), 3000);
+});
+
 // ═══════════════════════════════════════════════
 //  ГОЛОСОВЫЕ КНОПКИ
 // ═══════════════════════════════════════════════
@@ -808,8 +870,8 @@ btnJoin.addEventListener('click', async () => {
       video: false,
       audio: {
         echoCancellation:true, noiseSuppression:true,
-        autoGainControl:true, sampleRate:48000,
-        sampleSize:16, channelCount:2, latency:0
+        autoGainControl:true,  sampleRate:48000,
+        sampleSize:16,         channelCount:2, latency:0
       }
     });
 
@@ -950,8 +1012,9 @@ function createPeer(userId, isInitiator) {
     let audio = document.getElementById('audio-'+userId);
     if (!audio) {
       audio = document.createElement('audio');
-      audio.id = 'audio-'+userId;
-      audio.autoplay = true; audio.playsInline = true;
+      audio.id        = 'audio-'+userId;
+      audio.autoplay  = true;
+      audio.playsInline = true;
       hiddenAudios.appendChild(audio);
     }
     audio.srcObject = event.streams[0];
@@ -992,8 +1055,8 @@ function hangUp() {
   peers = {};
   if (localStream) { localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
   if (audioCtx)    { audioCtx.close(); audioCtx=null; }
-  hiddenAudios.innerHTML     = '';
-  pendingOffers              = [];
-  participantsList.innerHTML = '';
+  hiddenAudios.innerHTML        = '';
+  pendingOffers                 = [];
+  participantsList.innerHTML    = '';
   participantsBox.style.display = 'none';
 }
