@@ -10,13 +10,28 @@ const hiddenAudios = document.getElementById('hidden-audios');
 let localStream = null;
 let peers = {};
 let micEnabled = true;
-let pendingOffers = []; // буфер для offer которые пришли до получения микрофона
+let pendingOffers = [];
 let joined = false;
 
 const iceServers = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' }
+    { urls: 'stun:stun1.l.google.com:19302' },
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
   ]
 };
 
@@ -34,7 +49,6 @@ btnJoin.addEventListener('click', async () => {
     joined = true;
     socket.emit('join');
 
-    // Обрабатываем offer которые пришли пока получали микрофон
     for (const { from, offer } of pendingOffers) {
       await handleOffer(from, offer);
     }
@@ -82,13 +96,11 @@ socket.on('existing-users', async (userIds) => {
 });
 
 socket.on('user-joined', async (userId) => {
-  // Ничего не делаем — инициатор тот кто зашёл новым
-  // Он получит existing-users и сам создаст offer
+  // Новый пользователь сам инициирует соединение через existing-users
 });
 
 socket.on('offer', async ({ from, offer }) => {
   if (!localStream) {
-    // Микрофон ещё не получен — буферизируем
     pendingOffers.push({ from, offer });
     return;
   }
@@ -145,9 +157,11 @@ function createPeer(userId, isInitiator) {
       audio = document.createElement('audio');
       audio.id = 'audio-' + userId;
       audio.autoplay = true;
+      audio.playsInline = true;
       hiddenAudios.appendChild(audio);
     }
     audio.srcObject = event.streams[0];
+    audio.play().catch(e => console.warn('Autoplay blocked:', e));
   };
 
   peer.onicecandidate = (event) => {
