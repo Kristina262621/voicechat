@@ -1,56 +1,21 @@
 const socket = io();
 
-const btnJoin = document.getElementById('btn-join');
-const btnLeave = document.getElementById('btn-leave');
-const btnMic = document.getElementById('btn-mic');
-const userCount = document.getElementById('user-count');
-const micStatus = document.getElementById('mic-status');
-const hiddenAudios = document.getElementById('hidden-audios');
-const participantsBox = document.getElementById('participants');
+const btnJoin          = document.getElementById('btn-join');
+const btnLeave         = document.getElementById('btn-leave');
+const btnMic           = document.getElementById('btn-mic');
+const userCount        = document.getElementById('user-count');
+const micStatus        = document.getElementById('mic-status');
+const hiddenAudios     = document.getElementById('hidden-audios');
+const participantsBox  = document.getElementById('participants');
 const participantsList = document.getElementById('participants-list');
 
-let localStream = null;
-let peers = {};
-let micEnabled = true;
+let localStream   = null;
+let peers         = {};
+let micEnabled    = true;
 let pendingOffers = [];
-let joined = false;
-
-// AudioContext для анализа громкости
-let audioCtx = null;
-const analysers = {}; // userId -> { analyser, dataArray, animFrame }
-
-// ───── Звуки входа / выхода ─────
-function playBeep(type) {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    if (type === 'join') {
-      // Два восходящих тона
-      osc.frequency.setValueAtTime(600, ctx.currentTime);
-      osc.frequency.setValueAtTime(900, ctx.currentTime + 0.12);
-      gain.gain.setValueAtTime(0.3, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.35);
-    } else {
-      // Два нисходящих тона
-      osc.frequency.setValueAtTime(900, ctx.currentTime);
-      osc.frequency.setValueAtTime(500, ctx.currentTime + 0.12);
-      gain.gain.setValueAtTime(0.3, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.35);
-    }
-
-    osc.onended = () => ctx.close();
-  } catch (e) {
-    console.warn('Beep error:', e);
-  }
-}
+let joined        = false;
+let audioCtx      = null;
+const analysers   = {};
 
 // ───── Лог на экране ─────
 function log(msg) {
@@ -72,6 +37,33 @@ function log(msg) {
   line.textContent = new Date().toISOString().slice(11, 19) + ' ' + msg;
   logBox.appendChild(line);
   logBox.scrollTop = logBox.scrollHeight;
+}
+
+// ───── Звуки входа / выхода ─────
+function playBeep(type) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc  = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+
+    if (type === 'join') {
+      osc.frequency.setValueAtTime(600, ctx.currentTime);
+      osc.frequency.setValueAtTime(900, ctx.currentTime + 0.12);
+    } else {
+      osc.frequency.setValueAtTime(900, ctx.currentTime);
+      osc.frequency.setValueAtTime(500, ctx.currentTime + 0.12);
+    }
+
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.35);
+    osc.onended = () => ctx.close();
+  } catch (e) {
+    log('Beep error: ' + e.message);
+  }
 }
 
 // ───── ICE серверы ─────
@@ -98,14 +90,11 @@ const iceServers = {
 };
 
 // ───── Участники UI ─────
-function shortId(id) {
-  return id.slice(0, 6);
-}
+function shortId(id) { return id.slice(0, 6); }
 
 function addParticipant(userId, label) {
   if (document.getElementById('p-' + userId)) return;
   participantsBox.style.display = 'block';
-
   const div = document.createElement('div');
   div.className = 'participant';
   div.id = 'p-' + userId;
@@ -126,20 +115,27 @@ function removeParticipant(userId) {
   }
 }
 
-// ───── Анализ громкости ─────
+// ───── Анализ громкости (БЕЗ подключения к destination — нет эха) ─────
 function startVolumeAnalysis(userId, stream) {
   if (!audioCtx) {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   }
 
-  const source = audioCtx.createMediaStreamSource(stream);
+  // Если уже запущен — останавливаем старый
+  stopVolumeAnalysis(userId);
+
+  const source  = audioCtx.createMediaStreamSource(stream);
   const analyser = audioCtx.createAnalyser();
   analyser.fftSize = 512;
+
+  // source -> analyser ТОЛЬКО, НЕ -> destination
+  // Это гарантирует что локальный mic не попадёт в колонки
   source.connect(analyser);
 
   const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
   function tick() {
+    if (!analysers[userId]) return;
     analyser.getByteFrequencyData(dataArray);
     let sum = 0;
     for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
@@ -152,20 +148,22 @@ function startVolumeAnalysis(userId, stream) {
       bar.className = 'volume-bar' + (pct > 60 ? ' loud' : '');
     }
 
-    analysers[userId] = { analyser, dataArray, animFrame: requestAnimationFrame(tick) };
+    analysers[userId].animFrame = requestAnimationFrame(tick);
   }
 
-  analysers[userId] = { analyser, dataArray, animFrame: requestAnimationFrame(tick) };
+  analysers[userId] = { analyser, source, animFrame: requestAnimationFrame(tick) };
+  log('Volume analysis started for ' + userId);
 }
 
 function stopVolumeAnalysis(userId) {
   if (analysers[userId]) {
     cancelAnimationFrame(analysers[userId].animFrame);
+    try { analysers[userId].source.disconnect(); } catch (_) {}
     delete analysers[userId];
   }
 }
 
-// ───── Socket события ─────
+// ───── Socket ─────
 socket.on('connect', () => log('Socket connected: ' + socket.id));
 socket.on('disconnect', () => log('Socket disconnected'));
 
@@ -174,24 +172,33 @@ socket.on('user-count', (count) => {
   log('User count: ' + count);
 });
 
+// ───── Кнопки ─────
 btnJoin.addEventListener('click', async () => {
   log('Join clicked');
   try {
     log('Requesting microphone...');
-    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    localStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      },
+      video: false
+    });
 
     const tracks = localStream.getAudioTracks();
     log('Got stream. Tracks: ' + tracks.length);
     tracks.forEach(t => log('Track: ' + t.label + ' enabled=' + t.enabled));
 
     setMicStatus(true);
-    btnJoin.style.display = 'none';
+    btnJoin.style.display  = 'none';
     btnLeave.style.display = 'block';
-    btnMic.style.display = 'block';
+    btnMic.style.display   = 'block';
     joined = true;
 
-    // Добавляем себя в список участников
     addParticipant(socket.id, '🟢 Вы (' + shortId(socket.id) + ')');
+
+    // Анализируем свой mic — только через analyser, не в колонки
     startVolumeAnalysis(socket.id, localStream);
 
     socket.emit('join');
@@ -222,10 +229,11 @@ btnLeave.addEventListener('click', () => {
   socket.emit('leave');
   hangUp();
   joined = false;
-  btnJoin.style.display = 'block';
+  btnJoin.style.display  = 'block';
   btnLeave.style.display = 'none';
-  btnMic.style.display = 'none';
-  micStatus.className = 'mic-status';
+  btnMic.style.display   = 'none';
+  micStatus.className    = 'mic-status';
+  micStatus.textContent  = '';
 });
 
 btnMic.addEventListener('click', () => {
@@ -238,9 +246,10 @@ btnMic.addEventListener('click', () => {
 
 function setMicStatus(active) {
   micStatus.textContent = active ? '🟢 Микрофон активен' : '🔴 Микрофон выключен';
-  micStatus.className = 'mic-status ' + (active ? 'active' : 'muted');
+  micStatus.className   = 'mic-status ' + (active ? 'active' : 'muted');
 }
 
+// ───── WebRTC события ─────
 socket.on('existing-users', async (userIds) => {
   log('Existing users: ' + JSON.stringify(userIds));
   for (const userId of userIds) {
@@ -270,7 +279,6 @@ async function handleOffer(from, offer) {
   log('Handling offer from ' + from);
   const peer = createPeer(from, false);
   peers[from] = peer;
-
   await peer.setRemoteDescription(new RTCSessionDescription(offer));
   const answer = await peer.createAnswer();
   await peer.setLocalDescription(answer);
@@ -315,6 +323,7 @@ socket.on('user-left', (userId) => {
   if (audio) audio.remove();
 });
 
+// ───── Создание peer ─────
 function createPeer(userId, isInitiator) {
   log('Creating peer for ' + userId + ' initiator=' + isInitiator);
   const peer = new RTCPeerConnection(iceServers);
@@ -326,21 +335,26 @@ function createPeer(userId, isInitiator) {
 
   peer.ontrack = (event) => {
     log('Got remote track from ' + userId);
+
     let audio = document.getElementById('audio-' + userId);
     if (!audio) {
       audio = document.createElement('audio');
-      audio.id = 'audio-' + userId;
-      audio.autoplay = true;
+      audio.id          = 'audio-' + userId;
+      audio.autoplay    = true;
       audio.playsInline = true;
+      audio.muted       = false;
       audio.setAttribute('playsinline', '');
       audio.setAttribute('webkit-playsinline', '');
       hiddenAudios.appendChild(audio);
     }
+
+    // Назначаем поток — это воспроизведение удалённого звука
     audio.srcObject = event.streams[0];
+
     audio.play()
       .then(() => {
         log('Audio playing for ' + userId);
-        // Запускаем анализ громкости для удалённого участника
+        // Анализируем громкость удалённого потока — тоже только через analyser
         startVolumeAnalysis(userId, event.streams[0]);
       })
       .catch(e => log('Autoplay BLOCKED for ' + userId + ': ' + e.message));
@@ -380,25 +394,26 @@ function createPeer(userId, isInitiator) {
   return peer;
 }
 
+// ───── Завершение ─────
 function hangUp() {
   log('Hanging up');
-  Object.values(peers).forEach(peer => peer.close());
-  peers = {};
 
   Object.keys(analysers).forEach(id => stopVolumeAnalysis(id));
+  Object.values(peers).forEach(peer => peer.close());
+  peers = {};
 
   if (localStream) {
     localStream.getTracks().forEach(track => track.stop());
     localStream = null;
   }
 
-  hiddenAudios.innerHTML = '';
-  pendingOffers = [];
-  participantsList.innerHTML = '';
-  participantsBox.style.display = 'none';
-
   if (audioCtx) {
     audioCtx.close();
     audioCtx = null;
   }
+
+  hiddenAudios.innerHTML    = '';
+  pendingOffers             = [];
+  participantsList.innerHTML = '';
+  participantsBox.style.display = 'none';
 }
