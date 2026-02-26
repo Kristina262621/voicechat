@@ -19,11 +19,9 @@ io.on('connection', (socket) => {
   console.log('Подключился:', socket.id);
 
   socket.on('join', () => {
-    // Отправляем новому пользователю список всех в чате
     socket.emit('existing-users', [...activeUsers]);
     activeUsers.add(socket.id);
     io.emit('user-count', activeUsers.size);
-    // Сообщаем всем о новом участнике
     socket.broadcast.emit('user-joined', socket.id);
   });
 
@@ -33,7 +31,6 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('user-left', socket.id);
   });
 
-  // Передаём WebRTC сигналы между пользователями
   socket.on('offer', ({ to, offer }) => {
     io.to(to).emit('offer', { from: socket.id, offer });
   });
