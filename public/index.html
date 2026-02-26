@@ -3,6 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Подсказываем браузеру что это голосовой звонок -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+
   <title>Голосовой чат</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -91,7 +96,6 @@
     }
     .btn-mic:hover { background: #1a4a7a; }
 
-    /* Участники */
     .participants { margin-top: 24px; display: none; }
     .participants-title {
       font-size: 13px;
@@ -136,7 +140,7 @@
     }
     .volume-bar.loud { background: #e94560; }
 
-    /* ── Качество связи ── */
+    /* Шкала сигнала */
     .signal-wrap {
       display: flex;
       align-items: flex-end;
@@ -156,15 +160,10 @@
     .signal-wrap .bar:nth-child(3) { height: 12px; }
     .signal-wrap .bar:nth-child(4) { height: 16px; }
 
-    /* excellent */
-    .signal-excellent .bar              { background: #4caf50; }
-    /* good */
+    .signal-excellent .bar             { background: #4caf50; }
     .signal-good .bar:nth-child(-n+3)  { background: #8bc34a; }
-    /* fair */
     .signal-fair .bar:nth-child(-n+2)  { background: #ff9800; }
-    /* poor */
     .signal-poor .bar:nth-child(1)     { background: #e94560; }
-    /* none — все серые */
 
     /* Плашка переподключения */
     .reconnect-banner {
@@ -199,6 +198,14 @@
       color: #66bb6a;
     }
 
+    /* Фоновый аудио — держит сессию живой на iOS */
+    #keep-alive-audio {
+      position: absolute;
+      width: 0;
+      height: 0;
+      opacity: 0;
+    }
+
     #hidden-audios { display: none; }
   </style>
 </head>
@@ -218,12 +225,10 @@
 
   <div class="mic-status" id="mic-status"></div>
 
-  <!-- Плашка переподключения -->
   <div class="reconnect-banner" id="reconnect-banner">
     🔄 Соединение потеряно, переподключаемся…
   </div>
 
-  <!-- Бейдж шифрования -->
   <div class="secure-badge" id="secure-badge" style="display:none">
     🔒 Звонок зашифрован (DTLS-SRTP)
   </div>
@@ -233,6 +238,9 @@
     <div id="participants-list"></div>
   </div>
 </div>
+
+<!-- Тихий аудио-элемент — не даёт iOS заморозить аудио-сессию -->
+<audio id="keep-alive-audio" loop playsinline></audio>
 
 <div id="hidden-audios"></div>
 
