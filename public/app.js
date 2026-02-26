@@ -6,6 +6,8 @@ const btnMic = document.getElementById('btn-mic');
 const userCount = document.getElementById('user-count');
 const micStatus = document.getElementById('mic-status');
 const hiddenAudios = document.getElementById('hidden-audios');
+const participantsBox = document.getElementById('participants');
+const participantsList = document.getElementById('participants-list');
 
 let localStream = null;
 let peers = {};
@@ -13,7 +15,44 @@ let micEnabled = true;
 let pendingOffers = [];
 let joined = false;
 
-// Лог на экране
+// AudioContext для анализа громкости
+let audioCtx = null;
+const analysers = {}; // userId -> { analyser, dataArray, animFrame }
+
+// ───── Звуки входа / выхода ─────
+function playBeep(type) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    if (type === 'join') {
+      // Два восходящих тона
+      osc.frequency.setValueAtTime(600, ctx.currentTime);
+      osc.frequency.setValueAtTime(900, ctx.currentTime + 0.12);
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.35);
+    } else {
+      // Два нисходящих тона
+      osc.frequency.setValueAtTime(900, ctx.currentTime);
+      osc.frequency.setValueAtTime(500, ctx.currentTime + 0.12);
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.35);
+    }
+
+    osc.onended = () => ctx.close();
+  } catch (e) {
+    console.warn('Beep error:', e);
+  }
+}
+
+// ───── Лог на экране ─────
 function log(msg) {
   console.log(msg);
   let logBox = document.getElementById('log-box');
@@ -30,11 +69,12 @@ function log(msg) {
     document.body.appendChild(logBox);
   }
   const line = document.createElement('div');
-  line.textContent = new Date().toISOString().slice(11,19) + ' ' + msg;
+  line.textContent = new Date().toISOString().slice(11, 19) + ' ' + msg;
   logBox.appendChild(line);
   logBox.scrollTop = logBox.scrollHeight;
 }
 
+// ───── ICE серверы ─────
 const iceServers = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -57,6 +97,75 @@ const iceServers = {
   ]
 };
 
+// ───── Участники UI ─────
+function shortId(id) {
+  return id.slice(0, 6);
+}
+
+function addParticipant(userId, label) {
+  if (document.getElementById('p-' + userId)) return;
+  participantsBox.style.display = 'block';
+
+  const div = document.createElement('div');
+  div.className = 'participant';
+  div.id = 'p-' + userId;
+  div.innerHTML = `
+    <span class="participant-name">${label}</span>
+    <div class="volume-bar-wrap">
+      <div class="volume-bar" id="vol-${userId}"></div>
+    </div>
+  `;
+  participantsList.appendChild(div);
+}
+
+function removeParticipant(userId) {
+  const el = document.getElementById('p-' + userId);
+  if (el) el.remove();
+  if (participantsList.children.length === 0) {
+    participantsBox.style.display = 'none';
+  }
+}
+
+// ───── Анализ громкости ─────
+function startVolumeAnalysis(userId, stream) {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+
+  const source = audioCtx.createMediaStreamSource(stream);
+  const analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 512;
+  source.connect(analyser);
+
+  const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+  function tick() {
+    analyser.getByteFrequencyData(dataArray);
+    let sum = 0;
+    for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+    const avg = sum / dataArray.length;
+    const pct = Math.min(100, avg * 3);
+
+    const bar = document.getElementById('vol-' + userId);
+    if (bar) {
+      bar.style.width = pct + '%';
+      bar.className = 'volume-bar' + (pct > 60 ? ' loud' : '');
+    }
+
+    analysers[userId] = { analyser, dataArray, animFrame: requestAnimationFrame(tick) };
+  }
+
+  analysers[userId] = { analyser, dataArray, animFrame: requestAnimationFrame(tick) };
+}
+
+function stopVolumeAnalysis(userId) {
+  if (analysers[userId]) {
+    cancelAnimationFrame(analysers[userId].animFrame);
+    delete analysers[userId];
+  }
+}
+
+// ───── Socket события ─────
 socket.on('connect', () => log('Socket connected: ' + socket.id));
 socket.on('disconnect', () => log('Socket disconnected'));
 
@@ -69,21 +178,22 @@ btnJoin.addEventListener('click', async () => {
   log('Join clicked');
   try {
     log('Requesting microphone...');
-
-    localStream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: false
-    });
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
 
     const tracks = localStream.getAudioTracks();
     log('Got stream. Tracks: ' + tracks.length);
-    tracks.forEach(t => log('Track: ' + t.label + ' enabled=' + t.enabled + ' readyState=' + t.readyState));
+    tracks.forEach(t => log('Track: ' + t.label + ' enabled=' + t.enabled));
 
     setMicStatus(true);
     btnJoin.style.display = 'none';
     btnLeave.style.display = 'block';
     btnMic.style.display = 'block';
     joined = true;
+
+    // Добавляем себя в список участников
+    addParticipant(socket.id, '🟢 Вы (' + shortId(socket.id) + ')');
+    startVolumeAnalysis(socket.id, localStream);
+
     socket.emit('join');
     log('Emitted join');
 
@@ -120,27 +230,21 @@ btnLeave.addEventListener('click', () => {
 
 btnMic.addEventListener('click', () => {
   micEnabled = !micEnabled;
-  localStream.getAudioTracks().forEach(track => {
-    track.enabled = micEnabled;
-  });
+  localStream.getAudioTracks().forEach(track => { track.enabled = micEnabled; });
   setMicStatus(micEnabled);
   btnMic.textContent = micEnabled ? '🔇 Выключить микрофон' : '🎙️ Включить микрофон';
   log('Mic enabled: ' + micEnabled);
 });
 
 function setMicStatus(active) {
-  if (active) {
-    micStatus.textContent = '🟢 Микрофон активен';
-    micStatus.className = 'mic-status active';
-  } else {
-    micStatus.textContent = '🔴 Микрофон выключен';
-    micStatus.className = 'mic-status muted';
-  }
+  micStatus.textContent = active ? '🟢 Микрофон активен' : '🔴 Микрофон выключен';
+  micStatus.className = 'mic-status ' + (active ? 'active' : 'muted');
 }
 
 socket.on('existing-users', async (userIds) => {
   log('Existing users: ' + JSON.stringify(userIds));
   for (const userId of userIds) {
+    addParticipant(userId, '👤 ' + shortId(userId));
     const peer = createPeer(userId, true);
     peers[userId] = peer;
   }
@@ -148,13 +252,15 @@ socket.on('existing-users', async (userIds) => {
 
 socket.on('user-joined', (userId) => {
   log('User joined: ' + userId);
+  playBeep('join');
+  addParticipant(userId, '👤 ' + shortId(userId));
 });
 
 socket.on('offer', async ({ from, offer }) => {
   log('Got offer from ' + from);
   if (!localStream) {
-    log('No stream yet, buffering offer');
     pendingOffers.push({ from, offer });
+    log('No stream yet, buffering offer');
     return;
   }
   await handleOffer(from, offer);
@@ -166,7 +272,6 @@ async function handleOffer(from, offer) {
   peers[from] = peer;
 
   await peer.setRemoteDescription(new RTCSessionDescription(offer));
-  log('Set remote description');
   const answer = await peer.createAnswer();
   await peer.setLocalDescription(answer);
   socket.emit('answer', { to: from, answer });
@@ -198,6 +303,10 @@ socket.on('ice-candidate', async ({ from, candidate }) => {
 
 socket.on('user-left', (userId) => {
   log('User left: ' + userId);
+  playBeep('leave');
+  removeParticipant(userId);
+  stopVolumeAnalysis(userId);
+
   if (peers[userId]) {
     peers[userId].close();
     delete peers[userId];
@@ -212,11 +321,11 @@ function createPeer(userId, isInitiator) {
 
   localStream.getTracks().forEach(track => {
     peer.addTrack(track, localStream);
-    log('Added track to peer: ' + track.kind);
+    log('Added track: ' + track.kind);
   });
 
   peer.ontrack = (event) => {
-    log('Got remote track from ' + userId + ' streams=' + event.streams.length);
+    log('Got remote track from ' + userId);
     let audio = document.getElementById('audio-' + userId);
     if (!audio) {
       audio = document.createElement('audio');
@@ -226,11 +335,14 @@ function createPeer(userId, isInitiator) {
       audio.setAttribute('playsinline', '');
       audio.setAttribute('webkit-playsinline', '');
       hiddenAudios.appendChild(audio);
-      log('Created audio element for ' + userId);
     }
     audio.srcObject = event.streams[0];
     audio.play()
-      .then(() => log('Audio playing for ' + userId))
+      .then(() => {
+        log('Audio playing for ' + userId);
+        // Запускаем анализ громкости для удалённого участника
+        startVolumeAnalysis(userId, event.streams[0]);
+      })
       .catch(e => log('Autoplay BLOCKED for ' + userId + ': ' + e.message));
   };
 
@@ -272,10 +384,21 @@ function hangUp() {
   log('Hanging up');
   Object.values(peers).forEach(peer => peer.close());
   peers = {};
+
+  Object.keys(analysers).forEach(id => stopVolumeAnalysis(id));
+
   if (localStream) {
     localStream.getTracks().forEach(track => track.stop());
     localStream = null;
   }
+
   hiddenAudios.innerHTML = '';
   pendingOffers = [];
+  participantsList.innerHTML = '';
+  participantsBox.style.display = 'none';
+
+  if (audioCtx) {
+    audioCtx.close();
+    audioCtx = null;
+  }
 }
