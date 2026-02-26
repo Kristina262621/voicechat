@@ -3,11 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-  <!-- Подсказываем браузеру что это голосовой звонок -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-
   <title>Голосовой чат</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -35,21 +32,72 @@
     h1 { font-size: 28px; margin-bottom: 8px; }
     p.subtitle { color: #888; margin-bottom: 30px; }
 
-    .status-box {
-      background: #0f3460;
+    /* ── Экран пароля ── */
+    #screen-password { display: block; }
+    #screen-chat     { display: none;  }
+
+    .password-form {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    .password-input-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .password-input-wrap input {
+      width: 100%;
+      padding: 14px 44px 14px 16px;
+      border: 2px solid #0f3460;
       border-radius: 12px;
-      padding: 16px;
-      margin-bottom: 24px;
+      background: #0f3460;
+      color: white;
+      font-size: 16px;
+      outline: none;
+      transition: border-color 0.2s;
     }
 
-    .user-count {
-      font-size: 36px;
-      font-weight: bold;
+    .password-input-wrap input:focus {
+      border-color: #e94560;
+    }
+
+    .password-input-wrap input.error {
+      border-color: #e94560;
+      animation: shake 0.35s;
+    }
+
+    .toggle-pw {
+      position: absolute;
+      right: 12px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 18px;
+      color: #888;
+      padding: 4px;
+    }
+    .toggle-pw:hover { color: white; }
+
+    .pw-error {
+      font-size: 13px;
       color: #e94560;
+      min-height: 18px;
+      transition: opacity 0.2s;
     }
 
-    .user-label { font-size: 13px; color: #aaa; margin-top: 4px; }
+    @keyframes shake {
+      0%, 100% { transform: translateX(0);   }
+      20%       { transform: translateX(-8px); }
+      40%       { transform: translateX(8px);  }
+      60%       { transform: translateX(-5px); }
+      80%       { transform: translateX(5px);  }
+    }
 
+    /* ── Общие кнопки ── */
     .btn {
       width: 100%;
       padding: 14px;
@@ -61,8 +109,12 @@
       transition: all 0.2s;
     }
 
-    .btn-join  { background: #e94560; color: white; }
-    .btn-join:hover { background: #c73652; }
+    .btn-primary { background: #e94560; color: white; }
+    .btn-primary:hover { background: #c73652; }
+    .btn-primary:disabled {
+      background: #555;
+      cursor: not-allowed;
+    }
 
     .btn-leave {
       background: #333;
@@ -70,15 +122,6 @@
       margin-top: 12px;
     }
     .btn-leave:hover { background: #444; }
-
-    .mic-status {
-      margin-top: 20px;
-      font-size: 14px;
-      color: #888;
-      display: none;
-    }
-    .mic-status.active { display: block; color: #4caf50; }
-    .mic-status.muted  { display: block; color: #e94560; }
 
     .btn-mic {
       width: 100%;
@@ -96,6 +139,32 @@
     }
     .btn-mic:hover { background: #1a4a7a; }
 
+    /* ── Статус ── */
+    .status-box {
+      background: #0f3460;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 24px;
+    }
+
+    .user-count {
+      font-size: 36px;
+      font-weight: bold;
+      color: #e94560;
+    }
+
+    .user-label { font-size: 13px; color: #aaa; margin-top: 4px; }
+
+    .mic-status {
+      margin-top: 20px;
+      font-size: 14px;
+      color: #888;
+      display: none;
+    }
+    .mic-status.active { display: block; color: #4caf50; }
+    .mic-status.muted  { display: block; color: #e94560; }
+
+    /* ── Участники ── */
     .participants { margin-top: 24px; display: none; }
     .participants-title {
       font-size: 13px;
@@ -140,7 +209,7 @@
     }
     .volume-bar.loud { background: #e94560; }
 
-    /* Шкала сигнала */
+    /* ── Шкала сигнала ── */
     .signal-wrap {
       display: flex;
       align-items: flex-end;
@@ -165,7 +234,7 @@
     .signal-fair .bar:nth-child(-n+2)  { background: #ff9800; }
     .signal-poor .bar:nth-child(1)     { background: #e94560; }
 
-    /* Плашка переподключения */
+    /* ── Баннер переподключения ── */
     .reconnect-banner {
       display: none;
       margin-top: 16px;
@@ -180,11 +249,11 @@
     .reconnect-banner.visible { display: block; }
 
     @keyframes pulse {
-      0%, 100% { opacity: 1; }
+      0%, 100% { opacity: 1;   }
       50%       { opacity: 0.5; }
     }
 
-    /* Шифрование */
+    /* ── Шифрование ── */
     .secure-badge {
       display: inline-flex;
       align-items: center;
@@ -198,50 +267,62 @@
       color: #66bb6a;
     }
 
-    /* Фоновый аудио — держит сессию живой на iOS */
-    #keep-alive-audio {
-      position: absolute;
-      width: 0;
-      height: 0;
-      opacity: 0;
-    }
-
-    #hidden-audios { display: none; }
+    #keep-alive-audio { position: absolute; width: 0; height: 0; opacity: 0; }
+    #hidden-audios    { display: none; }
   </style>
 </head>
 <body>
 <div class="container">
   <h1>🎙️ Голосовой чат</h1>
-  <p class="subtitle">Говори — тебя услышат</p>
+  <p class="subtitle">Приватный — только по паролю</p>
 
-  <div class="status-box">
-    <div class="user-count" id="user-count">0</div>
-    <div class="user-label">участников онлайн</div>
+  <!-- ══ ЭКРАН ПАРОЛЯ ══ -->
+  <div id="screen-password">
+    <div class="password-form">
+      <div class="password-input-wrap">
+        <input
+          type="password"
+          id="pw-input"
+          placeholder="Введи пароль…"
+          autocomplete="current-password"
+          maxlength="64"
+        />
+        <button class="toggle-pw" id="btn-toggle-pw" type="button" title="Показать пароль">👁</button>
+      </div>
+      <div class="pw-error" id="pw-error"></div>
+      <button class="btn btn-primary" id="btn-enter">🔑 Войти</button>
+    </div>
   </div>
 
-  <button class="btn btn-join"  id="btn-join">🎙️ Войти в чат</button>
-  <button class="btn btn-mic"   id="btn-mic"  style="display:none">🔇 Выключить микрофон</button>
-  <button class="btn btn-leave" id="btn-leave" style="display:none">Выйти из чата</button>
+  <!-- ══ ЭКРАН ЧАТА ══ -->
+  <div id="screen-chat">
+    <div class="status-box">
+      <div class="user-count" id="user-count">0</div>
+      <div class="user-label">участников онлайн</div>
+    </div>
 
-  <div class="mic-status" id="mic-status"></div>
+    <button class="btn btn-primary" id="btn-join">🎙️ Войти в чат</button>
+    <button class="btn btn-mic"     id="btn-mic"  style="display:none">🔇 Выключить микрофон</button>
+    <button class="btn btn-leave"   id="btn-leave" style="display:none">Выйти из чата</button>
 
-  <div class="reconnect-banner" id="reconnect-banner">
-    🔄 Соединение потеряно, переподключаемся…
-  </div>
+    <div class="mic-status" id="mic-status"></div>
 
-  <div class="secure-badge" id="secure-badge" style="display:none">
-    🔒 Звонок зашифрован (DTLS-SRTP)
-  </div>
+    <div class="reconnect-banner" id="reconnect-banner">
+      🔄 Соединение потеряно, переподключаемся…
+    </div>
 
-  <div class="participants" id="participants">
-    <div class="participants-title">Участники</div>
-    <div id="participants-list"></div>
+    <div class="secure-badge" id="secure-badge" style="display:none">
+      🔒 Звонок зашифрован (DTLS-SRTP)
+    </div>
+
+    <div class="participants" id="participants">
+      <div class="participants-title">Участники</div>
+      <div id="participants-list"></div>
+    </div>
   </div>
 </div>
 
-<!-- Тихий аудио-элемент — не даёт iOS заморозить аудио-сессию -->
 <audio id="keep-alive-audio" loop playsinline></audio>
-
 <div id="hidden-audios"></div>
 
 <script src="/socket.io/socket.io.js"></script>
