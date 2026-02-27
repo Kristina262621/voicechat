@@ -211,44 +211,27 @@ const socketMeta = new Map();
 io.on('connection', (socket) => {
   console.log('🔌 Connected:', socket.id);
 
-  // Аутентификация и присоединение к комнате
+   // Аутентификация и присоединение к комнате
   socket.on('join-room', ({ roomId, token }) => {
     const user = getUserByToken(token);
     
-    // Если токен невалидный - выкидываем ошибку на клиент
     if (!user) {
       socket.emit('auth-fail');
       return;
     }
 
-    // Запоминаем данные о сокете
     socketMeta.set(socket.id, { username: user.username, roomId: roomId });
     socket.join(String(roomId));
 
-    // Ищем всех, кто УЖЕ в этой комнате
+    // Возвращаем как было: фронтенд ждет простой массив СТРОК (ID), а не объектов!
     const roomSockets = io.sockets.adapter.rooms.get(String(roomId));
-    const existingUsers = [];
+    const existingUsers = Array.from(roomSockets || []).filter(id => id !== socket.id);
 
-    if (roomSockets) {
-      for (const sid of roomSockets) {
-        if (sid !== socket.id) {
-          const meta = socketMeta.get(sid);
-          existingUsers.push({
-            socketId: sid,
-            username: meta ? meta.username : 'User'
-          });
-        }
-      }
-    }
-
-    // Сообщаем новичку, кто есть в комнате
+    // Отправляем массив строк
     socket.emit('existing-users', existingUsers);
 
-    // Сообщаем всей комнате, что зашел новичок
-    socket.to(String(roomId)).emit('user-joined', {
-      socketId: socket.id,
-      username: user.username
-    });
+    // Отправляем просто строку с ID
+    socket.to(String(roomId)).emit('user-joined', socket.id);
 
     // Обновляем счетчик онлайн
     io.to(String(roomId)).emit('user-count', roomSockets ? roomSockets.size : 1);
