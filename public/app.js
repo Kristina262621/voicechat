@@ -94,7 +94,7 @@ function initSocket(token, roomId, username) {
   socket.on('connect', () => {
     log('Connected: ' + socket.id);
     document.getElementById('reconnect-banner').classList.remove('visible');
-    socket.emit('authenticate', { token, roomId });
+    socket.emit('join-room', { token, roomId });
   });
 
   socket.on('auth-ok', ({ username: uname }) => {
