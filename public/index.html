@@ -35,7 +35,7 @@
     }
 
     /* ════════════════════════════════════
-       ОБЩИЕ УТИЛИТЫ
+       ОБЩИЕ УТИЛИТЫ И АВТОРИЗАЦИЯ
     ════════════════════════════════════ */
     .screen {
       position: fixed; inset: 0;
@@ -48,651 +48,231 @@
     input, textarea, button { font-family: inherit; }
 
     .field {
-      width: 100%;
-      padding: 13px 16px;
-      background: var(--bg);
-      border: 2px solid #2a3a4e;
-      border-radius: var(--radius);
-      color: var(--text);
-      font-size: 15px;
-      outline: none;
-      transition: border-color 0.2s;
+      width: 100%; padding: 13px 16px; background: var(--bg);
+      border: 2px solid #2a3a4e; border-radius: var(--radius);
+      color: var(--text); font-size: 15px; outline: none; transition: 0.2s;
     }
-    .field:focus        { border-color: var(--accent); }
-    .field.error        { border-color: var(--red); animation: shake 0.35s; }
-    .field::placeholder { color: var(--sub); }
+    .field:focus { border-color: var(--accent); }
+    .field.error { border-color: var(--red); animation: shake 0.35s; }
 
     .btn-primary {
-      width: 100%; padding: 14px;
-      background: var(--accent); color: white;
-      border: none; border-radius: var(--radius);
-      font-size: 15px; font-weight: 600;
-      cursor: pointer; transition: background 0.2s, transform 0.1s;
+      width: 100%; padding: 14px; background: var(--accent); color: white;
+      border: none; border-radius: var(--radius); font-size: 15px; font-weight: 600;
+      cursor: pointer; transition: 0.2s;
     }
-    .btn-primary:hover   { background: #4070a8; }
-    .btn-primary:active  { transform: scale(0.98); }
-    .btn-primary:disabled{ background: #2a3a4e; color: var(--sub); cursor: not-allowed; }
+    .btn-primary:active { transform: scale(0.98); }
 
     .btn-ghost {
-      background: none; border: none;
-      color: var(--accent2); font-size: 14px;
+      background: none; border: none; color: var(--accent2); font-size: 14px;
       cursor: pointer; padding: 6px 0;
-      transition: color 0.15s;
     }
-    .btn-ghost:hover { color: var(--text); }
 
-    .error-msg {
-      font-size: 12px; color: var(--red);
-      min-height: 18px; text-align: center;
-    }
+    .error-msg { font-size: 12px; color: var(--red); min-height: 18px; text-align: center; }
 
     @keyframes shake {
-      0%,100%{ transform:translateX(0)   }
-      20%    { transform:translateX(-8px) }
-      40%    { transform:translateX(8px)  }
-      60%    { transform:translateX(-5px) }
-      80%    { transform:translateX(5px)  }
+      0%,100%{transform:translateX(0)} 20%{transform:translateX(-8px)}
+      40%{transform:translateX(8px)} 60%{transform:translateX(-5px)} 80%{transform:translateX(5px)}
     }
 
-    /* ════════════════════════════════════
-       ЭКРАН АВТОРИЗАЦИИ
-    ════════════════════════════════════ */
-    #screen-auth {
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-
+    /* Авторизация */
+    #screen-auth { align-items: center; justify-content: center; padding: 20px; }
     .auth-card {
-      width: 100%; max-width: 380px;
-      background: var(--surface);
-      border-radius: 20px;
-      padding: 40px 28px 32px;
-      box-shadow: 0 16px 48px rgba(0,0,0,0.6);
-      display: flex; flex-direction: column; align-items: center; gap: 0;
+      width: 100%; max-width: 380px; background: var(--surface); border-radius: 20px;
+      padding: 40px 28px 32px; box-shadow: 0 16px 48px rgba(0,0,0,0.6);
+      display: flex; flex-direction: column; align-items: center;
     }
-
-    .auth-logo  { font-size: 56px; margin-bottom: 14px; }
+    .auth-logo { font-size: 56px; margin-bottom: 14px; }
     .auth-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
-    .auth-sub   {
-      font-size: 13px; color: var(--sub);
-      text-align: center; margin-bottom: 28px; line-height: 1.55;
-    }
-
-    .auth-tabs {
-      display: flex; width: 100%;
-      background: var(--bg);
-      border-radius: 10px;
-      padding: 3px; margin-bottom: 22px; gap: 3px;
-    }
+    .auth-sub { font-size: 13px; color: var(--sub); text-align: center; margin-bottom: 28px; }
+    
+    .auth-tabs { display: flex; width: 100%; background: var(--bg); border-radius: 10px; padding: 3px; margin-bottom: 22px; }
     .auth-tab {
-      flex: 1; padding: 9px;
-      border: none; border-radius: 8px;
-      font-size: 14px; font-weight: 600;
-      cursor: pointer; transition: background 0.2s, color 0.2s;
-      background: none; color: var(--sub);
+      flex: 1; padding: 9px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600;
+      background: none; color: var(--sub); cursor: pointer; transition: 0.2s;
     }
-    .auth-tab.active {
-      background: var(--accent); color: white;
-    }
+    .auth-tab.active { background: var(--accent); color: white; }
 
-    .auth-form {
-      width: 100%;
-      display: flex; flex-direction: column; gap: 10px;
-    }
-
+    .auth-form { width: 100%; display: flex; flex-direction: column; gap: 10px; }
     .pw-wrap { position: relative; width: 100%; }
     .pw-wrap .field { padding-right: 46px; }
     .toggle-pw {
-      position: absolute; right: 13px; top: 50%;
-      transform: translateY(-50%);
-      background: none; border: none; cursor: pointer;
-      font-size: 18px; color: var(--sub);
+      position: absolute; right: 13px; top: 50%; transform: translateY(-50%);
+      background: none; border: none; font-size: 18px; color: var(--sub); cursor: pointer;
     }
-    .toggle-pw:hover { color: var(--text); }
-
-    .e2e-note {
-      margin-top: 16px; font-size: 11px;
-      color: var(--sub); text-align: center; line-height: 1.7;
-    }
-    .e2e-note b { color: var(--green); }
+    .e2e-note { margin-top: 16px; font-size: 11px; color: var(--sub); text-align: center; }
 
     /* ════════════════════════════════════
-       ЭКРАН КОМНАТ
+       ЭКРАНЫ, СПИСКИ КОМНАТ И ЧАТ
     ════════════════════════════════════ */
-    #screen-rooms { flex-direction: column; }
-
-    .rooms-header {
-      display: flex; align-items: center; gap: 12px;
-      padding: 12px 16px;
-      padding-top: max(12px, env(safe-area-inset-top));
-      background: var(--header);
-      border-bottom: 1px solid var(--divider);
-      min-height: 56px; flex-shrink: 0;
+    .rooms-header, .tg-header {
+      display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+      padding-top: max(12px, env(safe-area-inset-top)); background: var(--header);
+      border-bottom: 1px solid var(--divider); min-height: 56px; flex-shrink: 0;
     }
-
-    .rooms-header-title {
-      flex: 1; font-size: 18px; font-weight: 700;
-    }
-
-    .rooms-header-user {
-      font-size: 13px; color: var(--sub);
-      max-width: 120px;
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    }
-
+    .rooms-header-title { flex: 1; font-size: 18px; font-weight: 700; }
     .icon-btn {
-      width: 38px; height: 38px;
-      border: none; border-radius: 50%;
-      background: none; color: var(--sub);
-      font-size: 20px; cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      transition: background 0.15s, color 0.15s; flex-shrink: 0;
+      width: 38px; height: 38px; border: none; border-radius: 50%; background: none; color: var(--sub);
+      font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center;
     }
-    .icon-btn:hover { background: rgba(255,255,255,0.07); color: var(--text); }
-
-    .rooms-search {
-      padding: 10px 14px; flex-shrink: 0;
-      border-bottom: 1px solid var(--divider);
-    }
+    .rooms-search { padding: 10px 14px; border-bottom: 1px solid var(--divider); }
     .rooms-search input {
-      width: 100%; padding: 10px 16px;
-      background: var(--surface);
-      border: none; border-radius: 22px;
-      color: var(--text); font-size: 14px; outline: none;
+      width: 100%; padding: 10px 16px; background: var(--surface); border: none; border-radius: 22px; color: var(--text);
     }
-    .rooms-search input::placeholder { color: var(--sub); }
-
-    .rooms-list {
-      flex: 1; overflow-y: auto;
-      padding: 8px 0;
-    }
-
+    .rooms-list { flex: 1; overflow-y: auto; padding: 8px 0; }
     .room-item {
-      display: flex; align-items: center; gap: 14px;
-      padding: 12px 16px; cursor: pointer;
-      transition: background 0.15s;
-      border-bottom: 1px solid rgba(255,255,255,0.03);
+      display: flex; align-items: center; gap: 14px; padding: 12px 16px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.03);
     }
-    .room-item:hover { background: rgba(255,255,255,0.04); }
-
-    .room-avatar {
-      width: 46px; height: 46px; border-radius: 50%;
-      background: linear-gradient(135deg, #1e3a5a, #5288c1);
-      display: flex; align-items: center; justify-content: center;
-      font-size: 22px; flex-shrink: 0;
+    .room-avatar, .tg-avatar {
+      width: 46px; height: 46px; border-radius: 50%; background: linear-gradient(135deg, #1e3a5a, #5288c1);
+      display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0;
     }
-
+    .tg-avatar { width: 40px; height: 40px; font-size: 20px; }
     .room-info { flex: 1; min-width: 0; }
-    .room-name {
-      font-size: 15px; font-weight: 600;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
+    .room-name { font-size: 15px; font-weight: 600; }
     .room-meta { font-size: 12px; color: var(--sub); margin-top: 2px; }
 
-    .room-lock { font-size: 16px; color: var(--sub); flex-shrink: 0; }
-
-    .rooms-empty {
-      flex: 1; display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
-      color: var(--sub); font-size: 14px; gap: 10px;
-      padding-bottom: 60px;
-    }
-    .rooms-empty-icon { font-size: 48px; }
-
-    /* ════════════════════════════════════
-       МОДАЛКИ
-    ════════════════════════════════════ */
+    /* Модалки */
     .modal-overlay {
-      position: fixed; inset: 0;
-      background: rgba(0,0,0,0.7);
-      backdrop-filter: blur(4px);
-      z-index: 1000;
-      display: flex; align-items: center; justify-content: center;
-      padding: 20px;
-      opacity: 0; pointer-events: none;
-      transition: opacity 0.2s;
+      position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); z-index: 1000;
+      display: flex; align-items: center; justify-content: center; padding: 20px; opacity: 0; pointer-events: none; transition: 0.2s;
     }
-    .modal-overlay.open {
-      opacity: 1; pointer-events: all;
-    }
-
+    .modal-overlay.open { opacity: 1; pointer-events: all; }
     .modal {
-      width: 100%; max-width: 360px;
-      background: var(--surface);
-      border-radius: 20px;
-      padding: 28px 24px;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.7);
-      display: flex; flex-direction: column; gap: 14px;
-      transform: translateY(20px);
-      transition: transform 0.2s;
+      width: 100%; max-width: 360px; background: var(--surface); border-radius: 20px; padding: 28px 24px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.7); display: flex; flex-direction: column; gap: 14px; transform: translateY(20px); transition: 0.2s;
     }
     .modal-overlay.open .modal { transform: translateY(0); }
-
-    .modal-title {
-      font-size: 18px; font-weight: 700; text-align: center;
-    }
-    .modal-sub {
-      font-size: 13px; color: var(--sub);
-      text-align: center; margin-top: -6px; line-height: 1.5;
-    }
-
+    .modal-title { font-size: 18px; font-weight: 700; text-align: center; }
+    .modal-sub { font-size: 13px; color: var(--sub); text-align: center; }
     .modal-row { display: flex; gap: 10px; }
-    .modal-row .btn-primary { flex: 1; }
-
     .btn-cancel {
-      flex: 1; padding: 14px;
-      background: rgba(255,255,255,0.06);
-      color: var(--sub);
-      border: none; border-radius: var(--radius);
-      font-size: 15px; font-weight: 600;
-      cursor: pointer; transition: background 0.2s;
-    }
-    .btn-cancel:hover { background: rgba(255,255,255,0.1); }
-
-    .checkbox-row {
-      display: flex; align-items: center; gap: 10px;
-      cursor: pointer; user-select: none;
-    }
-    .checkbox-row input[type=checkbox] {
-      width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer;
-    }
-    .checkbox-row span { font-size: 14px; color: var(--sub); }
-
-    /* ════════════════════════════════════
-       ЭКРАН ЧАТА
-    ════════════════════════════════════ */
-    #screen-chat { flex-direction: column; }
-
-    .tg-header {
-      display: flex; align-items: center; gap: 12px;
-      padding: 10px 14px;
-      padding-top: max(10px, env(safe-area-inset-top));
-      background: var(--header);
-      border-bottom: 1px solid var(--divider);
-      flex-shrink: 0; min-height: 56px;
+      flex: 1; padding: 14px; background: rgba(255,255,255,0.06); color: var(--sub);
+      border: none; border-radius: var(--radius); font-size: 15px; font-weight: 600; cursor: pointer;
     }
 
-    .tg-avatar {
-      width: 40px; height: 40px; border-radius: 50%;
-      background: linear-gradient(135deg, #1e3a5a, #5288c1);
-      display: flex; align-items: center; justify-content: center;
-      font-size: 20px; flex-shrink: 0;
-    }
-
+    /* Чат (UI) */
     .tg-header-info { flex: 1; min-width: 0; }
-    .tg-header-name {
-      font-size: 15px; font-weight: 600;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    .tg-header-sub  { font-size: 12px; color: var(--sub); margin-top: 1px; }
-    .tg-header-sub .online { color: var(--green); }
-
-    .tg-header-btns { display: flex; gap: 4px; }
-
-    #reconnect-banner {
-      display: none; padding: 7px;
-      background: rgba(239,83,80,0.12);
-      border-bottom: 1px solid rgba(239,83,80,0.2);
-      font-size: 12px; color: #ff6b6b;
-      text-align: center; flex-shrink: 0;
-      animation: blink 1.5s infinite;
-    }
-    #reconnect-banner.visible { display: block; }
+    .tg-header-name { font-size: 15px; font-weight: 600; }
+    .tg-header-sub { font-size: 12px; color: var(--sub); }
+    #reconnect-banner { display: none; padding: 7px; background: rgba(239,83,80,0.12); color: #ff6b6b; text-align: center; }
+    #reconnect-banner.visible { display: block; animation: blink 1.5s infinite; }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.5} }
 
-    /* ── Видео-секция ── */
-    #video-section {
-      display: none;
-      flex-direction: column;
-      background: #0d1520;
-      flex-shrink: 0;
-      max-height: 40vh;
-    }
-    #video-section.visible { display: flex; }
-
-    #video-grid {
-      display: flex; flex-wrap: wrap;
-      gap: 4px; padding: 6px;
-      justify-content: center;
-      overflow-y: auto; flex: 1;
-    }
-
-    .video-tile {
-      position: relative;
-      background: #0a1018;
-      border-radius: 10px;
-      overflow: hidden;
-      flex: 1 1 140px; max-width: 280px;
-      min-height: 110px;
-      transition: all 0.3s;
-    }
-    .video-tile video {
-      width: 100%; height: 100%;
-      object-fit: cover; display: block;
-    }
-    .video-tile-name {
-      position: absolute; bottom: 6px; left: 8px;
-      font-size: 11px; font-weight: 600;
-      color: white;
-      background: rgba(0,0,0,0.55);
-      padding: 2px 8px; border-radius: 8px;
-    }
-
-    /* ── Основная область ── */
-    .main-body {
-      flex: 1; display: flex;
-      flex-direction: column; overflow: hidden;
-    }
-
-    #chat-messages {
-      flex: 1; overflow-y: auto;
-      padding: 10px 10px 6px;
-      display: flex; flex-direction: column; gap: 3px;
-      background: var(--bg);
-      background-image: radial-gradient(
-        circle at 1px 1px,
-        rgba(255,255,255,0.012) 1px, transparent 0
-      );
-      background-size: 24px 24px;
-    }
-
-    /* ── Участники голосового ── */
-    #participants {
-      background: var(--surface);
-      border-radius: 14px;
-      padding: 12px 14px;
-      margin-bottom: 6px; flex-shrink: 0;
-    }
-    .voice-panel-title {
-      font-size: 11px; font-weight: 700;
-      color: var(--sub); text-transform: uppercase;
-      letter-spacing: 0.6px; margin-bottom: 10px;
-    }
-
-    .participant {
-      display: flex; align-items: center; gap: 10px;
-      padding: 8px 0;
-      border-bottom: 1px solid rgba(255,255,255,0.05);
-    }
-    .participant:last-child { border-bottom: none; }
-    .participant-name {
-      font-size: 13px; font-weight: 500; flex: 1;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    .volume-bar-wrap {
-      width: 36px; height: 4px;
-      background: rgba(255,255,255,0.08);
-      border-radius: 2px; overflow: hidden; flex-shrink: 0;
-    }
-    .volume-bar {
-      height: 100%; width: 0%;
-      border-radius: 2px; background: var(--green);
-      transition: width 0.08s;
-    }
+    .main-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    #chat-messages { flex: 1; overflow-y: auto; padding: 10px 10px 6px; display: flex; flex-direction: column; gap: 3px; }
+    
+    #participants { background: var(--surface); border-radius: 14px; padding: 12px 14px; margin-bottom: 6px; }
+    .participant { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .volume-bar-wrap { width: 36px; height: 4px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden; }
+    .volume-bar { height: 100%; width: 0%; border-radius: 2px; background: var(--green); transition: 0.08s; }
     .volume-bar.loud { background: var(--red); }
 
-    .btn-understood {
-      padding: 5px 11px;
-      background: rgba(76,175,80,0.12);
-      color: var(--green);
-      border: 1px solid rgba(76,175,80,0.25);
-      border-radius: 20px;
-      font-size: 11px; font-weight: 600;
-      cursor: pointer; transition: background 0.2s;
-      white-space: nowrap; flex-shrink: 0;
-    }
-    .btn-understood:hover    { background: rgba(76,175,80,0.22); }
-    .btn-understood:disabled { opacity: 0.4; cursor: default; }
+    .msg { max-width: 78%; padding: 8px 12px 6px; border-radius: 14px; font-size: 14px; line-height: 1.5; word-break: break-word; }
+    .msg.mine { align-self: flex-end; background: var(--bubble-me); border-bottom-right-radius: 3px; }
+    .msg.theirs { align-self: flex-start; background: var(--bubble-in); border-bottom-left-radius: 3px; }
 
-    .date-divider {
-      align-self: center;
-      font-size: 11px; color: var(--sub);
-      background: rgba(23,33,43,0.9);
-      padding: 3px 12px; border-radius: 10px;
-      margin: 6px 0; flex-shrink: 0;
+    .tg-bottom { background: var(--header); border-top: 1px solid var(--divider); padding-bottom: max(6px, env(safe-area-inset-bottom)); }
+    .voice-bar { display: flex; gap: 8px; padding: 8px 12px 6px; }
+    .tg-input-row { display: flex; align-items: flex-end; gap: 6px; padding: 6px 10px 8px; position: relative; }
+    #chat-input {
+      flex: 1; padding: 10px 14px; background: var(--surface); border: none; border-radius: 22px; color: var(--text); resize: none; outline: none;
+    }
+    #btn-send {
+      width: 38px; height: 38px; border-radius: 50%; background: var(--accent); color: white; border: none; display: flex; align-items: center; justify-content: center;
     }
 
-    /* ── Сообщения ── */
-    .msg {
-      max-width: 78%; padding: 8px 12px 6px;
-      border-radius: 14px; font-size: 14px;
-      line-height: 1.5; word-break: break-word; position: relative;
-    }
-    .msg.mine   {
-      align-self: flex-end;
-      background: var(--bubble-me);
-      border-bottom-right-radius: 3px;
-    }
-    .msg.theirs {
-      align-self: flex-start;
-      background: var(--bubble-in);
-      border-bottom-left-radius: 3px;
-    }
-    .msg.mine::after {
-      content:''; position:absolute; bottom:0; right:-7px;
-      border:7px solid transparent;
-      border-bottom-color: var(--bubble-me);
-      border-right:0; border-top:0;
-    }
-    .msg.theirs::before {
-      content:''; position:absolute; bottom:0; left:-7px;
-      border:7px solid transparent;
-      border-bottom-color: var(--bubble-in);
-      border-left:0; border-top:0;
-    }
-    .msg-sender {
-      font-size: 11px; font-weight: 600;
-      color: var(--accent2); margin-bottom: 3px;
-    }
-    .msg-meta {
-      font-size: 10px; color: rgba(255,255,255,0.38);
-      text-align: right; margin-top: 4px;
-    }
-    .msg-content { word-break: break-word; }
-    .msg-decrypt-status { font-size:10px; color:rgba(255,255,255,.3); margin-top:2px; }
-    .msg-decrypt-status.ok  { color: rgba(100,181,246,0.55); }
-    .msg-decrypt-status.err { color: var(--red); }
+    #btn-join, #btn-mic, #btn-leave { flex: 1; padding: 9px 0; border: none; border-radius: 22px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    #btn-join { background: var(--accent); color: white; }
+    #btn-mic { background: rgba(255,255,255,.07); color: var(--text); }
+    #btn-leave { background: rgba(239,83,80,.13); color: var(--red); border: 1px solid rgba(239,83,80,.3); }
 
-    .msg-media {
-      max-width:100%; border-radius:10px;
-      cursor:pointer; display:block; margin-bottom:3px;
-    }
-    .msg video.msg-media { max-height:220px; width:100%; }
+    .mic-status { font-size: 11px; text-align: center; padding: 0 0 4px; display: none; }
+    .mic-status.active { display: block; color: var(--green); }
+    .mic-status.muted { display: block; color: var(--red); }
 
-    .msg-file { display:flex; align-items:center; gap:10px; padding:3px 0; }
-    .msg-file-icon { font-size:26px; }
-    .msg-file-info { flex:1; min-width:0; }
-    .msg-file-name {
-      font-size:13px; font-weight:600;
-      overflow:hidden; text-overflow:ellipsis;
-      white-space:nowrap; max-width:160px;
+    /* Попап файлов */
+    .btn-attach-tg { width: 38px; height: 38px; border: none; background: none; color: var(--sub); font-size: 22px; cursor: pointer; }
+    .attach-popup {
+      position: absolute; bottom: 58px; left: 10px; background: var(--surface); border-radius: 14px;
+      box-shadow: 0 8px 32px rgba(0,0,0,.5); padding: 6px; display: none; flex-direction: column; z-index: 200;
     }
-    .msg-file-size { font-size:11px; opacity:.5; margin-top:1px; }
-    .msg-file-dl {
-      font-size:20px; cursor:pointer; padding:6px;
-      text-decoration:none; border-radius:50%;
-      transition:background 0.15s;
+    .attach-popup.open { display: flex; }
+    .attach-item { padding: 10px 14px; border: none; background: none; color: var(--text); text-align: left; cursor: pointer; }
+
+    /* Уведомления */
+    .toast {
+      position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); background: rgba(30,40,55,.97);
+      padding: 10px 20px; border-radius: 20px; font-size: 13px; z-index: 9999; animation: toastAnim 2.5s ease forwards;
     }
-    .msg-file-dl:hover { background:rgba(255,255,255,.08); }
+    @keyframes toastAnim { 0%{opacity:0;transform:translate(-50%,10px)} 15%,75%{opacity:1;transform:translate(-50%,0)} 100%{opacity:0} }
+
+    /* Лайтбокс медиа */
+    #lightbox { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.95); z-index: 3000; align-items: center; justify-content: center; }
+    #lightbox.open { display: flex; }
+    #lightbox img, #lightbox video { max-width: 96vw; max-height: 88vh; border-radius: 6px; }
+    #lightbox-close { position: absolute; top: 14px; right: 18px; font-size: 30px; color: rgba(255,255,255,.65); cursor: pointer; }
 
     /* ════════════════════════════════════
-       НИЖНИЙ БАР ЧАТА
+       СОВРЕМЕННЫЙ UI ВИДЕОЧАТА (ПОЛНОЭКРАННЫЙ)
     ════════════════════════════════════ */
-    .tg-bottom {
-      background: var(--header);
-      border-top: 1px solid var(--divider);
-      flex-shrink: 0;
-      padding-bottom: max(6px, env(safe-area-inset-bottom));
-    }
-
-    .voice-bar {
-      display: flex; align-items: center; gap: 8px;
-      padding: 8px 12px 6px;
-    }
-
-    #btn-join {
-      flex:1; padding:9px 0; border:none; border-radius:22px;
-      font-size:13px; font-weight:600; cursor:pointer;
-      background:var(--accent); color:white; transition:background 0.2s;
-    }
-    #btn-join:hover { background:#4070a8; }
-
-    #btn-mic {
-      flex:1; padding:9px 0; border:none; border-radius:22px;
-      font-size:13px; font-weight:600; cursor:pointer;
-      background:rgba(255,255,255,.07); color:var(--text);
-      transition:background 0.2s;
-    }
-    #btn-mic:hover { background:rgba(255,255,255,.12); }
-
-    #btn-leave {
-      flex:1; padding:9px 0;
-      border:1px solid rgba(239,83,80,.3); border-radius:22px;
-      font-size:13px; font-weight:600; cursor:pointer;
-      background:rgba(239,83,80,.13); color:var(--red);
-      transition:background 0.2s;
-    }
-    #btn-leave:hover { background:rgba(239,83,80,.22); }
-
-    /* Кнопка видео */
     #btn-video-call {
-      width:38px; height:38px; flex-shrink:0;
-      border:none; border-radius:50%;
-      background:rgba(255,255,255,.06); color:var(--sub);
-      font-size:18px; cursor:pointer;
-      display:flex; align-items:center; justify-content:center;
-      transition:background 0.15s, color 0.15s;
+      width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, #00C6FF, #0072FF);
+      color: white; border: none; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 15px rgba(0, 114, 255, 0.3); transition: transform 0.2s;
     }
-    #btn-video-call:hover { background:rgba(255,255,255,.12); color:var(--text); }
-    #btn-video-call.active {
-      background:rgba(76,175,80,.2); color:var(--green);
+    #btn-video-call:active { transform: scale(0.9); }
+
+    .video-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(15, 15, 15, 0.95); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
+      z-index: 99999; display: flex; flex-direction: column; opacity: 1; transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+    .video-overlay.hidden {
+      opacity: 0; pointer-events: none; transform: translateY(20px);
     }
 
-    .mic-status        { font-size:11px; text-align:center; padding:0 0 4px; display:none; }
-    .mic-status.active { display:block; color:var(--green); }
-    .mic-status.muted  { display:block; color:var(--red); }
-
-    .tg-input-row {
-      display:flex; align-items:flex-end; gap:6px;
-      padding:6px 10px 8px; position:relative;
+    .video-header {
+      padding: 20px; color: #fff; display: flex; justify-content: space-between; align-items: center;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent); flex-shrink: 0;
     }
+    .video-title { font-weight: 600; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+    .video-title::after { content: '🔒'; font-size: 12px; opacity: 0.8; }
 
-    .btn-attach-tg {
-      width:38px; height:38px; flex-shrink:0;
-      border:none; background:none; color:var(--sub);
-      font-size:22px; border-radius:50%; cursor:pointer;
-      display:flex; align-items:center; justify-content:center;
-      transition:color 0.15s;
-    }
-    .btn-attach-tg:hover { color:var(--accent2); }
-
-    .attach-popup {
-      position:absolute; bottom:58px; left:10px;
-      background:var(--surface);
-      border-radius:14px;
-      box-shadow:0 8px 32px rgba(0,0,0,.5);
-      padding:6px;
-      flex-direction:column; gap:2px;
-      z-index:200; min-width:170px;
-      display:none;
-    }
-    .attach-popup.open { display:flex; }
-
-    .attach-item {
-      display:flex; align-items:center; gap:10px;
-      padding:10px 14px; border-radius:10px;
-      cursor:pointer; font-size:14px; color:var(--text);
-      transition:background 0.15s;
-      border:none; background:none; width:100%; text-align:left;
-    }
-    .attach-item:hover { background:rgba(255,255,255,.06); }
-    .attach-item-icon  { font-size:20px; width:24px; text-align:center; }
-
-    #chat-input {
-      flex:1; padding:10px 14px;
-      background:var(--surface);
-      border:none; border-radius:22px;
-      color:var(--text); font-size:14px;
-      resize:none; outline:none;
-      min-height:38px; max-height:120px; line-height:1.45;
-      transition:background 0.2s;
-    }
-    #chat-input::placeholder { color:var(--sub); }
-    #chat-input:focus { background:#2a3a4e; }
-
-    #btn-send {
-      width:38px; height:38px; flex-shrink:0;
-      border:none; border-radius:50%;
-      background:var(--accent); color:white; cursor:pointer;
-      display:flex; align-items:center; justify-content:center;
-      transition:background 0.2s, transform 0.1s;
-    }
-    #btn-send:hover   { background:#4070a8; }
-    #btn-send:active  { transform:scale(.92); }
-    #btn-send:disabled{ background:#2a3a4e; cursor:not-allowed; }
-
-    /* ── Баннер "Понял" ── */
-    .understood-banner {
-      position:fixed; top:68px; left:50%;
-      transform:translateX(-50%);
-      background:rgba(27,80,32,.95);
-      backdrop-filter:blur(10px);
-      color:white; padding:10px 24px;
-      border-radius:20px; font-size:14px; font-weight:600;
-      z-index:9999; pointer-events:none;
-      box-shadow:0 4px 20px rgba(0,0,0,.5);
-      white-space:nowrap;
-      animation:understoodAnim 3s ease forwards;
-    }
-    @keyframes understoodAnim {
-      0%  { opacity:0; transform:translateX(-50%) translateY(-10px); }
-      12% { opacity:1; transform:translateX(-50%) translateY(0); }
-      80% { opacity:1; }
-      100%{ opacity:0; transform:translateX(-50%) translateY(-6px); }
+    .video-grid {
+      flex: 1; display: grid; gap: 10px; padding: 10px;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      align-content: center; justify-content: center; align-items: center;
     }
 
-    /* ── Toast ── */
-    .toast {
-      position:fixed; bottom:90px; left:50%;
-      transform:translateX(-50%);
-      background:rgba(30,40,55,.97);
-      border:1px solid rgba(255,255,255,.08);
-      color:var(--text); padding:10px 20px;
-      border-radius:20px; font-size:13px;
-      z-index:9999; pointer-events:none;
-      white-space:nowrap;
-      animation:toastAnim 2.5s ease forwards;
+    /* Красивая плитка видео */
+    .video-tile {
+      position: relative; width: 100%; height: 100%; max-height: 75vh;
+      border-radius: 16px; overflow: hidden; background: #222;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.4); display: flex;
     }
-    @keyframes toastAnim {
-      0%  { opacity:0; transform:translateX(-50%) translateY(10px); }
-      15% { opacity:1; transform:translateX(-50%) translateY(0); }
-      75% { opacity:1; }
-      100%{ opacity:0; }
+    .video-tile video {
+      width: 100%; height: 100%; object-fit: cover; display: block;
+    }
+    .video-tile-name {
+      position: absolute; bottom: 12px; left: 12px; font-size: 13px; font-weight: 600; color: white;
+      background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); padding: 4px 10px; border-radius: 10px;
     }
 
-    /* ── Lightbox ── */
-    #lightbox {
-      display:none; position:fixed; inset:0;
-      background:rgba(0,0,0,.95); z-index:3000;
-      align-items:center; justify-content:center;
+    .video-controls-bar {
+      padding: 30px 20px; display: flex; justify-content: center; gap: 20px;
+      background: linear-gradient(to top, rgba(0,0,0,0.95), transparent); flex-shrink: 0;
     }
-    #lightbox.open { display:flex; }
-    #lightbox img, #lightbox video {
-      max-width:96vw; max-height:88vh;
-      border-radius:6px; object-fit:contain;
+    .v-control {
+      width: 60px; height: 60px; border-radius: 50%; border: none; font-size: 24px;
+      background: rgba(255,255,255,0.15); color: white; cursor: pointer;
+      backdrop-filter: blur(10px); transition: 0.2s; display: flex; align-items: center; justify-content: center;
     }
-    #lightbox-close {
-      position:absolute; top:14px; right:18px;
-      font-size:30px; color:rgba(255,255,255,.65);
-      cursor:pointer; z-index:1;
+    .v-control:active { transform: scale(0.9); }
+    .v-control.off { background: rgba(255, 255, 255, 0.4); color: #333; }
+    .v-control.hangup {
+      background: #FF3B30; /* Красный как в iOS */ width: 60px; transform: rotate(135deg);
     }
-    #lightbox-close:hover { color:white; }
-
-    ::-webkit-scrollbar { width:3px; }
-    ::-webkit-scrollbar-thumb {
-      background:rgba(255,255,255,.08); border-radius:2px;
-    }
+    .v-control.hangup:active { background: #D32F2F; transform: rotate(135deg) scale(0.9); }
   </style>
 </head>
 <body>
@@ -701,7 +281,6 @@
      ЭКРАН АВТОРИЗАЦИИ
 ════════════════════════════════════ -->
 <div id="screen-auth" class="screen">
-  <!-- Тот же самый HTML -->
   <div class="auth-card">
     <div class="auth-logo">🔐</div>
     <div class="auth-title">Приватный чат</div>
@@ -712,6 +291,7 @@
       <button class="auth-tab"        id="tab-reg"    onclick="switchTab('reg')">Регистрация</button>
     </div>
 
+    <!-- ВХОД -->
     <form class="auth-form" id="form-login" onsubmit="doLogin(event)">
       <input class="field" id="login-username" type="text" placeholder="Имя пользователя" autocomplete="username" maxlength="24"/>
       <div class="pw-wrap">
@@ -722,6 +302,7 @@
       <button class="btn-primary" type="submit" id="btn-login">🔑 Войти</button>
     </form>
 
+    <!-- РЕГИСТРАЦИЯ -->
     <form class="auth-form" id="form-reg" style="display:none" onsubmit="doRegister(event)">
       <input class="field" id="reg-username" type="text" placeholder="Придумай имя (2–24 символа)" autocomplete="username" maxlength="24"/>
       <div class="pw-wrap">
@@ -735,11 +316,7 @@
       <div class="error-msg" id="reg-error"></div>
       <button class="btn-primary" type="submit" id="btn-reg">✅ Зарегистрироваться</button>
     </form>
-
-    <div class="e2e-note">
-      <b>🔒 AES-256-GCM</b> · Ключ не покидает устройство<br>
-      Сервер видит только зашифрованный набор байт
-    </div>
+    <div class="e2e-note"><b>🔒 AES-256-GCM</b> · Ключ не покидает устройство<br>Сервер видит только зашифрованный набор байт</div>
   </div>
 </div>
 
@@ -756,30 +333,17 @@
   <div class="rooms-search">
     <input type="text" placeholder="🔍 Поиск комнат…" id="rooms-search-input" oninput="filterRooms()"/>
   </div>
-  <div class="rooms-list" id="rooms-list">
-    <div class="rooms-empty" id="rooms-empty" style="display:none">
-      <div class="rooms-empty-icon">🏠</div>
-      <div>Комнат пока нет</div>
-      <button class="btn-ghost" onclick="openCreateRoom()">Создать первую комнату</button>
-    </div>
-  </div>
+  <div class="rooms-list" id="rooms-list"></div>
 </div>
 
-<!-- ════════════════════════════════════
-     МОДАЛКИ
-════════════════════════════════════ -->
+<!-- Модалка: Создать комнату -->
 <div class="modal-overlay" id="modal-create">
   <div class="modal">
     <div class="modal-title">🏠 Новая комната</div>
-    <div class="modal-sub">Придумай название и при желании защити паролем</div>
     <input class="field" id="create-room-name" type="text" placeholder="Название комнаты" maxlength="32"/>
-    <label class="checkbox-row" id="create-pw-toggle-row">
-      <input type="checkbox" id="create-pw-check" onchange="toggleCreatePw()"/>
-      <span>🔒 Защитить паролем</span>
-    </label>
+    <label style="display:flex;gap:10px;color:var(--sub)"><input type="checkbox" id="create-pw-check" onchange="toggleCreatePw()"/>🔒 Защитить паролем</label>
     <div class="pw-wrap" id="create-pw-wrap" style="display:none">
-      <input class="field" id="create-room-pw" type="password" placeholder="Пароль комнаты" maxlength="64"/>
-      <button type="button" class="toggle-pw" onclick="togglePw('create-room-pw',this)">👁</button>
+      <input class="field" id="create-room-pw" type="password" placeholder="Пароль комнаты"/>
     </div>
     <div class="error-msg" id="create-room-error"></div>
     <div class="modal-row">
@@ -789,14 +353,12 @@
   </div>
 </div>
 
+<!-- Модалка: Пароль комнаты -->
 <div class="modal-overlay" id="modal-room-pw">
   <div class="modal">
     <div class="modal-title">🔒 Введи пароль</div>
     <div class="modal-sub" id="modal-room-pw-name"></div>
-    <div class="pw-wrap">
-      <input class="field" id="room-pw-input" type="password" placeholder="Пароль комнаты" maxlength="64"/>
-      <button type="button" class="toggle-pw" onclick="togglePw('room-pw-input',this)">👁</button>
-    </div>
+    <div class="pw-wrap"><input class="field" id="room-pw-input" type="password" placeholder="Пароль"/></div>
     <div class="error-msg" id="room-pw-error"></div>
     <div class="modal-row">
       <button class="btn-cancel" onclick="closeModal('modal-room-pw')">Отмена</button>
@@ -806,47 +368,33 @@
 </div>
 
 <!-- ════════════════════════════════════
-     ЭКРАН ЧАТА
+     ЭКРАН ЧАТА И НИЖНЯЯ ПАНЕЛЬ
 ════════════════════════════════════ -->
 <div id="screen-chat" class="screen hidden">
   <!-- Шапка -->
   <div class="tg-header">
     <button class="icon-btn" style="margin-left:-6px" onclick="leaveRoom()">←</button>
-    <div class="tg-avatar" id="chat-room-avatar">💬</div>
+    <div class="tg-avatar">💬</div>
     <div class="tg-header-info">
       <div class="tg-header-name" id="chat-room-name">Комната</div>
-      <div class="tg-header-sub">
-        🔒 E2E · <span class="online"><span id="user-count">0</span> онлайн</span>
-      </div>
+      <div class="tg-header-sub">🔒 E2E · <span style="color:var(--green)"><span id="user-count">0</span> онлайн</span></div>
     </div>
-    <div class="tg-header-btns">
-      <button class="icon-btn" id="btn-video-call" title="Видеозвонок" onclick="toggleVideoCall()">📹</button>
-    </div>
+    <button id="btn-video-call" title="Начать видеозвонок">📹</button>
   </div>
 
   <div id="reconnect-banner">🔄 Переподключаемся…</div>
 
-  <!-- Видео -->
-  <div id="video-section">
-    <div id="video-grid"></div>
-  </div>
-
-  <!-- Основная область -->
+  <!-- Область чата -->
   <div class="main-body">
     <div id="chat-messages">
       <div id="participants" style="display:none">
-        <div class="voice-panel-title">🎙 Голосовой чат</div>
+        <div style="font-size:11px;color:var(--sub);margin-bottom:8px">🎙 ГОЛОСОВОЙ ЧАТ</div>
         <div id="participants-list"></div>
       </div>
-      <div class="date-divider">Начало чата</div>
-      <div style="align-self:center;text-align:center;color:var(--sub);font-size:12px;background:rgba(23,33,43,.85);padding:10px 18px;border-radius:12px;max-width:280px;line-height:1.65;margin:4px 0 8px">
-        🔒 Все сообщения зашифрованы.<br>Сервер видит только случайный набор символов.
-      </div>
     </div>
-    <div id="chat-panel" style="display:none;width:0;height:0;overflow:hidden"></div>
   </div>
 
-  <!-- Нижний бар -->
+  <!-- Нижний бар (Поле ввода и Голос) -->
   <div class="tg-bottom">
     <div class="voice-bar">
       <button id="btn-join">🎙 Войти в голосовой</button>
@@ -856,362 +404,202 @@
     <div id="mic-status" class="mic-status"></div>
     <div class="tg-input-row">
       <div class="attach-popup" id="attach-popup">
-        <button class="attach-item" id="btn-photo"><span class="attach-item-icon">🖼</span> Фото</button>
-        <button class="attach-item" id="btn-video"><span class="attach-item-icon">🎬</span> Видео</button>
-        <button class="attach-item" id="btn-file"><span class="attach-item-icon">📎</span> Файл</button>
+        <button class="attach-item" id="btn-photo">🖼 Фото</button>
+        <button class="attach-item" id="btn-video">🎬 Видео</button>
+        <button class="attach-item" id="btn-file">📎 Файл</button>
       </div>
-      <button class="btn-attach-tg" id="btn-attach-toggle" title="Прикрепить">📎</button>
+      <button class="btn-attach-tg" id="btn-attach-toggle">📎</button>
       <textarea id="chat-input" placeholder="Сообщение…" rows="1"></textarea>
-      <button id="btn-send">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
-          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-        </svg>
-      </button>
+      <button id="btn-send"><svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>
     </div>
   </div>
 </div>
 
-<div id="btn-close-chat" style="display:none"></div>
-<div id="secure-badge" style="display:none"></div>
-<div id="chat-badge" style="display:none"></div>
-<div id="btn-chat-open" style="display:none"></div>
+<!-- ════════════════════════════════════
+     ПОЛНОЭКРАННЫЙ ВИДЕОЗВОНОК (НОВЫЙ UI)
+════════════════════════════════════ -->
+<div id="video-call-overlay" class="video-overlay hidden">
+  <div class="video-header">
+    <span class="video-title">Видеозвонок</span>
+    <span id="video-timer">Активен</span>
+  </div>
 
-<div id="lightbox">
-  <span id="lightbox-close">✕</span>
-  <div id="lightbox-content"></div>
+  <div id="video-grid" class="video-grid">
+    <!-- Сюда добавляются видео плитки -->
+  </div>
+
+  <div class="video-controls-bar">
+    <button id="v-btn-cam" class="v-control">📹</button>
+    <button id="v-btn-mic" class="v-control">🎙️</button>
+    <!-- Кнопка сброса (трубка вниз) -->
+    <button id="v-btn-hangup" class="v-control hangup">📞</button>
+  </div>
 </div>
 
-<input type="file" id="file-input" accept="*/*">
+<div id="lightbox"><span id="lightbox-close">✕</span><div id="lightbox-content"></div></div>
+<input type="file" id="file-input" accept="*/*" style="display:none">
 <audio id="keep-alive-audio" loop playsinline></audio>
 <div id="hidden-audios"></div>
 
-<!-- СКРИПТЫ -->
+<!-- Скрипты -->
 <script src="/socket.io/socket.io.js"></script>
 <script src="app.js"></script>
 
 <script>
 /* ══════════════════════════════════════════════════════
-   СОСТОЯНИЕ
+   ОБЩЕЕ СОСТОЯНИЕ (АВТОРИЗАЦИЯ, КОМНАТЫ)
 ══════════════════════════════════════════════════════ */
-let currentUser  = null;
-let currentRoom  = null;
-let pendingRoom  = null;
-let allRooms     = [];
+let currentUser = null, currentRoom = null, pendingRoom = null, allRooms = [];
 
-function showScreen(id) {
-  document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
-  document.getElementById(id).classList.remove('hidden');
-}
+function showScreen(id) { document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden')); document.getElementById(id).classList.remove('hidden'); }
 function openModal(id) { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
-function toast(msg) {
-  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
-  document.body.appendChild(t); setTimeout(() => t.remove(), 2600);
-}
+function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2600); }
 function setError(id, msg) { document.getElementById(id).textContent = msg; }
 function clearError(id) { document.getElementById(id).textContent = ''; }
-function togglePw(inputId, btn) {
-  const inp = document.getElementById(inputId);
-  if (inp.type === 'password') { inp.type = 'text'; btn.textContent = '🙈'; }
-  else { inp.type = 'password'; btn.textContent = '👁'; }
+function togglePw(id, btn) { const i = document.getElementById(id); if(i.type==='password'){i.type='text';btn.textContent='🙈'}else{i.type='password';btn.textContent='👁'} }
+function switchTab(t) {
+  const isL = t==='login'; document.getElementById('tab-login').classList.toggle('active', isL); document.getElementById('tab-reg').classList.toggle('active', !isL);
+  document.getElementById('form-login').style.display = isL?'':'none'; document.getElementById('form-reg').style.display = isL?'none':'';
 }
-function switchTab(tab) {
-  const isLogin = tab === 'login';
-  document.getElementById('tab-login').classList.toggle('active', isLogin);
-  document.getElementById('tab-reg').classList.toggle('active', !isLogin);
-  document.getElementById('form-login').style.display = isLogin ? '' : 'none';
-  document.getElementById('form-reg').style.display = isLogin ? 'none' : '';
-  clearError('login-error'); clearError('reg-error');
-}
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-/* ══════════════════════════════════════════════════════
-   АВТОРИЗАЦИЯ
-══════════════════════════════════════════════════════ */
-async function doLogin(e) {
-  e.preventDefault();
-  const username = document.getElementById('login-username').value.trim();
-  const password = document.getElementById('login-password').value;
-  clearError('login-error');
-  if (!username || !password) { setError('login-error', 'Заполни все поля'); return; }
-
-  const btn = document.getElementById('btn-login');
-  btn.disabled = true; btn.textContent = 'Входим…';
+async function doLogin(e) { /* Ваш стандартный логин (оригинал) */
+  e.preventDefault(); const u = document.getElementById('login-username').value.trim(), p = document.getElementById('login-password').value;
+  clearError('login-error'); if(!u||!p){ setError('login-error','Заполни поля'); return; }
+  const btn = document.getElementById('btn-login'); btn.disabled=true; btn.textContent='Входим…';
   try {
-    const r = await fetch('/api/login', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
-    });
-    const data = await r.json();
-    if (data.ok) { saveSession(data.token, data.username); enterApp(data.token, data.username); } 
-    else {
-      setError('login-error', data.error === 'wrong_credentials' ? 'Неверное имя или пароль' : 'Ошибка');
-      document.getElementById('login-password').classList.add('error');
-      setTimeout(() => document.getElementById('login-password').classList.remove('error'), 600);
-    }
-  } catch { setError('login-error', 'Ошибка сети'); } 
-  finally { btn.disabled = false; btn.textContent = '🔑 Войти'; }
+    const r = await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p})});
+    const d = await r.json();
+    if(d.ok){ saveSession(d.token,d.username); enterApp(d.token,d.username); } else setError('login-error', 'Неверное имя или пароль');
+  } catch { setError('login-error','Ошибка сети'); } finally { btn.disabled=false; btn.textContent='🔑 Войти'; }
 }
 
-async function doRegister(e) {
-  e.preventDefault();
-  const username = document.getElementById('reg-username').value.trim();
-  const password = document.getElementById('reg-password').value;
-  const password2 = document.getElementById('reg-password2').value;
-  clearError('reg-error');
-
-  if (!username || !password) { setError('reg-error', 'Заполни все поля'); return; }
-  if (password !== password2) { setError('reg-error', 'Пароли не совпадают'); return; }
-  if (password.length < 4) { setError('reg-error', 'Пароль минимум 4 символа'); return; }
-
-  const btn = document.getElementById('btn-reg');
-  btn.disabled = true; btn.textContent = 'Создаём…';
+async function doRegister(e) { /* Ваш стандартный регистр (оригинал) */
+  e.preventDefault(); const u = document.getElementById('reg-username').value.trim(), p = document.getElementById('reg-password').value, p2 = document.getElementById('reg-password2').value;
+  clearError('reg-error'); if(!u||!p){ setError('reg-error','Заполни поля'); return; } if(p!==p2){ setError('reg-error','Пароли не совпадают'); return; } if(p.length<4){ setError('reg-error','Нужно 4+ символа'); return; }
+  const btn = document.getElementById('btn-reg'); btn.disabled=true; btn.textContent='Создаём…';
   try {
-    const r = await fetch('/api/register', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
-    });
-    const data = await r.json();
-    if (data.ok) { saveSession(data.token, data.username); enterApp(data.token, data.username); } 
-    else { setError('reg-error', data.error === 'username_taken' ? 'Имя уже занято' : 'Ошибка регистрации'); }
-  } catch { setError('reg-error', 'Ошибка сети'); } 
-  finally { btn.disabled = false; btn.textContent = '✅ Зарегистрироваться'; }
+    const r = await fetch('/api/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p})});
+    const d = await r.json();
+    if(d.ok){ saveSession(d.token,d.username); enterApp(d.token,d.username); } else setError('reg-error','Имя занято');
+  } catch { setError('reg-error','Ошибка сети'); } finally { btn.disabled=false; btn.textContent='✅ Зарегистрироваться'; }
 }
 
-function saveSession(token, username) {
-  localStorage.setItem('chat_token', token);
-  localStorage.setItem('chat_username', username);
-}
-
-function doLogout() {
-  localStorage.removeItem('chat_token'); localStorage.removeItem('chat_username');
-  currentUser = null; showScreen('screen-auth');
-}
-
-function enterApp(token, username) {
-  currentUser = { token, username }; window._currentUsername = username;
-  document.getElementById('header-username').textContent = '👤 ' + username;
-  showScreen('screen-rooms'); loadRooms();
-}
-
+function saveSession(tok, un) { localStorage.setItem('chat_token',tok); localStorage.setItem('chat_username',un); }
+function doLogout() { localStorage.removeItem('chat_token'); localStorage.removeItem('chat_username'); currentUser=null; showScreen('screen-auth'); }
+function enterApp(tok, un) { currentUser={token:tok,username:un}; window._currentUsername=un; document.getElementById('header-username').textContent='👤 '+un; showScreen('screen-rooms'); loadRooms(); }
 async function tryAutoLogin() {
-  const token = localStorage.getItem('chat_token');
-  if (!token) return;
-  try {
-    const r = await fetch('/api/verify', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token })
-    });
-    const data = await r.json();
-    if (data.ok) enterApp(token, data.username);
-    else { localStorage.removeItem('chat_token'); localStorage.removeItem('chat_username'); }
-  } catch {}
+  const tok = localStorage.getItem('chat_token'); if(!tok)return;
+  try { const r = await fetch('/api/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:tok})}); const d = await r.json(); if(d.ok) enterApp(tok,d.username); else doLogout(); } catch {}
 }
 
-/* ══════════════════════════════════════════════════════
-   КОМНАТЫ
-══════════════════════════════════════════════════════ */
-async function loadRooms() {
-  try {
-    const r = await fetch('/api/rooms', { headers: { 'Authorization': 'Bearer ' + currentUser.token } });
-    const data = await r.json();
-    if (data.ok) { allRooms = data.rooms; renderRooms(allRooms); }
-  } catch { toast('Ошибка загрузки комнат'); }
+async function loadRooms() { /* Загрузка комнат */
+  try { const r = await fetch('/api/rooms',{headers:{'Authorization':'Bearer '+currentUser.token}}); const d = await r.json(); if(d.ok){ allRooms=d.rooms; filterRooms(); } } catch {}
 }
-
-function renderRooms(rooms) {
-  const list = document.getElementById('rooms-list');
-  const empty = document.getElementById('rooms-empty');
-  list.querySelectorAll('.room-item').forEach(el => el.remove());
-
-  if (rooms.length === 0) { empty.style.display = 'flex'; return; }
-  empty.style.display = 'none';
-
-  rooms.forEach(room => {
-    const el = document.createElement('div'); el.className = 'room-item';
-    el.innerHTML = `
-      <div class="room-avatar">💬</div>
-      <div class="room-info">
-        <div class="room-name">${escHtml(room.name)}</div>
-        <div class="room-meta">Создал ${escHtml(room.owner)}${room.has_password ? ' · 🔒 Пароль' : ''}</div>
-      </div>
-      ${room.has_password ? '<div class="room-lock">🔒</div>' : ''}
-    `;
-    el.onclick = () => selectRoom(room);
-    list.appendChild(el);
+function filterRooms() {
+  const q = document.getElementById('rooms-search-input').value.toLowerCase(); const list = document.getElementById('rooms-list'); list.innerHTML='';
+  allRooms.filter(r=>r.name.toLowerCase().includes(q)).forEach(room => {
+    const el = document.createElement('div'); el.className='room-item';
+    el.innerHTML = `<div class="room-avatar">💬</div><div class="room-info"><div class="room-name">${escHtml(room.name)}</div><div class="room-meta">Создал ${escHtml(room.owner)}</div></div>${room.has_password?'<div style="font-size:16px;color:var(--sub)">🔒</div>':''}`;
+    el.onclick = () => selectRoom(room); list.appendChild(el);
   });
 }
-
-function filterRooms() {
-  const q = document.getElementById('rooms-search-input').value.toLowerCase();
-  renderRooms(allRooms.filter(r => r.name.toLowerCase().includes(q)));
+function selectRoom(r) {
+  if(r.has_password){ pendingRoom=r; document.getElementById('modal-room-pw-name').textContent=r.name; document.getElementById('room-pw-input').value=''; openModal('modal-room-pw'); } else joinRoom(r);
 }
-
-function selectRoom(room) {
-  if (room.has_password) {
-    pendingRoom = room;
-    document.getElementById('modal-room-pw-name').textContent = '🏠 ' + room.name;
-    document.getElementById('room-pw-input').value = '';
-    clearError('room-pw-error'); openModal('modal-room-pw');
-  } else joinRoom(room, null);
-}
-
 async function doRoomPwEnter() {
-  const pw = document.getElementById('room-pw-input').value;
-  const btn = document.getElementById('btn-room-pw-enter');
-  clearError('room-pw-error');
-  if (!pw) { setError('room-pw-error', 'Введи пароль'); return; }
-
-  btn.disabled = true; btn.textContent = 'Проверяем…';
+  const pw=document.getElementById('room-pw-input').value; clearError('room-pw-error'); if(!pw){setError('room-pw-error','Введи пароль');return;}
   try {
-    const r = await fetch(`/api/rooms/${pendingRoom.id}/join`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + currentUser.token },
-      body: JSON.stringify({ password: pw })
-    });
-    const data = await r.json();
-    if (data.ok) { closeModal('modal-room-pw'); joinRoom(pendingRoom, pw); } 
-    else {
-      setError('room-pw-error', 'Неверный пароль');
-      document.getElementById('room-pw-input').classList.add('error');
-      setTimeout(() => document.getElementById('room-pw-input').classList.remove('error'), 600);
-    }
-  } catch { setError('room-pw-error', 'Ошибка сети'); } 
-  finally { btn.disabled = false; btn.textContent = 'Войти'; }
+    const r=await fetch(`/api/rooms/${pendingRoom.id}/join`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentUser.token},body:JSON.stringify({password:pw})});
+    const d=await r.json(); if(d.ok){closeModal('modal-room-pw');joinRoom(pendingRoom);}else setError('room-pw-error','Неверный пароль');
+  } catch { setError('room-pw-error','Ошибка'); }
 }
+function joinRoom(r) { currentRoom=r; document.getElementById('chat-room-name').textContent=r.name; showScreen('screen-chat'); if(window.initSocket) window.initSocket(currentUser.token, r.id, currentUser.username); }
+function leaveRoom() { if(window.socketLeave) window.socketLeave(); currentRoom=null; showScreen('screen-rooms'); loadRooms(); }
 
-function joinRoom(room, password) {
-  currentRoom = room; document.getElementById('chat-room-name').textContent = room.name;
-  showScreen('screen-chat');
-  if (typeof initSocket === 'function') initSocket(currentUser.token, room.id, currentUser.username);
-}
-
-function leaveRoom() {
-  if (typeof socketLeave === 'function') socketLeave();
-  currentRoom = null; showScreen('screen-rooms'); loadRooms();
-}
-
-/* ══════════════════════════════════════════════════════
-   СОЗДАТЬ КОМНАТУ
-══════════════════════════════════════════════════════ */
-function openCreateRoom() {
-  document.getElementById('create-room-name').value = '';
-  document.getElementById('create-room-pw').value = '';
-  document.getElementById('create-pw-check').checked = false;
-  document.getElementById('create-pw-wrap').style.display = 'none';
-  clearError('create-room-error'); openModal('modal-create');
-}
-
-function toggleCreatePw() {
-  const checked = document.getElementById('create-pw-check').checked;
-  document.getElementById('create-pw-wrap').style.display = checked ? '' : 'none';
-}
-
+function openCreateRoom() { document.getElementById('create-room-name').value=''; document.getElementById('create-room-pw').value=''; document.getElementById('create-pw-check').checked=false; toggleCreatePw(); openModal('modal-create'); }
+function toggleCreatePw() { document.getElementById('create-pw-wrap').style.display = document.getElementById('create-pw-check').checked?'':'none'; }
 async function doCreateRoom() {
-  const name = document.getElementById('create-room-name').value.trim();
-  const hasPw = document.getElementById('create-pw-check').checked;
-  const password = hasPw ? document.getElementById('create-room-pw').value : null;
-  clearError('create-room-error');
-
-  if (!name) { setError('create-room-error', 'Введи название'); return; }
-  if (hasPw && !password) { setError('create-room-error', 'Введи пароль'); return; }
-
-  try {
-    const r = await fetch('/api/rooms', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + currentUser.token },
-      body: JSON.stringify({ name, password })
-    });
-    const data = await r.json();
-    if (data.ok) { closeModal('modal-create'); toast('✅ Комната создана'); loadRooms(); } 
-    else { setError('create-room-error', data.error === 'room_exists' ? 'Уже есть' : 'Ошибка'); }
-  } catch { setError('create-room-error', 'Ошибка сети'); }
+  const n=document.getElementById('create-room-name').value.trim(), has=document.getElementById('create-pw-check').checked, pw=has?document.getElementById('create-room-pw').value:null;
+  if(!n){setError('create-room-error','Введи название');return;} if(has&&!pw){setError('create-room-error','Введи пароль');return;}
+  try { const r=await fetch('/api/rooms',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentUser.token},body:JSON.stringify({name:n,password:pw})});
+  const d=await r.json(); if(d.ok){closeModal('modal-create');toast('✅ Создано');loadRooms();}else setError('create-room-error','Ошибка'); } catch { setError('create-room-error','Сеть'); }
 }
 
 
 /* ══════════════════════════════════════════════════════
-   ИДЕАЛЬНЫЙ WEBRTC (Без зависаний, с переиспользованием)
+   НОВЫЙ WEBRTC ВИДЕОЧАТ (ИДЕАЛЬНАЯ MESH-СЕТЬ)
 ══════════════════════════════════════════════════════ */
-let videoActive = false;
-let localVideoStream = null;
-const videoPeers = new Map();
+const videoOverlay = document.getElementById('video-call-overlay');
+const videoGrid    = document.getElementById('video-grid');
+let videoActive    = false;
+let localStream    = null;
+let vidCamMuted    = false;
+let vidMicMuted    = false;
+const videoPeers   = new Map();
 
-// Управление видимостью черного экрана
-function checkGridVisibility() {
-  const grid = document.getElementById('video-grid');
-  const section = document.getElementById('video-section');
-  if (videoActive || grid.children.length > 0) {
-    section.classList.add('visible');
-  } else {
-    section.classList.remove('visible');
+// Создание элемента видео для участника (Плитка)
+function addVideoTile(id, stream, label, isLocal) {
+  let tile = document.getElementById('vtile-' + id);
+  if (!tile) {
+    tile = document.createElement('div');
+    tile.className = 'video-tile';
+    tile.id = 'vtile-' + id;
+
+    const vid = document.createElement('video');
+    vid.autoplay = true; 
+    vid.playsinline = true; 
+    
+    if (isLocal) {
+      vid.muted = true; // Свое видео без звука
+      vid.style.transform = 'scaleX(-1)'; // Зеркало для своей вебкамеры
+    }
+
+    const name = document.createElement('div');
+    name.className = 'video-tile-name';
+    name.textContent = label;
+
+    tile.appendChild(vid);
+    tile.appendChild(name);
+    videoGrid.appendChild(tile);
   }
-}
-
-// Добавление плитки (С зеркальным отражением для себя)
-function addVideoTile(id, stream, label) {
-  removeVideoTile(id);
-  const grid = document.getElementById('video-grid');
-  const tile = document.createElement('div');
-  tile.className = 'video-tile';
-  tile.id = 'vtile-' + id;
-
-  const vid = document.createElement('video');
-  vid.autoplay = true; 
-  vid.playsinline = true; 
-  vid.srcObject = stream;
   
-  if (id === 'local') {
-    vid.muted = true; // Свой звук всегда замьючен
-    vid.style.transform = 'scaleX(-1)'; // ЗЕРКАЛО: только для локального видео!
-  } else {
-    vid.muted = false; // Чужой звук пускаем (хотя вы сказали аудио у вас идет через app.js)
-  }
-
-  const name = document.createElement('div');
-  name.className = 'video-tile-name';
-  name.textContent = label;
-
-  tile.appendChild(vid);
-  tile.appendChild(name);
-  grid.appendChild(tile);
-  checkGridVisibility();
+  const videoObj = tile.querySelector('video');
+  if (videoObj.srcObject !== stream) videoObj.srcObject = stream;
 }
 
 function removeVideoTile(id) {
   document.getElementById('vtile-' + id)?.remove();
-  checkGridVisibility();
 }
 
-// "Умное" получение PeerConnection (Не ломаем старое, если можно использовать!)
-function getOrCreatePeer(peerId) {
-  if (videoPeers.has(peerId)) {
-    return videoPeers.get(peerId);
-  }
+// Полноэкранный WebRTC Коннектор
+function getOrCreateVideoPeer(peerId) {
+  if (videoPeers.has(peerId)) return videoPeers.get(peerId);
 
   const pc = new RTCPeerConnection({
     iceServers: [
-      { urls: 'stun:stun.relay.metered.ca:80' },
-      { urls: 'turn:global.relay.metered.ca:80', username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' }
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun.relay.metered.ca:80' }
     ]
   });
 
-  pc.pendingIceCandidates = [];
   videoPeers.set(peerId, pc);
 
-  // Когда получаем видео трек от друга
-  pc.ontrack = (e) => {
-    const label = window._peerNames?.get(peerId) || peerId.slice(0, 6);
-    addVideoTile(peerId, e.streams[0], label);
+  // Если получаем трек от собеседника - рисуем его плитку
+  pc.ontrack = (event) => {
+    // Пытаемся взять имя из базы app.js
+    const label = window._peerNames?.get(peerId) || 'Мембер';
+    addVideoTile(peerId, event.streams[0], label, false);
   };
 
-  // Когда мы нашли наш IP роутер -> шлем собеседнику
-  pc.onicecandidate = (e) => {
-    if (e.candidate && window._socket) {
-      window._socket.emit('video-ice', { to: peerId, candidate: e.candidate });
+  pc.onicecandidate = (event) => {
+    if (event.candidate && window._socket) {
+      window._socket.emit('video-ice', { to: peerId, candidate: event.candidate });
     }
   };
 
   pc.onconnectionstatechange = () => {
-    console.log(`WebRTC state with ${peerId}:`, pc.connectionState);
     if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
       removeVideoTile(peerId);
       pc.close();
@@ -1222,153 +610,108 @@ function getOrCreatePeer(peerId) {
   return pc;
 }
 
-// Включение/Отключение камеры
-async function toggleVideoCall() {
-  if (!videoActive) { await startVideo(); } 
-  else { stopVideo(); }
-}
+// 1️⃣ НАЖАТИЕ НА КНОПКУ "НАЧАТЬ ВИДЕОЗВОНОК"
+document.getElementById('btn-video-call').addEventListener('click', async () => {
+  if (videoActive) return; // Уже в звонке
 
-async function startVideo() {
+  // Показываем красивый черный оверлей плавно
+  videoOverlay.classList.remove('hidden');
+  videoActive = true;
+  vidCamMuted = false;
+  vidMicMuted = false;
+
   try {
-    localVideoStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
-      audio: false
+    // Включаем камеру и микрофон телефона
+    localStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user' },
+      audio: true // В видеочате свой отдельный звук
     });
-    
-    videoActive = true;
-    document.getElementById('btn-video-call').classList.add('active');
-    
-    // Добавляем себе свое зеркальное видео
-    addVideoTile('local', localVideoStream, 'Вы');
 
-    // Сообщаем серверу, что мы начали звонок
+    // Рисуем себя
+    addVideoTile('local', localStream, 'Вы', true);
+
+    // Оповещаем остальных, что мы включили видео (чтобы они у себя открыли оверлей)
     if (window._socket) window._socket.emit('video-start');
 
-    // Подключаем НАШЕ видео КО ВСЕМ, КТО СЕЙЧАС В КОМНАТЕ
+    // 🏆 ПРАВИЛО MESH-СЕТИ: Рассылаем наше видео ВСЕМ, КТО УЖЕ В КОМНАТЕ
     if (window._roomPeers) {
       for (const peerId of window._roomPeers) {
-        const pc = getOrCreatePeer(peerId);
-        
-        // Аккуратно добавляем треки в существующее соединение, не ломая его
-        const senders = pc.getSenders();
-        localVideoStream.getTracks().forEach(track => {
-          if (!senders.find(s => s.track === track)) {
-            pc.addTrack(track, localVideoStream);
-          }
-        });
+        if (peerId === window._socket?.id) continue;
 
-        // Создаем оффер (мы - инициаторы передачи видео)
+        const pc = getOrCreateVideoPeer(peerId);
+        localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+        // Мы инициаторы оффера
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        window._socket?.emit('video-offer', { to: peerId, offer: pc.localDescription });
+        window._socket.emit('video-offer', { to: peerId, offer: pc.localDescription });
       }
     }
-  } catch (err) { toast('❌ Нет доступа к камере: ' + err.message); }
-}
+  } catch (err) {
+    toast('❌ Нет доступа к камере');
+    videoOverlay.classList.add('hidden');
+    videoActive = false;
+  }
+});
 
-function stopVideo() {
+// Кнопки управления внутри видеозвонка
+document.getElementById('v-btn-cam').addEventListener('click', function() {
+  vidCamMuted = !vidCamMuted;
+  if(localStream) localStream.getVideoTracks().forEach(t => t.enabled = !vidCamMuted);
+  this.classList.toggle('off', vidCamMuted);
+});
+
+document.getElementById('v-btn-mic').addEventListener('click', function() {
+  vidMicMuted = !vidMicMuted;
+  if(localStream) localStream.getAudioTracks().forEach(t => t.enabled = !vidMicMuted);
+  this.classList.toggle('off', vidMicMuted);
+});
+
+// 2️⃣ НАЖАТИЕ "СБРОС" (Трубка)
+document.getElementById('v-btn-hangup').addEventListener('click', () => {
+  videoOverlay.classList.add('hidden');
   videoActive = false;
 
-  if (localVideoStream) {
-    localVideoStream.getTracks().forEach(t => t.stop());
-    localVideoStream = null;
+  // Отключаем свою камеру
+  if (localStream) {
+    localStream.getTracks().forEach(t => t.stop());
+    localStream = null;
   }
-
-  // МЫ НЕ УБИВАЕМ PeerConnection! 
-  // Мы просто убираем свои треки из трансляции. Так чужие стримы не лагают.
-  videoPeers.forEach((pc, peerId) => {
-    try {
-      pc.getSenders().forEach(sender => {
-        if (sender.track) pc.removeTrack(sender);
-      });
-      // Оповестим всех, что треки исчезли
-      pc.createOffer()
-        .then(offer => pc.setLocalDescription(offer))
-        .then(() => window._socket?.emit('video-offer', { to: peerId, offer: pc.localDescription }))
-        .catch(e => console.error("Renegotiation error", e));
-    } catch(err) {}
-  });
-
-  // Убираем свою плитку (чужие останутся если они включены)
   removeVideoTile('local');
-  document.getElementById('btn-video-call').classList.remove('active');
+
+  // Закрываем все соединения
+  videoPeers.forEach((pc, id) => {
+    pc.close();
+    removeVideoTile(id);
+  });
+  videoPeers.clear();
 
   if (window._socket) window._socket.emit('video-stop');
-}
+});
 
 
-/* ══════════════════════════════════════════════════════
-   ПОЛУЧЕНИЕ СИГНАЛОВ ПО СЕТИ
-══════════════════════════════════════════════════════ */
+// 3️⃣ ИДЕАЛЬНАЯ ПРИЕМКА СИГНАЛОВ ПО СЕТИ (Хуки из app.js)
 
-// Этот хук нужен, если в комнату кто-то зашел, А У ВАС УЖЕ РАБОТАЕТ ВЕБКА. 
-// Вам нужно отправить ему ваше видео автоматически.
-window.onUserJoined = async function(socketId) {
-  if (videoActive && localVideoStream) {
-    const pc = getOrCreatePeer(socketId);
-    
-    // Проверяем, не добавлены ли треки уже (защита от дубликатов)
-    const senders = pc.getSenders();
-    localVideoStream.getTracks().forEach(t => {
-      if (!senders.find(s => s.track === t)) {
-        pc.addTrack(t, localVideoStream);
-      }
-    });
-    
-    try {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      window._socket?.emit('video-offer', { to: socketId, offer: pc.localDescription });
-    } catch(e) {
-      console.warn("Ошибка отправки оффера новичку:", e);
-    }
-  }
-};
-
-// Новый хук: Собеседник полностью вышел из комнаты (или закрыл вкладку)
-window.onUserLeft = function(socketId) {
-  const pc = videoPeers.get(socketId);
-  if (pc) {
-    pc.close();
-    videoPeers.delete(socketId);
-  }
-  removeVideoTile(socketId);
-};
-
-window.onVideoStart = async function(socketId) {
-  // Нам не нужно тут ничего делать, ждем onVideoOffer от него!
-};
-
-window.onVideoStop = function(socketId) {
-  // Собеседник выключил видео - удаляем только его плитку. 
-  // Не ломаем сам peer, вдруг он сейчас его назад включит.
-  removeVideoTile(socketId);
-};
-
-// Применение ICE из очереди
-async function processIceQueue(pc) {
-  if (pc.pendingIceCandidates && pc.pendingIceCandidates.length > 0) {
-    for (const c of pc.pendingIceCandidates) {
-      try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch(e) {}
-    }
-    pc.pendingIceCandidates = [];
-  }
-}
-
+// Если кто-то нажал "Начать видеозвонок" у себя — он шлет НАМ оффер.
 window.onVideoOffer = async function(socketId, offer) {
   try {
-    const pc = getOrCreatePeer(socketId);
+    // 🔔 ФИШКА: Если у нас закрыто видео, а кто-то позвонил — само откроется!
+    if (!videoActive) {
+      videoOverlay.classList.remove('hidden');
+      videoActive = true;
+      // Включаем свою камеру в ответ
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        addVideoTile('local', localStream, 'Вы', true);
+      } catch(e) { toast('Видео без вашей камеры'); }
+    }
+
+    const pc = getOrCreateVideoPeer(socketId);
     
-    // WebRTC Perfect Negotiation (защита от коллизий/Glare)
-    // Если обе стороны нажали "Включить видео" одновременно
+    // Защита от коллизий (Идеальное согласование / Perfect Negotiation)
     if (pc.signalingState !== 'stable') {
-      // Тот, чей socketId больше, становится "вежливым" (уступает)
-      const isPolite = (window._socket.id || "") > socketId;
-      if (!isPolite) {
-        // Мы игнорируем его оффер, он сам примет наш (так как он polite)
-        return; 
-      }
-      // Мы уступаем: откатываем свой оффер и принимаем его
+      const isPolite = (window._socket?.id || "") > socketId;
+      if (!isPolite) return; // Уступаем, берем его оффер
       await Promise.all([
         pc.setLocalDescription({ type: "rollback" }),
         pc.setRemoteDescription(new RTCSessionDescription(offer))
@@ -1377,84 +720,50 @@ window.onVideoOffer = async function(socketId, offer) {
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
     }
 
-    await processIceQueue(pc);
-
-    // Если у нас включено видео - добавляем свои треки в ответ
-    if (videoActive && localVideoStream) {
+    // Отправляем свои треки в ответ (даже свежие)
+    if (localStream) {
        const senders = pc.getSenders();
-       localVideoStream.getTracks().forEach(t => {
-         if (!senders.find(s => s.track === t)) {
-           pc.addTrack(t, localVideoStream);
-         }
+       localStream.getTracks().forEach(t => {
+         if (!senders.find(s => s.track === t)) pc.addTrack(t, localStream);
        });
     }
 
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     window._socket?.emit('video-answer', { to: socketId, answer: pc.localDescription });
-  } catch (e) { 
-    console.error("Offer error:", e); 
-  }
+  } catch(e) {}
 };
 
 window.onVideoAnswer = async function(socketId, answer) {
-  try {
-    const pc = videoPeers.get(socketId);
-    // Принимаем ответ только если мы сами инициировали звонок
-    if (pc && pc.signalingState !== 'stable') {
-      await pc.setRemoteDescription(new RTCSessionDescription(answer));
-      await processIceQueue(pc);
-    }
-  } catch (e) { 
-    console.error("Answer error:", e); 
+  const pc = videoPeers.get(socketId);
+  if (pc && pc.signalingState !== 'stable') {
+    await pc.setRemoteDescription(new RTCSessionDescription(answer));
   }
 };
 
 window.onVideoIce = async function(socketId, candidate) {
   const pc = videoPeers.get(socketId);
-  if (pc && candidate) {
-    try {
-      if (pc.remoteDescription && pc.remoteDescription.type) {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      } else {
-        if (!pc.pendingIceCandidates) pc.pendingIceCandidates = [];
-        pc.pendingIceCandidates.push(candidate);
-      }
-    } catch(e) {}
+  if (pc) {
+    try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e) {}
   }
+};
+
+window.onUserLeft = window.onVideoStop = function(socketId) {
+  const pc = videoPeers.get(socketId);
+  if (pc) { pc.close(); videoPeers.delete(socketId); }
+  removeVideoTile(socketId);
+  // Если никого не осталось в сетке (только мы), можно свернуть автоматически (по желанию).
 };
 
 /* ══════════════════════════════════════════════════════
-   UI И ОСТАЛЬНАЯ ЛОГИКА
+   ОСТАЛЬНОЙ UI ЧАТА
 ══════════════════════════════════════════════════════ */
-const attachToggle = document.getElementById('btn-attach-toggle');
-const attachPopup  = document.getElementById('attach-popup');
-
-attachToggle.addEventListener('click', (e) => { e.stopPropagation(); attachPopup.classList.toggle('open'); });
-document.addEventListener('click', () => { attachPopup.classList.remove('open'); });
-attachPopup.addEventListener('click', (e) => e.stopPropagation());
-
-['btn-photo','btn-video','btn-file'].forEach(id => {
-  document.getElementById(id)?.addEventListener('click', () => { attachPopup.classList.remove('open'); });
-});
-
-document.querySelectorAll('.modal-overlay').forEach(overlay => {
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.remove('open'); });
-});
-
-document.getElementById('lightbox-close').onclick = () => {
-  document.getElementById('lightbox').classList.remove('open');
-  document.getElementById('lightbox-content').innerHTML = '';
-};
-
-document.getElementById('lightbox').addEventListener('click', (e) => {
-  if (e.target === document.getElementById('lightbox')) {
-    document.getElementById('lightbox').classList.remove('open');
-    document.getElementById('lightbox-content').innerHTML = '';
-  }
-});
-
-function escHtml(str) { return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+document.getElementById('btn-attach-toggle').addEventListener('click', (e) => { e.stopPropagation(); document.getElementById('attach-popup').classList.toggle('open'); });
+document.addEventListener('click', () => document.getElementById('attach-popup').classList.remove('open'));
+document.getElementById('attach-popup').addEventListener('click', (e) => e.stopPropagation());
+['btn-photo','btn-video','btn-file'].forEach(id => document.getElementById(id)?.addEventListener('click', () => document.getElementById('attach-popup').classList.remove('open')));
+document.getElementById('lightbox-close').onclick = () => { document.getElementById('lightbox').classList.remove('open'); document.getElementById('lightbox-content').innerHTML = ''; };
+document.getElementById('lightbox').addEventListener('click', (e) => { if(e.target===document.getElementById('lightbox')){document.getElementById('lightbox').classList.remove('open');document.getElementById('lightbox-content').innerHTML='';} });
 
 tryAutoLogin();
 </script>
