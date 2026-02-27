@@ -1422,7 +1422,8 @@ function removeVideoTile(id) {
 }
 
 async function createVideoPeer(peerId, isInitiator) {
-  // Закрываем старый если был
+  console.log('createVideoPeer:', peerId, 'isInitiator:', isInitiator);
+
   if (videoPeers.has(peerId)) {
     videoPeers.get(peerId).close();
     videoPeers.delete(peerId);
@@ -1441,12 +1442,8 @@ async function createVideoPeer(peerId, isInitiator) {
 
   videoPeers.set(peerId, pc);
 
-  // Добавляем только видео-трек
-  if (localVideoStream) {
-    localVideoStream.getTracks().forEach(t => pc.addTrack(t, localVideoStream));
-  }
-
   pc.ontrack = (e) => {
+    console.log('ontrack от:', peerId, e.streams);
     const label = window._peerNames?.get(peerId) || peerId.slice(0, 6);
     addVideoTile(peerId, e.streams[0], label, false);
   };
@@ -1458,7 +1455,7 @@ async function createVideoPeer(peerId, isInitiator) {
   };
 
   pc.onconnectionstatechange = () => {
-    console.log('VideoPeer', peerId, pc.connectionState);
+    console.log('VideoPeer', peerId, '→', pc.connectionState);
     if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
       removeVideoTile(peerId);
       videoPeers.delete(peerId);
@@ -1466,22 +1463,30 @@ async function createVideoPeer(peerId, isInitiator) {
   };
 
   if (isInitiator) {
-    // Ждём стабилизации ICE через onnegotiationneeded
-    pc.onnegotiationneeded = async () => {
-      try {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        console.log('Sending video-offer to', peerId);
-        window._socket?.emit('video-offer', { to: peerId, offer: pc.localDescription });
-      } catch(e) {
-        console.error('video-offer error:', e);
-      }
-    };
+    // Добавляем треки И сразу создаём offer вручную
+    // НЕ используем onnegotiationneeded — он ненадёжен
+    if (localVideoStream) {
+      localVideoStream.getTracks().forEach(t => pc.addTrack(t, localVideoStream));
+    }
+
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      console.log('Отправляем video-offer →', peerId);
+      window._socket?.emit('video-offer', { to: peerId, offer: pc.localDescription });
+    } catch(e) {
+      console.error('createOffer error:', e);
+    }
+
+  } else {
+    // Не-инициатор: добавляем треки но offer не создаём
+    if (localVideoStream) {
+      localVideoStream.getTracks().forEach(t => pc.addTrack(t, localVideoStream));
+    }
   }
 
   return pc;
 }
-
 /* ══════════════════════════════════════════════════════
    ВИДЕО-СОБЫТИЯ от сервера
 ══════════════════════════════════════════════════════ */
@@ -1498,15 +1503,22 @@ window.onVideoStop = function(socketId) {
 };
 
 window.onVideoOffer = async function(socketId, offer) {
-  console.log('onVideoOffer from', socketId);
-  let pc = videoPeers.get(socketId);
-  if (!pc) {
-    pc = await createVideoPeer(socketId, false);
+  console.log('onVideoOffer от:', socketId);
+  
+  // Закрываем старый peer если был
+  if (videoPeers.has(socketId)) {
+    videoPeers.get(socketId).close();
+    videoPeers.delete(socketId);
   }
+  
+  // Создаём новый как не-инициатор (треки добавятся внутри)
+  const pc = await createVideoPeer(socketId, false);
+  
   await pc.setRemoteDescription(new RTCSessionDescription(offer));
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
-  console.log('Sending video-answer to', socketId);
+  
+  console.log('Отправляем video-answer →', socketId);
   window._socket?.emit('video-answer', { to: socketId, answer: pc.localDescription });
 };
 
