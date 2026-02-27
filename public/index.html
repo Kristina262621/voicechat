@@ -12,6 +12,7 @@
     :root {
       --bg:        #17212b;
       --surface:   #232e3c;
+      --surface2:  #1a2533;
       --header:    #17212b;
       --bubble-in: #182533;
       --bubble-me: #2b5278;
@@ -26,108 +27,283 @@
     }
 
     html, body {
-      height: 100%;
+      height: 100%; width: 100%;
       font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
       background: var(--bg);
       color: var(--text);
       overflow: hidden;
     }
 
-    /* ══════════════════════════
-       ЭКРАН ПАРОЛЯ
-    ══════════════════════════ */
-    #screen-password {
+    /* ════════════════════════════════════
+       ОБЩИЕ УТИЛИТЫ
+    ════════════════════════════════════ */
+    .screen {
       position: fixed; inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      display: flex; flex-direction: column;
       background: var(--bg);
-      z-index: 500;
+      transition: opacity 0.2s;
     }
+    .screen.hidden { display: none; }
 
-    .login-card {
-      width: 100%; max-width: 360px;
-      margin: 0 16px;
-      padding: 40px 28px 32px;
-      background: var(--surface);
-      border-radius: 18px;
-      box-shadow: 0 12px 48px rgba(0,0,0,0.6);
-      display: flex; flex-direction: column; align-items: center;
+    input, textarea, button { font-family: inherit; }
+
+    .field {
+      width: 100%;
+      padding: 13px 16px;
+      background: var(--bg);
+      border: 2px solid #2a3a4e;
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 15px;
+      outline: none;
+      transition: border-color 0.2s;
     }
+    .field:focus        { border-color: var(--accent); }
+    .field.error        { border-color: var(--red); animation: shake 0.35s; }
+    .field::placeholder { color: var(--sub); }
 
-    .login-icon  { font-size: 54px; margin-bottom: 16px; }
-    .login-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; text-align: center; }
-    .login-sub   {
-      font-size: 13px; color: var(--sub);
-      text-align: center; margin-bottom: 28px; line-height: 1.5;
-    }
-
-    .pw-wrap { position: relative; width: 100%; margin-bottom: 10px; }
-    .pw-wrap input {
-      width: 100%; padding: 14px 46px 14px 16px;
-      background: var(--bg); border: 2px solid #2a3a4e;
-      border-radius: var(--radius); color: var(--text);
-      font-size: 15px; outline: none; transition: border-color 0.2s;
-    }
-    .pw-wrap input:focus        { border-color: var(--accent); }
-    .pw-wrap input.error        { border-color: var(--red); animation: shake 0.35s; }
-    .pw-wrap input::placeholder { color: var(--sub); }
-
-    .toggle-pw {
-      position: absolute; right: 13px; top: 50%;
-      transform: translateY(-50%);
-      background: none; border: none; cursor: pointer;
-      font-size: 18px; color: var(--sub); line-height: 1;
-    }
-    .toggle-pw:hover { color: var(--text); }
-
-    .pw-error {
-      font-size: 12px; color: var(--red);
-      min-height: 18px; margin-bottom: 10px;
-      text-align: center; width: 100%;
-    }
-
-    #btn-enter {
+    .btn-primary {
       width: 100%; padding: 14px;
       background: var(--accent); color: white;
       border: none; border-radius: var(--radius);
       font-size: 15px; font-weight: 600;
       cursor: pointer; transition: background 0.2s, transform 0.1s;
     }
-    #btn-enter:hover    { background: #4070a8; }
-    #btn-enter:active   { transform: scale(0.98); }
-    #btn-enter:disabled { background: #2a3a4e; color: var(--sub); cursor: not-allowed; }
+    .btn-primary:hover   { background: #4070a8; }
+    .btn-primary:active  { transform: scale(0.98); }
+    .btn-primary:disabled{ background: #2a3a4e; color: var(--sub); cursor: not-allowed; }
+
+    .btn-ghost {
+      background: none; border: none;
+      color: var(--accent2); font-size: 14px;
+      cursor: pointer; padding: 6px 0;
+      transition: color 0.15s;
+    }
+    .btn-ghost:hover { color: var(--text); }
+
+    .error-msg {
+      font-size: 12px; color: var(--red);
+      min-height: 18px; text-align: center;
+    }
+
+    @keyframes shake {
+      0%,100%{ transform:translateX(0)   }
+      20%    { transform:translateX(-8px) }
+      40%    { transform:translateX(8px)  }
+      60%    { transform:translateX(-5px) }
+      80%    { transform:translateX(5px)  }
+    }
+
+    /* ════════════════════════════════════
+       ЭКРАН АВТОРИЗАЦИИ
+    ════════════════════════════════════ */
+    #screen-auth {
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .auth-card {
+      width: 100%; max-width: 380px;
+      background: var(--surface);
+      border-radius: 20px;
+      padding: 40px 28px 32px;
+      box-shadow: 0 16px 48px rgba(0,0,0,0.6);
+      display: flex; flex-direction: column; align-items: center; gap: 0;
+    }
+
+    .auth-logo  { font-size: 56px; margin-bottom: 14px; }
+    .auth-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+    .auth-sub   {
+      font-size: 13px; color: var(--sub);
+      text-align: center; margin-bottom: 28px; line-height: 1.55;
+    }
+
+    .auth-tabs {
+      display: flex; width: 100%;
+      background: var(--bg);
+      border-radius: 10px;
+      padding: 3px; margin-bottom: 22px; gap: 3px;
+    }
+    .auth-tab {
+      flex: 1; padding: 9px;
+      border: none; border-radius: 8px;
+      font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: background 0.2s, color 0.2s;
+      background: none; color: var(--sub);
+    }
+    .auth-tab.active {
+      background: var(--accent); color: white;
+    }
+
+    .auth-form {
+      width: 100%;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+
+    .pw-wrap { position: relative; width: 100%; }
+    .pw-wrap .field { padding-right: 46px; }
+    .toggle-pw {
+      position: absolute; right: 13px; top: 50%;
+      transform: translateY(-50%);
+      background: none; border: none; cursor: pointer;
+      font-size: 18px; color: var(--sub);
+    }
+    .toggle-pw:hover { color: var(--text); }
 
     .e2e-note {
-      margin-top: 20px; font-size: 11px;
+      margin-top: 16px; font-size: 11px;
       color: var(--sub); text-align: center; line-height: 1.7;
     }
     .e2e-note b { color: var(--green); }
 
-    @keyframes shake {
-      0%,100%{ transform:translateX(0);   }
-      20%    { transform:translateX(-8px); }
-      40%    { transform:translateX(8px);  }
-      60%    { transform:translateX(-5px); }
-      80%    { transform:translateX(5px);  }
+    /* ════════════════════════════════════
+       ЭКРАН КОМНАТ
+    ════════════════════════════════════ */
+    #screen-rooms { flex-direction: column; }
+
+    .rooms-header {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 16px;
+      padding-top: max(12px, env(safe-area-inset-top));
+      background: var(--header);
+      border-bottom: 1px solid var(--divider);
+      min-height: 56px; flex-shrink: 0;
     }
 
-    /* ══════════════════════════
-       ГЛАВНЫЙ ЭКРАН
-    ══════════════════════════ */
-    #screen-main {
-      display: none;
+    .rooms-header-title {
+      flex: 1; font-size: 18px; font-weight: 700;
+    }
+
+    .rooms-header-user {
+      font-size: 13px; color: var(--sub);
+      max-width: 120px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    .icon-btn {
+      width: 38px; height: 38px;
+      border: none; border-radius: 50%;
+      background: none; color: var(--sub);
+      font-size: 20px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s, color 0.15s; flex-shrink: 0;
+    }
+    .icon-btn:hover { background: rgba(255,255,255,0.07); color: var(--text); }
+
+    .rooms-search {
+      padding: 10px 14px; flex-shrink: 0;
+      border-bottom: 1px solid var(--divider);
+    }
+    .rooms-search input {
+      width: 100%; padding: 10px 16px;
+      background: var(--surface);
+      border: none; border-radius: 22px;
+      color: var(--text); font-size: 14px; outline: none;
+    }
+    .rooms-search input::placeholder { color: var(--sub); }
+
+    .rooms-list {
+      flex: 1; overflow-y: auto;
+      padding: 8px 0;
+    }
+
+    .room-item {
+      display: flex; align-items: center; gap: 14px;
+      padding: 12px 16px; cursor: pointer;
+      transition: background 0.15s;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+    }
+    .room-item:hover { background: rgba(255,255,255,0.04); }
+
+    .room-avatar {
+      width: 46px; height: 46px; border-radius: 50%;
+      background: linear-gradient(135deg, #1e3a5a, #5288c1);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; flex-shrink: 0;
+    }
+
+    .room-info { flex: 1; min-width: 0; }
+    .room-name {
+      font-size: 15px; font-weight: 600;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .room-meta { font-size: 12px; color: var(--sub); margin-top: 2px; }
+
+    .room-lock { font-size: 16px; color: var(--sub); flex-shrink: 0; }
+
+    .rooms-empty {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      color: var(--sub); font-size: 14px; gap: 10px;
+      padding-bottom: 60px;
+    }
+    .rooms-empty-icon { font-size: 48px; }
+
+    /* ════════════════════════════════════
+       МОДАЛКИ
+    ════════════════════════════════════ */
+    .modal-overlay {
       position: fixed; inset: 0;
-      flex-direction: column;
-      background: var(--bg);
+      background: rgba(0,0,0,0.7);
+      backdrop-filter: blur(4px);
+      z-index: 1000;
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.2s;
+    }
+    .modal-overlay.open {
+      opacity: 1; pointer-events: all;
     }
 
-    #screen-main[style*="block"],
-    #screen-main[style*="flex"] {
-      display: flex !important;
+    .modal {
+      width: 100%; max-width: 360px;
+      background: var(--surface);
+      border-radius: 20px;
+      padding: 28px 24px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+      display: flex; flex-direction: column; gap: 14px;
+      transform: translateY(20px);
+      transition: transform 0.2s;
+    }
+    .modal-overlay.open .modal { transform: translateY(0); }
+
+    .modal-title {
+      font-size: 18px; font-weight: 700; text-align: center;
+    }
+    .modal-sub {
+      font-size: 13px; color: var(--sub);
+      text-align: center; margin-top: -6px; line-height: 1.5;
     }
 
-    /* ── Шапка ── */
+    .modal-row { display: flex; gap: 10px; }
+    .modal-row .btn-primary { flex: 1; }
+
+    .btn-cancel {
+      flex: 1; padding: 14px;
+      background: rgba(255,255,255,0.06);
+      color: var(--sub);
+      border: none; border-radius: var(--radius);
+      font-size: 15px; font-weight: 600;
+      cursor: pointer; transition: background 0.2s;
+    }
+    .btn-cancel:hover { background: rgba(255,255,255,0.1); }
+
+    .checkbox-row {
+      display: flex; align-items: center; gap: 10px;
+      cursor: pointer; user-select: none;
+    }
+    .checkbox-row input[type=checkbox] {
+      width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer;
+    }
+    .checkbox-row span { font-size: 14px; color: var(--sub); }
+
+    /* ════════════════════════════════════
+       ЭКРАН ЧАТА
+    ════════════════════════════════════ */
+    #screen-chat { flex-direction: column; }
+
     .tg-header {
       display: flex; align-items: center; gap: 12px;
       padding: 10px 14px;
@@ -149,59 +325,67 @@
       font-size: 15px; font-weight: 600;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .tg-header-sub { font-size: 12px; color: var(--sub); margin-top: 1px; }
+    .tg-header-sub  { font-size: 12px; color: var(--sub); margin-top: 1px; }
     .tg-header-sub .online { color: var(--green); }
 
-    .tg-header-btns { display: flex; gap: 4px; align-items: center; }
+    .tg-header-btns { display: flex; gap: 4px; }
 
-    #btn-chat-open {
-      position: relative;
-      width: 38px; height: 38px;
-      border: none; background: none; color: var(--sub);
-      font-size: 20px; border-radius: 50%; cursor: pointer;
-      display: none;
-      align-items: center; justify-content: center;
-      transition: background 0.15s, color 0.15s;
-    }
-    #btn-chat-open.visible { display: flex; }
-    #btn-chat-open:hover {
-      background: rgba(255,255,255,0.07); color: var(--text);
-    }
-
-    #chat-badge {
-      position: absolute; top: 2px; right: 2px;
-      background: var(--red); color: white;
-      font-size: 9px; font-weight: 700;
-      border-radius: 50%; min-width: 16px; height: 16px;
-      display: none;
-      align-items: center; justify-content: center; padding: 0 3px;
-    }
-    #chat-badge.visible { display: flex; }
-
-    #secure-badge { display: none; color: var(--green); font-size: 12px; }
-    #secure-badge.visible { display: inline; }
-
-    /* ── Reconnect ── */
     #reconnect-banner {
       display: none; padding: 7px;
       background: rgba(239,83,80,0.12);
       border-bottom: 1px solid rgba(239,83,80,0.2);
       font-size: 12px; color: #ff6b6b;
       text-align: center; flex-shrink: 0;
-      animation: pulse 1.5s infinite;
+      animation: blink 1.5s infinite;
     }
     #reconnect-banner.visible { display: block; }
-    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.5;} }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.5} }
 
-    /* ══════════════════════════
-       ОСНОВНАЯ ОБЛАСТЬ
-    ══════════════════════════ */
-    .main-body {
-      flex: 1;
-      display: flex;
+    /* ── Видео-секция ── */
+    #video-section {
+      display: none;
       flex-direction: column;
-      overflow: hidden;
+      background: #0d1520;
+      flex-shrink: 0;
+      max-height: 40vh;
+    }
+    #video-section.visible { display: flex; }
+
+    #video-grid {
+      display: flex; flex-wrap: wrap;
+      gap: 4px; padding: 6px;
+      justify-content: center;
+      overflow-y: auto; flex: 1;
+    }
+
+    .video-tile {
       position: relative;
+      background: #0a1018;
+      border-radius: 10px;
+      overflow: hidden;
+      flex: 1 1 140px; max-width: 280px;
+      min-height: 110px;
+    }
+    .video-tile video {
+      width: 100%; height: 100%;
+      object-fit: cover; display: block;
+    }
+    .video-tile-name {
+      position: absolute; bottom: 6px; left: 8px;
+      font-size: 11px; font-weight: 600;
+      color: white;
+      background: rgba(0,0,0,0.55);
+      padding: 2px 8px; border-radius: 8px;
+    }
+    .video-tile-muted {
+      position: absolute; top: 6px; right: 8px;
+      font-size: 14px;
+    }
+
+    /* ── Основная область ── */
+    .main-body {
+      flex: 1; display: flex;
+      flex-direction: column; overflow: hidden;
     }
 
     #chat-messages {
@@ -216,27 +400,17 @@
       background-size: 24px 24px;
     }
 
-    #chat-panel {
-      display: none !important;
-      width: 0; height: 0; overflow: hidden;
-    }
-
-    /* ── Голосовая панель ── */
+    /* ── Участники голосового ── */
     #participants {
       background: var(--surface);
       border-radius: 14px;
       padding: 12px 14px;
-      margin-bottom: 6px;
-      flex-shrink: 0;
-    }
-
-    .voice-panel-head {
-      display: flex; align-items: center;
-      margin-bottom: 10px;
+      margin-bottom: 6px; flex-shrink: 0;
     }
     .voice-panel-title {
       font-size: 11px; font-weight: 700;
-      color: var(--sub); text-transform: uppercase; letter-spacing: 0.6px;
+      color: var(--sub); text-transform: uppercase;
+      letter-spacing: 0.6px; margin-bottom: 10px;
     }
 
     .participant {
@@ -245,12 +419,10 @@
       border-bottom: 1px solid rgba(255,255,255,0.05);
     }
     .participant:last-child { border-bottom: none; }
-
     .participant-name {
       font-size: 13px; font-weight: 500; flex: 1;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-
     .volume-bar-wrap {
       width: 36px; height: 4px;
       background: rgba(255,255,255,0.08);
@@ -262,24 +434,6 @@
       transition: width 0.08s;
     }
     .volume-bar.loud { background: var(--red); }
-
-    .signal-wrap {
-      display: flex; align-items: flex-end; gap: 2px;
-      height: 14px; flex-shrink: 0;
-    }
-    .signal-wrap .bar {
-      width: 3px; border-radius: 1px;
-      background: rgba(255,255,255,0.1);
-      transition: background 0.4s;
-    }
-    .signal-wrap .bar:nth-child(1) { height: 4px;  }
-    .signal-wrap .bar:nth-child(2) { height: 7px;  }
-    .signal-wrap .bar:nth-child(3) { height: 10px; }
-    .signal-wrap .bar:nth-child(4) { height: 14px; }
-    .signal-excellent .bar              { background: var(--green); }
-    .signal-good .bar:nth-child(-n+3)   { background: #8bc34a; }
-    .signal-fair .bar:nth-child(-n+2)   { background: #ff9800; }
-    .signal-poor .bar:nth-child(1)      { background: var(--red); }
 
     .btn-understood {
       padding: 5px 11px;
@@ -294,7 +448,6 @@
     .btn-understood:hover    { background: rgba(76,175,80,0.22); }
     .btn-understood:disabled { opacity: 0.4; cursor: default; }
 
-    /* ── Разделитель дат ── */
     .date-divider {
       align-self: center;
       font-size: 11px; color: var(--sub);
@@ -303,13 +456,13 @@
       margin: 6px 0; flex-shrink: 0;
     }
 
-    /* ── Пузыри ── */
+    /* ── Сообщения ── */
     .msg {
       max-width: 78%; padding: 8px 12px 6px;
       border-radius: 14px; font-size: 14px;
       line-height: 1.5; word-break: break-word; position: relative;
     }
-    .msg.mine {
+    .msg.mine   {
       align-self: flex-end;
       background: var(--bubble-me);
       border-bottom-right-radius: 3px;
@@ -319,22 +472,18 @@
       background: var(--bubble-in);
       border-bottom-left-radius: 3px;
     }
-
     .msg.mine::after {
-      content: '';
-      position: absolute; bottom: 0; right: -7px;
-      border: 7px solid transparent;
+      content:''; position:absolute; bottom:0; right:-7px;
+      border:7px solid transparent;
       border-bottom-color: var(--bubble-me);
-      border-right: 0; border-top: 0;
+      border-right:0; border-top:0;
     }
     .msg.theirs::before {
-      content: '';
-      position: absolute; bottom: 0; left: -7px;
-      border: 7px solid transparent;
+      content:''; position:absolute; bottom:0; left:-7px;
+      border:7px solid transparent;
       border-bottom-color: var(--bubble-in);
-      border-left: 0; border-top: 0;
+      border-left:0; border-top:0;
     }
-
     .msg-sender {
       font-size: 11px; font-weight: 600;
       color: var(--accent2); margin-bottom: 3px;
@@ -344,37 +493,35 @@
       text-align: right; margin-top: 4px;
     }
     .msg-content { word-break: break-word; }
-    .msg-decrypt-status {
-      font-size: 10px; color: rgba(255,255,255,0.3); margin-top: 2px;
-    }
+    .msg-decrypt-status { font-size:10px; color:rgba(255,255,255,.3); margin-top:2px; }
     .msg-decrypt-status.ok  { color: rgba(100,181,246,0.55); }
     .msg-decrypt-status.err { color: var(--red); }
 
     .msg-media {
-      max-width: 100%; border-radius: 10px;
-      cursor: pointer; display: block; margin-bottom: 3px;
+      max-width:100%; border-radius:10px;
+      cursor:pointer; display:block; margin-bottom:3px;
     }
-    .msg video.msg-media { max-height: 220px; width: 100%; }
+    .msg video.msg-media { max-height:220px; width:100%; }
 
-    .msg-file { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
-    .msg-file-icon { font-size: 26px; }
-    .msg-file-info { flex: 1; min-width: 0; }
+    .msg-file { display:flex; align-items:center; gap:10px; padding:3px 0; }
+    .msg-file-icon { font-size:26px; }
+    .msg-file-info { flex:1; min-width:0; }
     .msg-file-name {
-      font-size: 13px; font-weight: 600;
-      overflow: hidden; text-overflow: ellipsis;
-      white-space: nowrap; max-width: 160px;
+      font-size:13px; font-weight:600;
+      overflow:hidden; text-overflow:ellipsis;
+      white-space:nowrap; max-width:160px;
     }
-    .msg-file-size { font-size: 11px; opacity: 0.5; margin-top: 1px; }
+    .msg-file-size { font-size:11px; opacity:.5; margin-top:1px; }
     .msg-file-dl {
-      font-size: 20px; cursor: pointer; padding: 6px;
-      text-decoration: none; border-radius: 50%;
-      transition: background 0.15s;
+      font-size:20px; cursor:pointer; padding:6px;
+      text-decoration:none; border-radius:50%;
+      transition:background 0.15s;
     }
-    .msg-file-dl:hover { background: rgba(255,255,255,0.08); }
+    .msg-file-dl:hover { background:rgba(255,255,255,.08); }
 
-    /* ══════════════════════════
-       НИЖНИЙ БАР
-    ══════════════════════════ */
+    /* ════════════════════════════════════
+       НИЖНИЙ БАР ЧАТА
+    ════════════════════════════════════ */
     .tg-bottom {
       background: var(--header);
       border-top: 1px solid var(--divider);
@@ -388,164 +535,224 @@
     }
 
     #btn-join {
-      flex: 1; padding: 9px 0;
-      border: none; border-radius: 22px;
-      font-size: 13px; font-weight: 600; cursor: pointer;
-      background: var(--accent); color: white;
-      transition: background 0.2s;
+      flex:1; padding:9px 0; border:none; border-radius:22px;
+      font-size:13px; font-weight:600; cursor:pointer;
+      background:var(--accent); color:white; transition:background 0.2s;
     }
-    #btn-join:hover { background: #4070a8; }
+    #btn-join:hover { background:#4070a8; }
 
     #btn-mic {
-      flex: 1; padding: 9px 0;
-      border: none; border-radius: 22px;
-      font-size: 13px; font-weight: 600; cursor: pointer;
-      background: rgba(255,255,255,0.07); color: var(--text);
-      transition: background 0.2s;
+      flex:1; padding:9px 0; border:none; border-radius:22px;
+      font-size:13px; font-weight:600; cursor:pointer;
+      background:rgba(255,255,255,.07); color:var(--text);
+      transition:background 0.2s;
     }
-    #btn-mic:hover { background: rgba(255,255,255,0.12); }
+    #btn-mic:hover { background:rgba(255,255,255,.12); }
 
     #btn-leave {
-      flex: 1; padding: 9px 0;
-      border: 1px solid rgba(239,83,80,0.3);
-      border-radius: 22px;
-      font-size: 13px; font-weight: 600; cursor: pointer;
-      background: rgba(239,83,80,0.13); color: var(--red);
-      transition: background 0.2s;
+      flex:1; padding:9px 0;
+      border:1px solid rgba(239,83,80,.3); border-radius:22px;
+      font-size:13px; font-weight:600; cursor:pointer;
+      background:rgba(239,83,80,.13); color:var(--red);
+      transition:background 0.2s;
     }
-    #btn-leave:hover { background: rgba(239,83,80,0.22); }
+    #btn-leave:hover { background:rgba(239,83,80,.22); }
 
-    .mic-status        { font-size: 11px; text-align: center; padding: 0 0 4px; display: none; }
-    .mic-status.active { display: block; color: var(--green); }
-    .mic-status.muted  { display: block; color: var(--red);   }
+    /* Кнопка видео */
+    #btn-video-call {
+      width:38px; height:38px; flex-shrink:0;
+      border:none; border-radius:50%;
+      background:rgba(255,255,255,.06); color:var(--sub);
+      font-size:18px; cursor:pointer;
+      display:flex; align-items:center; justify-content:center;
+      transition:background 0.15s, color 0.15s;
+    }
+    #btn-video-call:hover { background:rgba(255,255,255,.12); color:var(--text); }
+    #btn-video-call.active {
+      background:rgba(76,175,80,.2); color:var(--green);
+    }
 
-    /* ── Строка ввода ── */
+    .mic-status        { font-size:11px; text-align:center; padding:0 0 4px; display:none; }
+    .mic-status.active { display:block; color:var(--green); }
+    .mic-status.muted  { display:block; color:var(--red); }
+
     .tg-input-row {
-      display: flex; align-items: flex-end; gap: 6px;
-      padding: 6px 10px 8px; position: relative;
+      display:flex; align-items:flex-end; gap:6px;
+      padding:6px 10px 8px; position:relative;
     }
 
     .btn-attach-tg {
-      width: 38px; height: 38px; flex-shrink: 0;
-      border: none; background: none; color: var(--sub);
-      font-size: 22px; border-radius: 50%; cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      transition: color 0.15s;
+      width:38px; height:38px; flex-shrink:0;
+      border:none; background:none; color:var(--sub);
+      font-size:22px; border-radius:50%; cursor:pointer;
+      display:flex; align-items:center; justify-content:center;
+      transition:color 0.15s;
     }
-    .btn-attach-tg:hover { color: var(--accent2); }
+    .btn-attach-tg:hover { color:var(--accent2); }
 
     .attach-popup {
-      position: absolute; bottom: 58px; left: 10px;
-      background: var(--surface);
-      border-radius: 14px;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-      padding: 6px;
-      flex-direction: column; gap: 2px;
-      z-index: 200; min-width: 170px;
-      display: none;
+      position:absolute; bottom:58px; left:10px;
+      background:var(--surface);
+      border-radius:14px;
+      box-shadow:0 8px 32px rgba(0,0,0,.5);
+      padding:6px;
+      flex-direction:column; gap:2px;
+      z-index:200; min-width:170px;
+      display:none;
     }
-    .attach-popup.open { display: flex; }
+    .attach-popup.open { display:flex; }
 
     .attach-item {
-      display: flex; align-items: center; gap: 10px;
-      padding: 10px 14px; border-radius: 10px;
-      cursor: pointer; font-size: 14px; color: var(--text);
-      transition: background 0.15s;
-      border: none; background: none; width: 100%; text-align: left;
+      display:flex; align-items:center; gap:10px;
+      padding:10px 14px; border-radius:10px;
+      cursor:pointer; font-size:14px; color:var(--text);
+      transition:background 0.15s;
+      border:none; background:none; width:100%; text-align:left;
     }
-    .attach-item:hover { background: rgba(255,255,255,0.06); }
-    .attach-item-icon  { font-size: 20px; width: 24px; text-align: center; }
+    .attach-item:hover { background:rgba(255,255,255,.06); }
+    .attach-item-icon  { font-size:20px; width:24px; text-align:center; }
 
     #chat-input {
-      flex: 1; padding: 10px 14px;
-      background: var(--surface);
-      border: none; border-radius: 22px;
-      color: var(--text); font-size: 14px; font-family: inherit;
-      resize: none; outline: none;
-      min-height: 38px; max-height: 120px; line-height: 1.45;
-      transition: background 0.2s;
+      flex:1; padding:10px 14px;
+      background:var(--surface);
+      border:none; border-radius:22px;
+      color:var(--text); font-size:14px;
+      resize:none; outline:none;
+      min-height:38px; max-height:120px; line-height:1.45;
+      transition:background 0.2s;
     }
-    #chat-input::placeholder { color: var(--sub); }
-    #chat-input:focus { background: #2a3a4e; }
+    #chat-input::placeholder { color:var(--sub); }
+    #chat-input:focus { background:#2a3a4e; }
 
     #btn-send {
-      width: 38px; height: 38px; flex-shrink: 0;
-      border: none; border-radius: 50%;
-      background: var(--accent); color: white;
-      cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      transition: background 0.2s, transform 0.1s;
+      width:38px; height:38px; flex-shrink:0;
+      border:none; border-radius:50%;
+      background:var(--accent); color:white; cursor:pointer;
+      display:flex; align-items:center; justify-content:center;
+      transition:background 0.2s, transform 0.1s;
     }
-    #btn-send:hover    { background: #4070a8; }
-    #btn-send:active   { transform: scale(0.92); }
-    #btn-send:disabled { background: #2a3a4e; cursor: not-allowed; }
+    #btn-send:hover   { background:#4070a8; }
+    #btn-send:active  { transform:scale(.92); }
+    #btn-send:disabled{ background:#2a3a4e; cursor:not-allowed; }
 
     /* ── Баннер "Понял" ── */
     .understood-banner {
-      position: fixed; top: 68px; left: 50%;
-      transform: translateX(-50%);
-      background: rgba(27,80,32,0.95);
-      backdrop-filter: blur(10px);
-      color: white; padding: 10px 24px;
-      border-radius: 20px; font-size: 14px; font-weight: 600;
-      z-index: 9999; pointer-events: none;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-      white-space: nowrap;
-      animation: understoodAnim 3s ease forwards;
+      position:fixed; top:68px; left:50%;
+      transform:translateX(-50%);
+      background:rgba(27,80,32,.95);
+      backdrop-filter:blur(10px);
+      color:white; padding:10px 24px;
+      border-radius:20px; font-size:14px; font-weight:600;
+      z-index:9999; pointer-events:none;
+      box-shadow:0 4px 20px rgba(0,0,0,.5);
+      white-space:nowrap;
+      animation:understoodAnim 3s ease forwards;
     }
     @keyframes understoodAnim {
-      0%   { opacity:0; transform:translateX(-50%) translateY(-10px); }
-      12%  { opacity:1; transform:translateX(-50%) translateY(0); }
-      80%  { opacity:1; }
-      100% { opacity:0; transform:translateX(-50%) translateY(-6px); }
+      0%  { opacity:0; transform:translateX(-50%) translateY(-10px); }
+      12% { opacity:1; transform:translateX(-50%) translateY(0); }
+      80% { opacity:1; }
+      100%{ opacity:0; transform:translateX(-50%) translateY(-6px); }
+    }
+
+    /* ── Toast ── */
+    .toast {
+      position:fixed; bottom:90px; left:50%;
+      transform:translateX(-50%);
+      background:rgba(30,40,55,.97);
+      border:1px solid rgba(255,255,255,.08);
+      color:var(--text); padding:10px 20px;
+      border-radius:20px; font-size:13px;
+      z-index:9999; pointer-events:none;
+      white-space:nowrap;
+      animation:toastAnim 2.5s ease forwards;
+    }
+    @keyframes toastAnim {
+      0%  { opacity:0; transform:translateX(-50%) translateY(10px); }
+      15% { opacity:1; transform:translateX(-50%) translateY(0); }
+      75% { opacity:1; }
+      100%{ opacity:0; }
     }
 
     /* ── Lightbox ── */
     #lightbox {
-      display: none; position: fixed; inset: 0;
-      background: rgba(0,0,0,0.95); z-index: 3000;
-      align-items: center; justify-content: center;
+      display:none; position:fixed; inset:0;
+      background:rgba(0,0,0,.95); z-index:3000;
+      align-items:center; justify-content:center;
     }
-    #lightbox.open { display: flex; }
+    #lightbox.open { display:flex; }
     #lightbox img, #lightbox video {
-      max-width: 96vw; max-height: 88vh;
-      border-radius: 6px; object-fit: contain;
+      max-width:96vw; max-height:88vh;
+      border-radius:6px; object-fit:contain;
     }
     #lightbox-close {
-      position: absolute; top: 14px; right: 18px;
-      font-size: 30px; color: rgba(255,255,255,0.65);
-      cursor: pointer; z-index: 1;
+      position:absolute; top:14px; right:18px;
+      font-size:30px; color:rgba(255,255,255,.65);
+      cursor:pointer; z-index:1;
     }
-    #lightbox-close:hover { color: white; }
+    #lightbox-close:hover { color:white; }
 
-    ::-webkit-scrollbar { width: 3px; }
+    ::-webkit-scrollbar { width:3px; }
     ::-webkit-scrollbar-thumb {
-      background: rgba(255,255,255,0.08); border-radius: 2px;
+      background:rgba(255,255,255,.08); border-radius:2px;
     }
-
-    #keep-alive-audio, #hidden-audios, #file-input { display: none; }
   </style>
 </head>
 <body>
 
-<!-- ══════════════════════════════
-     ЭКРАН ПАРОЛЯ
-══════════════════════════════ -->
-<div id="screen-password">
-  <div class="login-card">
-    <div class="login-icon">🔐</div>
-    <div class="login-title">Приватный чат</div>
-    <div class="login-sub">Сквозное шифрование · Нет логов · Нет следов</div>
+<!-- ════════════════════════════════════
+     ЭКРАН АВТОРИЗАЦИИ
+════════════════════════════════════ -->
+<div id="screen-auth" class="screen">
+  <div class="auth-card">
+    <div class="auth-logo">🔐</div>
+    <div class="auth-title">Приватный чат</div>
+    <div class="auth-sub">Сквозное шифрование · Нет логов · Нет следов</div>
 
-    <div class="pw-wrap">
-      <input type="password" id="pw-input"
-             placeholder="Введи пароль…"
-             autocomplete="current-password" maxlength="64"/>
-      <button class="toggle-pw" id="btn-toggle-pw" type="button">👁</button>
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="tab-login"  onclick="switchTab('login')">Войти</button>
+      <button class="auth-tab"        id="tab-reg"    onclick="switchTab('reg')">Регистрация</button>
     </div>
-    <div class="pw-error" id="pw-error"></div>
 
-    <button id="btn-enter">🔑 Войти</button>
+    <!-- Форма входа -->
+    <form class="auth-form" id="form-login" onsubmit="doLogin(event)">
+      <input class="field" id="login-username"
+             type="text" placeholder="Имя пользователя"
+             autocomplete="username" maxlength="24"/>
+      <div class="pw-wrap">
+        <input class="field" id="login-password"
+               type="password" placeholder="Пароль"
+               autocomplete="current-password" maxlength="64"/>
+        <button type="button" class="toggle-pw"
+                onclick="togglePw('login-password',this)">👁</button>
+      </div>
+      <div class="error-msg" id="login-error"></div>
+      <button class="btn-primary" type="submit" id="btn-login">🔑 Войти</button>
+    </form>
+
+    <!-- Форма регистрации -->
+    <form class="auth-form" id="form-reg" style="display:none"
+          onsubmit="doRegister(event)">
+      <input class="field" id="reg-username"
+             type="text" placeholder="Придумай имя (2–24 символа)"
+             autocomplete="username" maxlength="24"/>
+      <div class="pw-wrap">
+        <input class="field" id="reg-password"
+               type="password" placeholder="Пароль (мин. 4 символа)"
+               autocomplete="new-password" maxlength="64"/>
+        <button type="button" class="toggle-pw"
+                onclick="togglePw('reg-password',this)">👁</button>
+      </div>
+      <div class="pw-wrap">
+        <input class="field" id="reg-password2"
+               type="password" placeholder="Повтори пароль"
+               autocomplete="new-password" maxlength="64"/>
+        <button type="button" class="toggle-pw"
+                onclick="togglePw('reg-password2',this)">👁</button>
+      </div>
+      <div class="error-msg" id="reg-error"></div>
+      <button class="btn-primary" type="submit" id="btn-reg">✅ Зарегистрироваться</button>
+    </form>
 
     <div class="e2e-note">
       <b>🔒 AES-256-GCM</b> · Ключ не покидает устройство<br>
@@ -554,66 +761,147 @@
   </div>
 </div>
 
-<!-- ══════════════════════════════
-     ГЛАВНЫЙ ЭКРАН
-══════════════════════════════ -->
-<div id="screen-main">
+<!-- ════════════════════════════════════
+     ЭКРАН КОМНАТ
+════════════════════════════════════ -->
+<div id="screen-rooms" class="screen hidden">
 
-  <!-- Шапка -->
-  <div class="tg-header">
-    <div class="tg-avatar">🔐</div>
-    <div class="tg-header-info">
-      <div class="tg-header-name">Приватный чат</div>
-      <div class="tg-header-sub">
-        <span id="secure-badge">🔒 E2E · </span>
-        <span class="online"><span id="user-count">0</span> онлайн</span>
-      </div>
-    </div>
-    <div class="tg-header-btns">
-      <button id="btn-chat-open" title="Чат">
-        💬
-        <span id="chat-badge">0</span>
+  <div class="rooms-header">
+    <div class="rooms-header-title">💬 Комнаты</div>
+    <div class="rooms-header-user" id="header-username"></div>
+    <button class="icon-btn" title="Создать комнату"
+            onclick="openCreateRoom()">➕</button>
+    <button class="icon-btn" title="Выйти из аккаунта"
+            onclick="doLogout()">🚪</button>
+  </div>
+
+  <div class="rooms-search">
+    <input type="text" placeholder="🔍 Поиск комнат…"
+           id="rooms-search-input" oninput="filterRooms()"/>
+  </div>
+
+  <div class="rooms-list" id="rooms-list">
+    <div class="rooms-empty" id="rooms-empty" style="display:none">
+      <div class="rooms-empty-icon">🏠</div>
+      <div>Комнат пока нет</div>
+      <button class="btn-ghost" onclick="openCreateRoom()">
+        Создать первую комнату
       </button>
     </div>
   </div>
 
-  <!-- Reconnect banner -->
+</div>
+
+<!-- ════════════════════════════════════
+     МОДАЛКА — Создать комнату
+════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-create">
+  <div class="modal">
+    <div class="modal-title">🏠 Новая комната</div>
+    <div class="modal-sub">Придумай название и при желании защити паролем</div>
+    <input class="field" id="create-room-name"
+           type="text" placeholder="Название комнаты" maxlength="32"/>
+    <label class="checkbox-row" id="create-pw-toggle-row">
+      <input type="checkbox" id="create-pw-check"
+             onchange="toggleCreatePw()"/>
+      <span>🔒 Защитить паролем</span>
+    </label>
+    <div class="pw-wrap" id="create-pw-wrap" style="display:none">
+      <input class="field" id="create-room-pw"
+             type="password" placeholder="Пароль комнаты" maxlength="64"/>
+      <button type="button" class="toggle-pw"
+              onclick="togglePw('create-room-pw',this)">👁</button>
+    </div>
+    <div class="error-msg" id="create-room-error"></div>
+    <div class="modal-row">
+      <button class="btn-cancel" onclick="closeModal('modal-create')">Отмена</button>
+      <button class="btn-primary" onclick="doCreateRoom()">Создать</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════
+     МОДАЛКА — Пароль комнаты
+════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-room-pw">
+  <div class="modal">
+    <div class="modal-title">🔒 Введи пароль</div>
+    <div class="modal-sub" id="modal-room-pw-name"></div>
+    <div class="pw-wrap">
+      <input class="field" id="room-pw-input"
+             type="password" placeholder="Пароль комнаты" maxlength="64"/>
+      <button type="button" class="toggle-pw"
+              onclick="togglePw('room-pw-input',this)">👁</button>
+    </div>
+    <div class="error-msg" id="room-pw-error"></div>
+    <div class="modal-row">
+      <button class="btn-cancel" onclick="closeModal('modal-room-pw')">Отмена</button>
+      <button class="btn-primary" id="btn-room-pw-enter"
+              onclick="doRoomPwEnter()">Войти</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════
+     ЭКРАН ЧАТА
+════════════════════════════════════ -->
+<div id="screen-chat" class="screen hidden">
+
+  <!-- Шапка -->
+  <div class="tg-header">
+    <button class="icon-btn" style="margin-left:-6px"
+            onclick="leaveRoom()">←</button>
+    <div class="tg-avatar" id="chat-room-avatar">💬</div>
+    <div class="tg-header-info">
+      <div class="tg-header-name" id="chat-room-name">Комната</div>
+      <div class="tg-header-sub">
+        🔒 E2E ·
+        <span class="online">
+          <span id="user-count">0</span> онлайн
+        </span>
+      </div>
+    </div>
+    <div class="tg-header-btns">
+      <button class="icon-btn" id="btn-video-call"
+              title="Видеозвонок" onclick="toggleVideoCall()">📹</button>
+    </div>
+  </div>
+
+  <!-- Reconnect -->
   <div id="reconnect-banner">🔄 Переподключаемся…</div>
+
+  <!-- Видео -->
+  <div id="video-section">
+    <div id="video-grid"></div>
+  </div>
 
   <!-- Основная область -->
   <div class="main-body">
-
-    <!-- Лента сообщений -->
     <div id="chat-messages">
 
       <!-- Голосовая панель -->
       <div id="participants" style="display:none">
-        <div class="voice-panel-head">
-          <div class="voice-panel-title">🎙 Голосовой чат</div>
-        </div>
+        <div class="voice-panel-title">🎙 Голосовой чат</div>
         <div id="participants-list"></div>
       </div>
 
-      <!-- Приветствие -->
       <div class="date-divider">Начало чата</div>
-      <div style="align-self:center; text-align:center; color:var(--sub);
-                  font-size:12px; background:rgba(23,33,43,0.85);
-                  padding:10px 18px; border-radius:12px;
-                  max-width:280px; line-height:1.65; margin:4px 0 8px;">
+      <div style="align-self:center;text-align:center;color:var(--sub);
+                  font-size:12px;background:rgba(23,33,43,.85);
+                  padding:10px 18px;border-radius:12px;
+                  max-width:280px;line-height:1.65;margin:4px 0 8px">
         🔒 Все сообщения зашифрованы.<br>
         Сервер видит только случайный набор символов.
       </div>
 
     </div>
 
-    <!-- chat-panel — только для совместимости с app.js -->
-    <div id="chat-panel"></div>
-
-  </div><!-- /main-body -->
+    <!-- chat-panel для совместимости с app.js -->
+    <div id="chat-panel" style="display:none;width:0;height:0;overflow:hidden"></div>
+  </div>
 
   <!-- Нижний бар -->
   <div class="tg-bottom">
-
     <div class="voice-bar">
       <button id="btn-join">🎙 Войти в голосовой</button>
       <button id="btn-mic"   style="display:none">🔇 Выкл. микрофон</button>
@@ -636,9 +924,11 @@
         </button>
       </div>
 
-      <button class="btn-attach-tg" id="btn-attach-toggle" title="Прикрепить">📎</button>
+      <button class="btn-attach-tg" id="btn-attach-toggle"
+              title="Прикрепить">📎</button>
 
-      <textarea id="chat-input" placeholder="Сообщение…" rows="1"></textarea>
+      <textarea id="chat-input"
+                placeholder="Сообщение…" rows="1"></textarea>
 
       <button id="btn-send">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
@@ -646,14 +936,16 @@
         </svg>
       </button>
 
-    </div><!-- /tg-input-row -->
+    </div>
+  </div>
 
-  </div><!-- /tg-bottom -->
+</div><!-- /screen-chat -->
 
-</div><!-- /screen-main -->
-
-<!-- Скрытые элементы для совместимости с app.js -->
-<div id="btn-close-chat" style="display:none"></div>
+<!-- Скрытые элементы -->
+<div id="btn-close-chat"  style="display:none"></div>
+<div id="secure-badge"    style="display:none"></div>
+<div id="chat-badge"      style="display:none"></div>
+<div id="btn-chat-open"   style="display:none"></div>
 
 <!-- Lightbox -->
 <div id="lightbox">
@@ -665,33 +957,612 @@
 <audio id="keep-alive-audio" loop playsinline></audio>
 <div id="hidden-audios"></div>
 
+<!-- ════════════════════════════════════
+     СКРИПТЫ
+════════════════════════════════════ -->
 <script src="/socket.io/socket.io.js"></script>
-<script src="editor.js"></script>
 <script src="app.js"></script>
 
 <script>
-  // ── Попап прикрепления ──
-  const attachToggle = document.getElementById('btn-attach-toggle');
-  const attachPopup  = document.getElementById('attach-popup');
+/* ══════════════════════════════════════════════════════
+   СОСТОЯНИЕ
+══════════════════════════════════════════════════════ */
+let currentUser  = null;   // { username, token }
+let currentRoom  = null;   // { id, name }
+let pendingRoom  = null;   // комната ожидающая ввода пароля
+let allRooms     = [];
 
-  attachToggle.addEventListener('click', (e) => {
-    e.stopPropagation();
-    attachPopup.classList.toggle('open');
+/* ══════════════════════════════════════════════════════
+   УТИЛИТЫ
+══════════════════════════════════════════════════════ */
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
+  document.getElementById(id).classList.remove('hidden');
+}
+
+function openModal(id) {
+  document.getElementById(id).classList.add('open');
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+
+function toast(msg) {
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2600);
+}
+
+function setError(id, msg) {
+  document.getElementById(id).textContent = msg;
+}
+
+function clearError(id) {
+  document.getElementById(id).textContent = '';
+}
+
+function togglePw(inputId, btn) {
+  const inp = document.getElementById(inputId);
+  if (inp.type === 'password') { inp.type = 'text';     btn.textContent = '🙈'; }
+  else                         { inp.type = 'password'; btn.textContent = '👁';  }
+}
+
+function switchTab(tab) {
+  const isLogin = tab === 'login';
+  document.getElementById('tab-login').classList.toggle('active',  isLogin);
+  document.getElementById('tab-reg').classList.toggle('active',   !isLogin);
+  document.getElementById('form-login').style.display = isLogin ? '' : 'none';
+  document.getElementById('form-reg').style.display   = isLogin ? 'none' : '';
+  clearError('login-error');
+  clearError('reg-error');
+}
+
+/* ══════════════════════════════════════════════════════
+   АВТОРИЗАЦИЯ
+══════════════════════════════════════════════════════ */
+async function doLogin(e) {
+  e.preventDefault();
+  const username = document.getElementById('login-username').value.trim();
+  const password = document.getElementById('login-password').value;
+  clearError('login-error');
+
+  if (!username || !password) {
+    setError('login-error', 'Заполни все поля'); return;
+  }
+
+  const btn = document.getElementById('btn-login');
+  btn.disabled = true; btn.textContent = 'Входим…';
+
+  try {
+    const r = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await r.json();
+    if (data.ok) {
+      saveSession(data.token, data.username);
+      enterApp(data.token, data.username);
+    } else {
+      const msgs = {
+        wrong_credentials: 'Неверное имя или пароль',
+        missing_fields:    'Заполни все поля'
+      };
+      setError('login-error', msgs[data.error] || 'Ошибка входа');
+      document.getElementById('login-password').classList.add('error');
+      setTimeout(() =>
+        document.getElementById('login-password').classList.remove('error'), 600);
+    }
+  } catch {
+    setError('login-error', 'Ошибка сети');
+  } finally {
+    btn.disabled = false; btn.textContent = '🔑 Войти';
+  }
+}
+
+async function doRegister(e) {
+  e.preventDefault();
+  const username  = document.getElementById('reg-username').value.trim();
+  const password  = document.getElementById('reg-password').value;
+  const password2 = document.getElementById('reg-password2').value;
+  clearError('reg-error');
+
+  if (!username || !password) {
+    setError('reg-error', 'Заполни все поля'); return;
+  }
+  if (password !== password2) {
+    setError('reg-error', 'Пароли не совпадают'); return;
+  }
+  if (password.length < 4) {
+    setError('reg-error', 'Пароль минимум 4 символа'); return;
+  }
+
+  const btn = document.getElementById('btn-reg');
+  btn.disabled = true; btn.textContent = 'Создаём…';
+
+  try {
+    const r = await fetch('/api/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await r.json();
+    if (data.ok) {
+      saveSession(data.token, data.username);
+      enterApp(data.token, data.username);
+    } else {
+      const msgs = {
+        username_taken:  'Имя уже занято',
+        username_length: 'Имя: 2–24 символа',
+        password_short:  'Пароль минимум 4 символа',
+        missing_fields:  'Заполни все поля'
+      };
+      setError('reg-error', msgs[data.error] || 'Ошибка регистрации');
+    }
+  } catch {
+    setError('reg-error', 'Ошибка сети');
+  } finally {
+    btn.disabled = false; btn.textContent = '✅ Зарегистрироваться';
+  }
+}
+
+function saveSession(token, username) {
+  localStorage.setItem('chat_token',    token);
+  localStorage.setItem('chat_username', username);
+}
+
+function doLogout() {
+  localStorage.removeItem('chat_token');
+  localStorage.removeItem('chat_username');
+  currentUser = null;
+  showScreen('screen-auth');
+}
+
+function enterApp(token, username) {
+  currentUser = { token, username };
+  document.getElementById('header-username').textContent = '👤 ' + username;
+  showScreen('screen-rooms');
+  loadRooms();
+}
+
+/* ══════════════════════════════════════════════════════
+   АВТОВХОД ПО СОХРАНЁННОЙ СЕССИИ
+══════════════════════════════════════════════════════ */
+async function tryAutoLogin() {
+  const token    = localStorage.getItem('chat_token');
+  const username = localStorage.getItem('chat_username');
+  if (!token) return;
+
+  try {
+    const r    = await fetch('/api/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token })
+    });
+    const data = await r.json();
+    if (data.ok) {
+      enterApp(token, data.username);
+    } else {
+      localStorage.removeItem('chat_token');
+      localStorage.removeItem('chat_username');
+    }
+  } catch {
+    // нет сети — показываем форму
+  }
+}
+
+/* ══════════════════════════════════════════════════════
+   КОМНАТЫ
+══════════════════════════════════════════════════════ */
+async function loadRooms() {
+  try {
+    const r = await fetch('/api/rooms', {
+      headers: { 'Authorization': 'Bearer ' + currentUser.token }
+    });
+    const data = await r.json();
+    if (data.ok) {
+      allRooms = data.rooms;
+      renderRooms(allRooms);
+    }
+  } catch {
+    toast('Ошибка загрузки комнат');
+  }
+}
+
+function renderRooms(rooms) {
+  const list  = document.getElementById('rooms-list');
+  const empty = document.getElementById('rooms-empty');
+
+  // Удаляем старые айтемы, оставляем #rooms-empty
+  list.querySelectorAll('.room-item').forEach(el => el.remove());
+
+  if (rooms.length === 0) {
+    empty.style.display = 'flex';
+    return;
+  }
+  empty.style.display = 'none';
+
+  rooms.forEach(room => {
+    const el = document.createElement('div');
+    el.className = 'room-item';
+    el.innerHTML = `
+      <div class="room-avatar">💬</div>
+      <div class="room-info">
+        <div class="room-name">${escHtml(room.name)}</div>
+        <div class="room-meta">
+          Создал ${escHtml(room.owner)}
+          ${room.has_password ? ' · 🔒 Пароль' : ''}
+        </div>
+      </div>
+      ${room.has_password ? '<div class="room-lock">🔒</div>' : ''}
+    `;
+    el.onclick = () => selectRoom(room);
+    list.appendChild(el);
+  });
+}
+
+function filterRooms() {
+  const q = document.getElementById('rooms-search-input').value.toLowerCase();
+  renderRooms(allRooms.filter(r => r.name.toLowerCase().includes(q)));
+}
+
+function selectRoom(room) {
+  if (room.has_password) {
+    pendingRoom = room;
+    document.getElementById('modal-room-pw-name').textContent =
+      '🏠 ' + room.name;
+    document.getElementById('room-pw-input').value = '';
+    clearError('room-pw-error');
+    openModal('modal-room-pw');
+  } else {
+    joinRoom(room, null);
+  }
+}
+
+async function doRoomPwEnter() {
+  const pw  = document.getElementById('room-pw-input').value;
+  const btn = document.getElementById('btn-room-pw-enter');
+  clearError('room-pw-error');
+
+  if (!pw) { setError('room-pw-error', 'Введи пароль'); return; }
+
+  btn.disabled = true; btn.textContent = 'Проверяем…';
+  try {
+    const r = await fetch(`/api/rooms/${pendingRoom.id}/join`, {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': 'Bearer ' + currentUser.token
+      },
+      body: JSON.stringify({ password: pw })
+    });
+    const data = await r.json();
+    if (data.ok) {
+      closeModal('modal-room-pw');
+      joinRoom(pendingRoom, pw);
+    } else {
+      setError('room-pw-error', 'Неверный пароль');
+      document.getElementById('room-pw-input').classList.add('error');
+      setTimeout(() =>
+        document.getElementById('room-pw-input').classList.remove('error'), 600);
+    }
+  } catch {
+    setError('room-pw-error', 'Ошибка сети');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Войти';
+  }
+}
+
+function joinRoom(room, password) {
+  currentRoom = room;
+  document.getElementById('chat-room-name').textContent = room.name;
+  showScreen('screen-chat');
+
+  // Подключаем socket с токеном и roomId
+  if (typeof initSocket === 'function') {
+    initSocket(currentUser.token, room.id, currentUser.username);
+  }
+}
+
+function leaveRoom() {
+  if (typeof socketLeave === 'function') socketLeave();
+  currentRoom = null;
+  showScreen('screen-rooms');
+  loadRooms();
+}
+
+/* ══════════════════════════════════════════════════════
+   СОЗДАТЬ КОМНАТУ
+══════════════════════════════════════════════════════ */
+function openCreateRoom() {
+  document.getElementById('create-room-name').value = '';
+  document.getElementById('create-room-pw').value   = '';
+  document.getElementById('create-pw-check').checked = false;
+  document.getElementById('create-pw-wrap').style.display = 'none';
+  clearError('create-room-error');
+  openModal('modal-create');
+}
+
+function toggleCreatePw() {
+  const checked = document.getElementById('create-pw-check').checked;
+  document.getElementById('create-pw-wrap').style.display = checked ? '' : 'none';
+}
+
+async function doCreateRoom() {
+  const name     = document.getElementById('create-room-name').value.trim();
+  const hasPw    = document.getElementById('create-pw-check').checked;
+  const password = hasPw
+    ? document.getElementById('create-room-pw').value
+    : null;
+
+  clearError('create-room-error');
+
+  if (!name) { setError('create-room-error', 'Введи название'); return; }
+  if (hasPw && !password) {
+    setError('create-room-error', 'Введи пароль'); return;
+  }
+
+  try {
+    const r = await fetch('/api/rooms', {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': 'Bearer ' + currentUser.token
+      },
+      body: JSON.stringify({ name, password })
+    });
+    const data = await r.json();
+    if (data.ok) {
+      closeModal('modal-create');
+      toast('✅ Комната создана');
+      await loadRooms();
+    } else {
+      const msgs = {
+        room_exists:  'Комната с таким именем уже есть',
+        invalid_name: 'Название: 2–32 символа'
+      };
+      setError('create-room-error', msgs[data.error] || 'Ошибка создания');
+    }
+  } catch {
+    setError('create-room-error', 'Ошибка сети');
+  }
+}
+
+/* ══════════════════════════════════════════════════════
+   ВИДЕОЧАТ
+══════════════════════════════════════════════════════ */
+let localStream      = null;
+let videoActive      = false;
+const videoPeers     = new Map();  // socketId → RTCPeerConnection
+
+async function toggleVideoCall() {
+  if (!videoActive) {
+    await startVideo();
+  } else {
+    stopVideo();
+  }
+}
+
+async function startVideo() {
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+      audio: true
+    });
+    videoActive = true;
+
+    document.getElementById('btn-video-call').classList.add('active');
+    document.getElementById('video-section').classList.add('visible');
+
+    addVideoTile('local', localStream, currentUser.username, true);
+
+    // Сообщаем остальным
+    if (window._socket) {
+      window._socket.emit('video-start');
+    }
+
+    // Создаём соединения со всеми кто уже в комнате
+    if (window._roomPeers) {
+      for (const peerId of window._roomPeers) {
+        await createVideoPeer(peerId, true);
+      }
+    }
+  } catch (err) {
+    toast('❌ Нет доступа к камере: ' + err.message);
+  }
+}
+
+function stopVideo() {
+  videoActive = false;
+
+  if (localStream) {
+    localStream.getTracks().forEach(t => t.stop());
+    localStream = null;
+  }
+
+  videoPeers.forEach(pc => pc.close());
+  videoPeers.clear();
+
+  document.getElementById('video-grid').innerHTML = '';
+  document.getElementById('video-section').classList.remove('visible');
+  document.getElementById('btn-video-call').classList.remove('active');
+
+  if (window._socket) {
+    window._socket.emit('video-stop');
+  }
+}
+
+function addVideoTile(id, stream, label, muted) {
+  removeVideoTile(id);
+  const grid = document.getElementById('video-grid');
+  const tile = document.createElement('div');
+  tile.className   = 'video-tile';
+  tile.id          = 'vtile-' + id;
+
+  const vid = document.createElement('video');
+  vid.autoplay   = true;
+  vid.playsinline = true;
+  vid.muted      = !!muted;
+  vid.srcObject  = stream;
+
+  const name = document.createElement('div');
+  name.className   = 'video-tile-name';
+  name.textContent = label;
+
+  tile.appendChild(vid);
+  tile.appendChild(name);
+  grid.appendChild(tile);
+}
+
+function removeVideoTile(id) {
+  document.getElementById('vtile-' + id)?.remove();
+}
+
+async function createVideoPeer(peerId, isInitiator) {
+  const pc = new RTCPeerConnection({
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' }
+    ]
   });
 
-  document.addEventListener('click', () => {
+  videoPeers.set(peerId, pc);
+
+  if (localStream) {
+    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+  }
+
+  pc.ontrack = (e) => {
+    const label = window._peerNames?.get(peerId) || peerId.slice(0,6);
+    addVideoTile(peerId, e.streams[0], label, false);
+  };
+
+  pc.onicecandidate = (e) => {
+    if (e.candidate && window._socket) {
+      window._socket.emit('video-ice', { to: peerId, candidate: e.candidate });
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    if (['disconnected','failed','closed'].includes(pc.connectionState)) {
+      removeVideoTile(peerId);
+      videoPeers.delete(peerId);
+    }
+  };
+
+  if (isInitiator) {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    window._socket?.emit('video-offer', { to: peerId, offer });
+  }
+
+  return pc;
+}
+
+/* ══════════════════════════════════════════════════════
+   ВИДЕО-СОБЫТИЯ от сервера (вызываются из app.js)
+══════════════════════════════════════════════════════ */
+window.onVideoStart = async function(socketId, username) {
+  if (!videoActive) return;
+  await createVideoPeer(socketId, false);
+};
+
+window.onVideoStop = function(socketId) {
+  const pc = videoPeers.get(socketId);
+  if (pc) { pc.close(); videoPeers.delete(socketId); }
+  removeVideoTile(socketId);
+};
+
+window.onVideoOffer = async function(socketId, offer) {
+  let pc = videoPeers.get(socketId);
+  if (!pc) {
+    pc = await createVideoPeer(socketId, false);
+  }
+  await pc.setRemoteDescription(new RTCSessionDescription(offer));
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  window._socket?.emit('video-answer', { to: socketId, answer });
+};
+
+window.onVideoAnswer = async function(socketId, answer) {
+  const pc = videoPeers.get(socketId);
+  if (pc) {
+    await pc.setRemoteDescription(new RTCSessionDescription(answer));
+  }
+};
+
+window.onVideoIce = async function(socketId, candidate) {
+  const pc = videoPeers.get(socketId);
+  if (pc) {
+    try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
+  }
+};
+
+/* ══════════════════════════════════════════════════════
+   ПОПАП ПРИКРЕПЛЕНИЯ
+══════════════════════════════════════════════════════ */
+const attachToggle = document.getElementById('btn-attach-toggle');
+const attachPopup  = document.getElementById('attach-popup');
+
+attachToggle.addEventListener('click', (e) => {
+  e.stopPropagation();
+  attachPopup.classList.toggle('open');
+});
+
+document.addEventListener('click', () => {
+  attachPopup.classList.remove('open');
+});
+
+attachPopup.addEventListener('click', (e) => e.stopPropagation());
+
+['btn-photo','btn-video','btn-file'].forEach(id => {
+  document.getElementById(id)?.addEventListener('click', () => {
     attachPopup.classList.remove('open');
   });
+});
 
-  attachPopup.addEventListener('click', (e) => {
-    e.stopPropagation();
+/* ══════════════════════════════════════════════════════
+   ЗАКРЫТИЕ МОДАЛОК ПО ОВЕРЛЕЮ
+══════════════════════════════════════════════════════ */
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.classList.remove('open');
   });
+});
 
-  ['btn-photo', 'btn-video', 'btn-file'].forEach(id => {
-    document.getElementById(id)?.addEventListener('click', () => {
-      attachPopup.classList.remove('open');
-    });
-  });
+/* ══════════════════════════════════════════════════════
+   LIGHTBOX
+══════════════════════════════════════════════════════ */
+document.getElementById('lightbox-close').onclick = () => {
+  document.getElementById('lightbox').classList.remove('open');
+  document.getElementById('lightbox-content').innerHTML = '';
+};
+
+document.getElementById('lightbox').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('lightbox')) {
+    document.getElementById('lightbox').classList.remove('open');
+    document.getElementById('lightbox-content').innerHTML = '';
+  }
+});
+
+/* ══════════════════════════════════════════════════════
+   УТИЛИТА — экранирование HTML
+══════════════════════════════════════════════════════ */
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+/* ══════════════════════════════════════════════════════
+   СТАРТ
+══════════════════════════════════════════════════════ */
+tryAutoLogin();
 </script>
 
 </body>
