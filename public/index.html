@@ -1335,9 +1335,9 @@ async function doCreateRoom() {
 /* ══════════════════════════════════════════════════════
    ВИДЕОЧАТ
 ══════════════════════════════════════════════════════ */
-// localStream объявлен в app.js
-let videoActive      = false;
-const videoPeers     = new Map();  // socketId → RTCPeerConnection
+let videoActive    = false;
+let localVideoStream = null;   // ← отдельная переменная, не трогаем localStream из app.js
+const videoPeers   = new Map();
 
 async function toggleVideoCall() {
   if (!videoActive) {
@@ -1349,25 +1349,24 @@ async function toggleVideoCall() {
 
 async function startVideo() {
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({
+    localVideoStream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
-      audio: true
+      audio: false   // ← аудио уже есть в localStream из app.js, не дублируем
     });
     videoActive = true;
 
     document.getElementById('btn-video-call').classList.add('active');
     document.getElementById('video-section').classList.add('visible');
 
-    addVideoTile('local', localStream, currentUser.username, true);
+    addVideoTile('local', localVideoStream, currentUser.username, true);
 
     if (window._socket) {
       window._socket.emit('video-start');
     }
 
-    // Мы инициируем offer всем кто уже в комнате
     if (window._roomPeers) {
       for (const peerId of window._roomPeers) {
-        await createVideoPeer(peerId, true);  // ← мы шлём offer
+        await createVideoPeer(peerId, true);
       }
     }
   } catch (err) {
@@ -1378,9 +1377,10 @@ async function startVideo() {
 function stopVideo() {
   videoActive = false;
 
-  if (localStream) {
-    localStream.getTracks().forEach(t => t.stop());
-    localStream = null;
+  // Останавливаем только видео-треки
+  if (localVideoStream) {
+    localVideoStream.getTracks().forEach(t => t.stop());
+    localVideoStream = null;
   }
 
   videoPeers.forEach(pc => pc.close());
@@ -1399,16 +1399,16 @@ function addVideoTile(id, stream, label, muted) {
   removeVideoTile(id);
   const grid = document.getElementById('video-grid');
   const tile = document.createElement('div');
-  tile.className   = 'video-tile';
-  tile.id          = 'vtile-' + id;
+  tile.className = 'video-tile';
+  tile.id        = 'vtile-' + id;
 
-  const vid = document.createElement('video');
-  vid.autoplay   = true;
-  vid.playsinline = true;
-  vid.muted      = !!muted;
-  vid.srcObject  = stream;
+  const vid        = document.createElement('video');
+  vid.autoplay     = true;
+  vid.playsinline  = true;
+  vid.muted        = !!muted;
+  vid.srcObject    = stream;
 
-  const name = document.createElement('div');
+  const name       = document.createElement('div');
   name.className   = 'video-tile-name';
   name.textContent = label;
 
@@ -1422,21 +1422,32 @@ function removeVideoTile(id) {
 }
 
 async function createVideoPeer(peerId, isInitiator) {
+  // Закрываем старый если был
+  if (videoPeers.has(peerId)) {
+    videoPeers.get(peerId).close();
+    videoPeers.delete(peerId);
+  }
+
   const pc = new RTCPeerConnection({
     iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' }
+      { urls: 'stun:stun.relay.metered.ca:80' },
+      {
+        urls:       'turn:global.relay.metered.ca:80',
+        username:   '4219a9030e911d3a21936639',
+        credential: 'W9K/4EBqUUoxu9FC'
+      }
     ]
   });
 
   videoPeers.set(peerId, pc);
 
-  if (localStream) {
-    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+  // Добавляем только видео-трек
+  if (localVideoStream) {
+    localVideoStream.getTracks().forEach(t => pc.addTrack(t, localVideoStream));
   }
 
   pc.ontrack = (e) => {
-    const label = window._peerNames?.get(peerId) || peerId.slice(0,6);
+    const label = window._peerNames?.get(peerId) || peerId.slice(0, 6);
     addVideoTile(peerId, e.streams[0], label, false);
   };
 
@@ -1447,28 +1458,37 @@ async function createVideoPeer(peerId, isInitiator) {
   };
 
   pc.onconnectionstatechange = () => {
-    if (['disconnected','failed','closed'].includes(pc.connectionState)) {
+    console.log('VideoPeer', peerId, pc.connectionState);
+    if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
       removeVideoTile(peerId);
       videoPeers.delete(peerId);
     }
   };
 
   if (isInitiator) {
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    window._socket?.emit('video-offer', { to: peerId, offer });
+    // Ждём стабилизации ICE через onnegotiationneeded
+    pc.onnegotiationneeded = async () => {
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        console.log('Sending video-offer to', peerId);
+        window._socket?.emit('video-offer', { to: peerId, offer: pc.localDescription });
+      } catch(e) {
+        console.error('video-offer error:', e);
+      }
+    };
   }
 
   return pc;
 }
 
 /* ══════════════════════════════════════════════════════
-   ВИДЕО-СОБЫТИЯ от сервера (вызываются из app.js)
+   ВИДЕО-СОБЫТИЯ от сервера
 ══════════════════════════════════════════════════════ */
 window.onVideoStart = async function(socketId, username) {
+  console.log('onVideoStart', socketId, 'videoActive=', videoActive);
   if (!videoActive) return;
-  // Тот кто УЖЕ в видео — создаёт offer для нового участника
-  await createVideoPeer(socketId, true);  // ← isInitiator = true
+  await createVideoPeer(socketId, true);
 };
 
 window.onVideoStop = function(socketId) {
@@ -1478,6 +1498,7 @@ window.onVideoStop = function(socketId) {
 };
 
 window.onVideoOffer = async function(socketId, offer) {
+  console.log('onVideoOffer from', socketId);
   let pc = videoPeers.get(socketId);
   if (!pc) {
     pc = await createVideoPeer(socketId, false);
@@ -1485,10 +1506,12 @@ window.onVideoOffer = async function(socketId, offer) {
   await pc.setRemoteDescription(new RTCSessionDescription(offer));
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
-  window._socket?.emit('video-answer', { to: socketId, answer });
+  console.log('Sending video-answer to', socketId);
+  window._socket?.emit('video-answer', { to: socketId, answer: pc.localDescription });
 };
 
 window.onVideoAnswer = async function(socketId, answer) {
+  console.log('onVideoAnswer from', socketId);
   const pc = videoPeers.get(socketId);
   if (pc) {
     await pc.setRemoteDescription(new RTCSessionDescription(answer));
@@ -1497,11 +1520,14 @@ window.onVideoAnswer = async function(socketId, answer) {
 
 window.onVideoIce = async function(socketId, candidate) {
   const pc = videoPeers.get(socketId);
-  if (pc) {
-    try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
+  if (pc && candidate) {
+    try {
+      await pc.addIceCandidate(new RTCIceCandidate(candidate));
+    } catch(e) {
+      console.warn('video-ice error:', e.message);
+    }
   }
 };
-
 /* ══════════════════════════════════════════════════════
    ПОПАП ПРИКРЕПЛЕНИЯ
 ══════════════════════════════════════════════════════ */
