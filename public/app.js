@@ -53,6 +53,8 @@ const Crypto = (() => {
 let socket = null;
 window._roomPeers = new Set();
 window._peerNames = new Map();
+window._peerAvatars = new Map();
+window._peerIds = new Map();
 
 function initSocket(token, roomId, username) {
   if (socket) {
@@ -63,6 +65,8 @@ function initSocket(token, roomId, username) {
 
   window._roomPeers.clear();
   window._peerNames.clear();
+  window._peerAvatars.clear();
+  window._peerIds.clear();
 
   Crypto.deriveKey(String(roomId)).catch(e => console.error(e));
 
@@ -77,7 +81,6 @@ function initSocket(token, roomId, username) {
 
   window._socket = socket;
 
-  // ── Подключение ──
   socket.on('connect', () => {
     document.getElementById('reconnect-banner').classList.remove('visible');
     socket.emit('join-room', { token, roomId });
@@ -92,32 +95,43 @@ function initSocket(token, roomId, username) {
     if (el) el.textContent = count;
   });
 
-  // ── Синхронизация комнаты ──
   socket.on('existing-users', async (users) => {
     for (const u of users) {
-      const socketId = typeof u === 'string' ? u : u.socketId;
-      const uname = typeof u === 'string' ? 'Участник' : (u.username || 'Участник');
+      const socketId = u.socketId;
+      const uname = u.username || 'Участник';
 
       window._roomPeers.add(socketId);
       window._peerNames.set(socketId, uname);
+      window._peerAvatars.set(socketId, u.avatar || null);
+      window._peerIds.set(socketId, u.userId || null);
       
       if (joined && localStream) {
-        addParticipant(socketId, '👤 ' + uname);
+        addParticipant(socketId, uname);
         peers[socketId] = createPeer(socketId, true);
       }
       if (window.onUserJoined) window.onUserJoined(socketId);
     }
   });
 
+  socket.on('room-history', async ({ messages, pinned }) => {
+    if (!Array.isArray(messages)) return;
+    for (const m of messages) {
+      await appendHistoryMessage(m);
+    }
+    if (pinned) updatePinnedBanner(pinned);
+  });
+
   socket.on('user-joined', (data) => {
-    const socketId = typeof data === 'string' ? data : data.socketId;
-    const uname = typeof data === 'string' ? 'Участник' : (data.username || 'Участник');
+    const socketId = data.socketId;
+    const uname = data.username || 'Участник';
 
     window._roomPeers.add(socketId);
     window._peerNames.set(socketId, uname);
+    window._peerAvatars.set(socketId, data.avatar || null);
+    window._peerIds.set(socketId, data.userId || null);
     playBeep('join');
     
-    if (joined) addParticipant(socketId, '👤 ' + uname);
+    if (joined) addParticipant(socketId, uname);
     showToastJoin(uname);
 
     if (window.onUserJoined) window.onUserJoined(socketId);
@@ -129,6 +143,8 @@ function initSocket(token, roomId, username) {
     
     window._roomPeers.delete(socketId);
     window._peerNames.delete(socketId);
+    window._peerAvatars.delete(socketId);
+    window._peerIds.delete(socketId);
     
     playBeep('leave');
     removeParticipant(socketId);
@@ -142,7 +158,6 @@ function initSocket(token, roomId, username) {
     if (window.onUserLeft) window.onUserLeft(socketId);
   });
 
-  // ── Голосовой WebRTC ──
   socket.on('offer', async ({ from, offer }) => {
     if (!localStream) { pendingOffers.push({ from, offer }); return; }
     await handleOffer(from, offer);
@@ -162,13 +177,16 @@ function initSocket(token, roomId, username) {
     }
   });
 
-  // ── Чат (Текст и Файлы) ──
   socket.on('chat-message', async (data) => {
     const uname = window._peerNames.get(data.from) || data.username || data.from?.slice(0,6);
+    const avatar = window._peerAvatars.get(data.from) || null;
 
     const msgId = appendMessage({
       from:      data.from,
+      userId:    data.userId,
+      msgId:     data.msgId,
       username:  uname,
+      avatar,
       type:      data.type,
       fileName:  data.fileName,
       fileSize:  data.fileSize,
@@ -179,18 +197,47 @@ function initSocket(token, roomId, username) {
     });
 
     try {
+      const meta = await decryptMeta(data.metaEnc, data.metaIv);
       if (data.type === 'text') {
         const text = await Crypto.decryptText(data.encrypted, data.iv);
-        updateMessage(msgId, { text, status: 'ok' });
+        updateMessage(msgId, { text, status: 'ok', replyTo: meta?.replyTo || null, editedAt: data.editedAt || null });
       } else {
         const mime = data.mimeType || 'application/octet-stream';
         const blob = await Crypto.decryptBlob(data.encrypted, data.iv, mime);
         const url  = URL.createObjectURL(blob);
-        updateMessage(msgId, { localUrl: url, status: 'ok' });
+        updateMessage(msgId, { localUrl: url, status: 'ok', replyTo: meta?.replyTo || null, editedAt: data.editedAt || null });
       }
     } catch(e) {
       updateMessage(msgId, { status: 'error' });
     }
+  });
+
+  socket.on('message-edit', async (data) => {
+    const msg = messageStore.get(data.msgId);
+    if (!msg) return;
+    try {
+      const meta = await decryptMeta(data.metaEnc, data.metaIv);
+      const text = await Crypto.decryptText(data.encrypted, data.iv);
+      updateMessage(msg.domId, { text, editedAt: data.editedAt || Date.now(), replyTo: meta?.replyTo || null });
+    } catch {}
+  });
+
+  socket.on('message-delete', ({ msgId }) => {
+    const msg = messageStore.get(msgId);
+    if (!msg) return;
+    markMessageDeleted(msg.domId);
+  });
+
+  socket.on('reaction-toggle', ({ msgId, emoji, userId }) => {
+    toggleReactionLocal(msgId, emoji, userId);
+  });
+
+  socket.on('room-pinned', ({ msgId }) => {
+    updatePinnedBanner(msgId);
+  });
+
+  socket.on('typing', ({ username, isTyping }) => {
+    updateTyping(username, isTyping);
   });
 
   socket.on('understood', ({ from, username: uname }) => {
@@ -203,7 +250,6 @@ function initSocket(token, roomId, username) {
     setTimeout(() => banner.remove(), 3000);
   });
 
-  // ── ВИДЕО WEB-RTC МОСТЫ (Связь с index.html) ── 
   socket.on('video-start',  (data) => { if (window.onVideoStart) window.onVideoStart(typeof data==='string'?data:data.from); });
   socket.on('video-stop',   (data) => { if (window.onVideoStop) window.onVideoStop(typeof data==='string'?data:data.from); });
   socket.on('video-offer',  async (data) => { window._roomPeers.add(data.from); if (window.onVideoOffer) await window.onVideoOffer(data.from, data.offer); });
@@ -225,6 +271,8 @@ function socketLeave() {
   }
   window._roomPeers.clear();
   window._peerNames.clear();
+  window._peerAvatars.clear();
+  window._peerIds.clear();
 }
 
 // ═══════════════════════════════════════════════
@@ -248,6 +296,13 @@ const lightbox         = document.getElementById('lightbox');
 const lightboxContent  = document.getElementById('lightbox-content');
 const lightboxClose    = document.getElementById('lightbox-close');
 
+const replyBar         = document.getElementById('reply-bar');
+const replyText        = document.getElementById('reply-text');
+const replyCancel      = document.getElementById('reply-cancel');
+const typingIndicator  = document.getElementById('typing-indicator');
+const pinnedBanner     = document.getElementById('pinned-banner');
+const msgMenu          = document.getElementById('msg-menu');
+
 let localStream     = null;
 let peers           = {};
 let micEnabled      = true;
@@ -256,15 +311,44 @@ let joined          = false;
 let audioCtx        = null;
 let wakeLock        = null;
 let msgCounter      = 0;
-let pendingFileType = 'image/*';
 
 const analysers     = {};
 const qualityTimers = {};
+
+const messageStore  = new Map();
+let replyTarget     = null;
+let editingMsgId    = null;
+let typingTimer     = null;
+let typingActive    = false;
+const typingSet     = new Set();
 
 function showToastJoin(username) { toast('👋 ' + username + ' вошёл в комнату'); }
 function showToastLeave(username) { toast('🚪 ' + username + ' покинул комнату'); }
 function escapeHtml(str) { return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function formatSize(b) { if(b<1024)return b+' Б'; if(b<1024*1024)return(b/1024).toFixed(1)+' КБ'; return(b/1024/1024).toFixed(1)+' МБ'; }
+
+function getUserMeta(socketId) {
+  return {
+    socketId,
+    username: window._peerNames.get(socketId) || 'Участник',
+    avatar: window._peerAvatars.get(socketId) || null,
+    userId: window._peerIds.get(socketId) || null
+  };
+}
+
+function generateMsgId() {
+  return (crypto.randomUUID && crypto.randomUUID()) || ('m' + Date.now() + '-' + Math.random().toString(16).slice(2));
+}
+
+async function decryptMeta(metaEnc, metaIv) {
+  if (!metaEnc || !metaIv) return null;
+  try {
+    const json = await Crypto.decryptText(metaEnc, metaIv);
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
 
 // ═══════════════════════════════════════════════
 //  ЧАТ — ОТПРАВКА И ФАЙЛЫ
@@ -272,6 +356,17 @@ function formatSize(b) { if(b<1024)return b+' Б'; if(b<1024*1024)return(b/1024)
 chatInput?.addEventListener('input', () => {
   chatInput.style.height = 'auto';
   chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+
+  if (!socket) return;
+  if (!typingActive) {
+    typingActive = true;
+    socket.emit('typing', { isTyping: true });
+  }
+  clearTimeout(typingTimer);
+  typingTimer = setTimeout(() => {
+    typingActive = false;
+    socket.emit('typing', { isTyping: false });
+  }, 800);
 });
 
 chatInput?.addEventListener('keydown', e => {
@@ -279,16 +374,48 @@ chatInput?.addEventListener('keydown', e => {
 });
 
 btnSend?.addEventListener('click', sendTextMessage);
+replyCancel?.addEventListener('click', () => setReplyTarget(null));
 
 async function sendTextMessage() {
   const text = chatInput.value.trim();
   if (!text || !socket) return;
+
   btnSend.disabled = true;
   try {
+    if (editingMsgId) {
+      const { encrypted, iv } = await Crypto.encrypt(text);
+      const meta = { replyTo: replyTarget ? replyTarget : null };
+      const { encrypted: metaEnc, iv: metaIv } = await Crypto.encrypt(JSON.stringify(meta));
+
+      socket.emit('message-edit', { msgId: editingMsgId, encrypted, iv, metaEnc, metaIv });
+      const msg = messageStore.get(editingMsgId);
+      if (msg) updateMessage(msg.domId, { text, editedAt: Date.now(), replyTo: replyTarget || null });
+      editingMsgId = null;
+      setReplyTarget(null);
+      chatInput.value = ''; chatInput.style.height = 'auto';
+      return;
+    }
+
+    const msgId = generateMsgId();
     const { encrypted, iv } = await Crypto.encrypt(text);
-    socket.emit('chat-message', { encrypted, iv, type: 'text' });
-    appendMessage({ from: socket.id, username: window._currentUsername || 'Вы', text, type: 'text', timestamp: Date.now(), mine: true, status: 'ok' });
+    const meta = { replyTo: replyTarget ? replyTarget : null };
+    const { encrypted: metaEnc, iv: metaIv } = await Crypto.encrypt(JSON.stringify(meta));
+
+    socket.emit('chat-message', { msgId, encrypted, iv, metaEnc, metaIv, type: 'text' });
+    appendMessage({ 
+      from: socket.id, 
+      userId: window._currentUserId,
+      msgId,
+      username: window._currentUsername || 'Вы', 
+      text, 
+      type: 'text', 
+      timestamp: Date.now(), 
+      mine: true, 
+      status: 'ok',
+      replyTo: replyTarget || null
+    });
     chatInput.value = ''; chatInput.style.height = 'auto';
+    setReplyTarget(null);
   } catch(e) {}
   finally { btnSend.disabled = false; }
 }
@@ -299,8 +426,19 @@ btnFile?.addEventListener('click',  () => { fileInput.accept = '*/*'; fileInput.
 
 fileInput?.addEventListener('change', async () => {
   const file = fileInput.files[0];
-  if (!file) return; fileInput.value = '';
+  if (!file) return; 
+  fileInput.value = '';
   if (file.size > 50 * 1024 * 1024) return toast('❌ Файл слишком большой. Максимум 50 МБ.');
+
+  if (file.type.startsWith('image/') && window.MediaEditor) {
+    MediaEditor.openPhoto(file, (blob, mime, name) => sendMediaBlob(blob, mime, name, 'image'));
+    return;
+  }
+
+  if (file.type.startsWith('video/') && window.MediaEditor) {
+    MediaEditor.openVideo(file, (blob, mime, name) => sendMediaBlob(blob, mime, name, 'video'));
+    return;
+  }
   
   const type = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file';
   await sendMediaBlob(file, file.type, file.name, type);
@@ -310,12 +448,96 @@ async function sendMediaBlob(blob, mimeType, fileName, type) {
   if (!socket) return;
   try {
     const arrayBuf = await blob.arrayBuffer();
+    const msgId = generateMsgId();
     const { encrypted, iv } = await Crypto.encrypt(arrayBuf);
+    const meta = { replyTo: replyTarget ? replyTarget : null };
+    const { encrypted: metaEnc, iv: metaIv } = await Crypto.encrypt(JSON.stringify(meta));
     const localUrl = URL.createObjectURL(new Blob([arrayBuf], { type: mimeType }));
 
-    socket.emit('chat-message', { encrypted, iv, type, fileName: fileName || 'file', fileSize: blob.size, mimeType });
-    appendMessage({ from: socket.id, username: window._currentUsername || 'Вы', type, localUrl, fileName: fileName || 'file', fileSize: blob.size, mimeType, timestamp: Date.now(), mine: true, status: 'ok' });
+    socket.emit('chat-message', { msgId, encrypted, iv, metaEnc, metaIv, type, fileName: fileName || 'file', fileSize: blob.size, mimeType });
+    appendMessage({ 
+      from: socket.id, 
+      userId: window._currentUserId,
+      msgId,
+      username: window._currentUsername || 'Вы', 
+      type, 
+      localUrl, 
+      fileName: fileName || 'file', 
+      fileSize: blob.size, 
+      mimeType, 
+      timestamp: Date.now(), 
+      mine: true, 
+      status: 'ok',
+      replyTo: replyTarget || null
+    });
+    setReplyTarget(null);
   } catch(e) { toast('❌ Ошибка отправки'); }
+}
+
+async function appendHistoryMessage(data) {
+  const msgId = data.msg_id || generateMsgId();
+  const meta = await decryptMeta(data.meta_enc, data.meta_iv);
+  const isMine = data.user_id === window._currentUserId;
+
+  if (data.deleted) {
+    appendMessage({
+      from: isMine ? socket?.id : 'peer',
+      userId: data.user_id,
+      msgId,
+      username: data.username,
+      avatar: data.avatar,
+      type: data.type,
+      timestamp: data.created_at,
+      mine: isMine,
+      status: 'ok',
+      deleted: true,
+      replyTo: meta?.replyTo || null
+    });
+    return;
+  }
+
+  if (data.type === 'text') {
+    try {
+      const text = await Crypto.decryptText(data.encrypted, data.iv);
+      appendMessage({
+        from: isMine ? socket?.id : 'peer',
+        userId: data.user_id,
+        msgId,
+        username: data.username,
+        avatar: data.avatar,
+        type: data.type,
+        text,
+        timestamp: data.created_at,
+        editedAt: data.edited_at,
+        mine: isMine,
+        status: 'ok',
+        replyTo: meta?.replyTo || null
+      });
+    } catch {}
+  } else {
+    try {
+      const mime = data.mime_type || 'application/octet-stream';
+      const blob = await Crypto.decryptBlob(data.encrypted, data.iv, mime);
+      const url = URL.createObjectURL(blob);
+      appendMessage({
+        from: isMine ? socket?.id : 'peer',
+        userId: data.user_id,
+        msgId,
+        username: data.username,
+        avatar: data.avatar,
+        type: data.type,
+        localUrl: url,
+        fileName: data.file_name,
+        fileSize: data.file_size,
+        mimeType: mime,
+        timestamp: data.created_at,
+        editedAt: data.edited_at,
+        mine: isMine,
+        status: 'ok',
+        replyTo: meta?.replyTo || null
+      });
+    } catch {}
+  }
 }
 
 function appendMessage(msg) {
@@ -323,10 +545,23 @@ function appendMessage(msg) {
   const div = document.createElement('div');
   div.id = id; div.className = 'msg ' + (msg.mine ? 'mine' : 'theirs');
   div.dataset.type = msg.type || 'text';
+  div.dataset.msgId = msg.msgId;
   div.innerHTML = buildMsgHTML(msg);
   chatMessages.appendChild(div);
   chatMessages.scrollTop = chatMessages.scrollHeight;
   bindMediaEvents(div);
+  bindUserEvents(div);
+  bindMsgActions(div);
+
+  messageStore.set(msg.msgId, {
+    domId: id,
+    mine: msg.mine,
+    text: msg.text || '',
+    type: msg.type,
+    userId: msg.userId,
+    username: msg.username
+  });
+
   return id;
 }
 
@@ -341,18 +576,40 @@ function updateMessage(id, updates) {
     if (updates.status === 'ok') { statusEl.className = 'msg-decrypt-status ok'; statusEl.textContent = '🔓 расшифровано'; }
     if (updates.status === 'error') { statusEl.className = 'msg-decrypt-status err'; statusEl.textContent = '⚠️ ошибка'; }
   }
+
+  const metaEl = div.querySelector('.msg-meta');
+  if (metaEl && updates.editedAt) metaEl.innerHTML = metaEl.innerHTML.replace(' (изменено)', '') + ' <span class="msg-edited">(изменено)</span>';
+
   chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function markMessageDeleted(domId) {
+  const div = document.getElementById(domId);
+  if (!div) return;
+  div.classList.add('deleted');
+  div.querySelector('.msg-content').innerHTML = '<i>Сообщение удалено</i>';
 }
 
 function buildMsgHTML(msg) {
   const time = new Date(msg.timestamp || Date.now()).toLocaleTimeString('ru', { hour:'2-digit', minute:'2-digit' });
-  const senderName = msg.mine ? '' : `<div class="msg-sender">👤 ${escapeHtml(msg.username || '??')}</div>`;
+  const avatarHtml = msg.avatar 
+    ? `<img class="msg-avatar-img" src="${msg.avatar}" alt="">`
+    : `<div class="msg-avatar-fallback">${escapeHtml((msg.username || '?').slice(0,1).toUpperCase())}</div>`;
+  const senderName = msg.mine ? '' : `<div class="msg-sender" data-socketid="${escapeHtml(msg.from || '')}"><div class="msg-avatar">${avatarHtml}</div><span>${escapeHtml(msg.username || '??')}</span></div>`;
   const statText = msg.status === 'ok' ? '🔓 расшифровано' : msg.status === 'error' ? '⚠️ ошибка' : '⏳ расшифровываем…';
   const showStatus = msg.mine ? '' : `<div class="msg-decrypt-status">${statText}</div>`;
-  return `${senderName}<div class="msg-content">${buildContentHTML(msg)}</div><div class="msg-meta">${time}</div>${showStatus}`;
+  const edited = msg.editedAt ? ' <span class="msg-edited">(изменено)</span>' : '';
+  return `${senderName}${buildReplyHTML(msg.replyTo)}<div class="msg-content">${buildContentHTML(msg)}</div><div class="msg-meta">${time}${edited}</div>${showStatus}${buildReactionsHTML(msg.msgId)}`;
+}
+
+function buildReplyHTML(replyTo) {
+  if (!replyTo) return '';
+  const txt = escapeHtml(replyTo.preview || 'Ответ');
+  return `<div class="msg-reply"><span>Ответ:</span> ${txt}</div>`;
 }
 
 function buildContentHTML(msg) {
+  if (msg.deleted) return '<i>Сообщение удалено</i>';
   if (msg.type === 'text') return escapeHtml(msg.text || '');
   if (msg.type === 'image') return msg.localUrl ? `<img class="msg-media" src="${msg.localUrl}" alt="фото">` : '<span>⏳</span>';
   if (msg.type === 'video') return msg.localUrl ? `<video class="msg-media" src="${msg.localUrl}" controls playsinline></video>` : '<span>⏳</span>';
@@ -363,9 +620,161 @@ function buildContentHTML(msg) {
   return '';
 }
 
+function buildReactionsHTML(msgId) {
+  return `<div class="msg-reactions" data-msgid="${msgId}"></div>`;
+}
+
 function bindMediaEvents(container) {
   container.querySelectorAll('img.msg-media').forEach(img => { img.onclick = () => openLightbox('img', img.src); });
   container.querySelectorAll('video.msg-media').forEach(vid => { vid.ondblclick = () => openLightbox('video', vid.src); });
+}
+
+function bindUserEvents(container) {
+  container.querySelectorAll('.msg-sender').forEach(el => {
+    el.onclick = () => {
+      const socketId = el.dataset.socketid;
+      if (!socketId) return;
+      const meta = getUserMeta(socketId);
+      if (window.showUserProfile) window.showUserProfile(meta);
+    };
+  });
+}
+
+function bindMsgActions(container) {
+  container.oncontextmenu = (e) => {
+    e.preventDefault();
+    const msgId = container.dataset.msgId;
+    if (!msgId) return;
+    openMsgMenu(e.clientX, e.clientY, msgId);
+  };
+}
+
+function openMsgMenu(x, y, msgId) {
+  const msg = messageStore.get(msgId);
+  if (!msg) return;
+
+  msgMenu.style.display = 'block';
+  msgMenu.style.left = x + 'px';
+  msgMenu.style.top = y + 'px';
+
+  msgMenu.querySelector('[data-action="reply"]').onclick = () => {
+    const preview = (msg.text || '').slice(0, 80);
+    setReplyTarget({ id: msgId, preview });
+    closeMsgMenu();
+  };
+
+  msgMenu.querySelector('[data-action="copy"]').onclick = () => {
+    if (msg.text) navigator.clipboard.writeText(msg.text);
+    closeMsgMenu();
+  };
+
+  msgMenu.querySelector('[data-action="edit"]').style.display = msg.mine ? 'block' : 'none';
+  msgMenu.querySelector('[data-action="delete"]').style.display = msg.mine ? 'block' : 'none';
+
+  msgMenu.querySelector('[data-action="edit"]').onclick = () => {
+    if (!msg.text) return;
+    chatInput.value = msg.text;
+    chatInput.focus();
+    editingMsgId = msgId;
+    closeMsgMenu();
+  };
+
+  msgMenu.querySelector('[data-action="delete"]').onclick = () => {
+    socket?.emit('message-delete', { msgId });
+    const domId = msg.domId;
+    markMessageDeleted(domId);
+    closeMsgMenu();
+  };
+
+  msgMenu.querySelector('[data-action="pin"]').onclick = () => {
+    socket?.emit('pin-message', { msgId });
+    closeMsgMenu();
+  };
+
+  msgMenu.querySelector('[data-action="react"]').onclick = () => {
+    openReactionPicker(x, y, msgId);
+    closeMsgMenu();
+  };
+}
+
+function closeMsgMenu() { msgMenu.style.display = 'none'; }
+
+function openReactionPicker(x, y, msgId) {
+  const picker = document.getElementById('reaction-picker');
+  picker.style.display = 'flex';
+  picker.style.left = x + 'px';
+  picker.style.top = (y - 50) + 'px';
+  picker.querySelectorAll('.reaction-item').forEach(item => {
+    item.onclick = () => {
+      toggleReactionLocal(msgId, item.textContent, window._currentUserId || 'me');
+      socket?.emit('reaction-toggle', { msgId, emoji: item.textContent });
+      picker.style.display = 'none';
+    };
+  });
+}
+
+function toggleReactionLocal(msgId, emoji, userId) {
+  const reactionBox = document.querySelector(`.msg-reactions[data-msgid="${msgId}"]`);
+  if (!reactionBox) return;
+  let chip = reactionBox.querySelector(`[data-emoji="${emoji}"]`);
+  if (!chip) {
+    chip = document.createElement('span');
+    chip.className = 'reaction-chip';
+    chip.dataset.emoji = emoji;
+    chip.dataset.users = JSON.stringify([userId]);
+    chip.textContent = `${emoji} 1`;
+    reactionBox.appendChild(chip);
+  } else {
+    let users = JSON.parse(chip.dataset.users || '[]');
+    if (users.includes(userId)) {
+      users = users.filter(u => u !== userId);
+    } else {
+      users.push(userId);
+    }
+    chip.dataset.users = JSON.stringify(users);
+    if (users.length === 0) chip.remove();
+    else chip.textContent = `${emoji} ${users.length}`;
+  }
+}
+
+function setReplyTarget(target) {
+  replyTarget = target;
+  if (!target) {
+    replyBar.style.display = 'none';
+    replyText.textContent = '';
+    return;
+  }
+  replyBar.style.display = 'flex';
+  replyText.textContent = target.preview || 'Ответ';
+}
+
+function updateTyping(username, isTyping) {
+  if (isTyping) typingSet.add(username);
+  else typingSet.delete(username);
+
+  if (typingSet.size === 0) {
+    typingIndicator.textContent = '';
+    typingIndicator.style.display = 'none';
+  } else {
+    typingIndicator.textContent = Array.from(typingSet).join(', ') + ' печатает...';
+    typingIndicator.style.display = 'block';
+  }
+}
+
+function updatePinnedBanner(msgId) {
+  if (!msgId) {
+    pinnedBanner.style.display = 'none';
+    pinnedBanner.textContent = '';
+    return;
+  }
+  const msg = messageStore.get(msgId);
+  const text = msg?.text ? msg.text.slice(0, 80) : 'Закреплено сообщение';
+  pinnedBanner.textContent = '📌 ' + text;
+  pinnedBanner.style.display = 'block';
+  pinnedBanner.onclick = () => {
+    const domId = msg?.domId;
+    if (domId) document.getElementById(domId)?.scrollIntoView({ behavior:'smooth', block:'center' });
+  };
 }
 
 function openLightbox(type, src) {
@@ -374,7 +783,7 @@ function openLightbox(type, src) {
 }
 
 // ═══════════════════════════════════════════════
-//  ГОЛОСОВОЙ ЧАТ WEB-RTC И ПРОДВИНУТОЕ ШУМОПОДАВЛЕНИЕ
+//  ГОЛОСОВОЙ ЧАТ WEB-RTC
 // ═══════════════════════════════════════════════
 const iceServers = {
   iceServers: [
@@ -383,7 +792,6 @@ const iceServers = {
   ]
 };
 
-// 🔥 Максимальное улучшение качества звука: Opus Codec
 function forceOpusMaxQuality(sdp) {
   const lines = sdp.split('\r\n');
   const result = [];
@@ -393,15 +801,9 @@ function forceOpusMaxQuality(sdp) {
       result.push(line);
       const pt = line.split(':')[1].split(' ')[0];
       if (i + 1 < lines.length && lines[i + 1].startsWith('a=fmtp:' + pt)) i++;
-      // Флаги магии звука:
-      // usedtx=1 : При молчании микрофон вообще вырубает передачу (никакого белого шума или дыхания)
-      // useinbandfec=1 : Помогает восстанавливать голос при потере интернета
-      // stereo=0 : Концентрирует качество только на частотах голоса, не тратя силы на панораму
-      // maxaveragebitrate=64000 : Кристально чистый голос 64 кбит/с
       result.push(`a=fmtp:${pt} minptime=10;useinbandfec=1;usedtx=1;stereo=0;sprop-stereo=0;maxaveragebitrate=64000`);
       continue;
     }
-    // Выкидываем лишние лимиты браузера на интернет
     if (line.startsWith('b=AS:') || line.startsWith('b=TIAS:')) continue;
     result.push(line);
   }
@@ -411,15 +813,14 @@ function forceOpusMaxQuality(sdp) {
 btnJoin?.addEventListener('click', async () => {
   if (!socket) return toast('❌ Нет соединения');
   try {
-    // 🔥 Запрашиваем у браузера максимальное подавление шумов и эха на уровне железа
     localStream = await navigator.mediaDevices.getUserMedia({
       video: false,
       audio: { 
-        echoCancellation: true,    // Подавление эха (чтоб не слышать себя у собеседника)
-        noiseSuppression: true,    // Подавление лишних шумов (машин, ветра)
-        autoGainControl: true,     // Авто-выравнивание громкости (тихий голос станет громким)
-        sampleRate: 48000,         // Про студийное качество
-        channelCount: 1            // Моно (идеально для голоса)
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        sampleRate: 48000,
+        channelCount: 1
       }
     });
     
@@ -430,14 +831,14 @@ btnJoin?.addEventListener('click', async () => {
     btnJoin.style.display = 'none'; btnLeave.style.display = 'block'; btnMic.style.display = 'block';
     joined = true;
     
-    addParticipant(socket.id, '🟢 Вы (' + (window._currentUsername || socket.id.slice(0,6)) + ')');
+    addParticipant(socket.id, 'Вы');
     startVolumeAnalysis(socket.id, localStream);
     
     socket.emit('join');
 
     for (const peerId of window._roomPeers) {
       if (!peers[peerId]) {
-        addParticipant(peerId, '👤 ' + (window._peerNames.get(peerId) || peerId.slice(0,6)));
+        addParticipant(peerId, window._peerNames.get(peerId) || peerId.slice(0,6));
         peers[peerId] = createPeer(peerId, true);
       }
     }
@@ -505,11 +906,37 @@ function addParticipant(userId, label) {
   participantsBox.style.display = 'block';
   const div = document.createElement('div'); div.className = 'participant'; div.id = 'p-' + userId;
   const isMe = socket && userId === socket.id;
-  div.innerHTML = `<span class="participant-name">${escapeHtml(label)}</span><div class="volume-bar-wrap"><div class="volume-bar" id="vol-${userId}"></div></div>` + (isMe ? '' : `<button class="btn-understood" data-uid="${userId}">👍 Понял</button>`);
+  const avatar = isMe 
+    ? null 
+    : (window._peerAvatars.get(userId) || null);
+
+  const avatarHtml = avatar 
+    ? `<img class="p-avatar-img" src="${avatar}" alt="">` 
+    : `<div class="p-avatar-fallback">${escapeHtml(label.slice(0,1).toUpperCase())}</div>`;
+
+  div.innerHTML = `
+    <div class="p-avatar">${avatarHtml}</div>
+    <span class="participant-name">${escapeHtml(label)}</span>
+    <div class="volume-bar-wrap"><div class="volume-bar" id="vol-${userId}"></div></div>
+    ${isMe ? '' : `<button class="btn-understood" data-uid="${userId}">👍 Понял</button>`}
+  `;
   participantsList.appendChild(div);
   
   const btn = div.querySelector('.btn-understood');
-  if (btn) btn.onclick = () => { socket?.emit('understood'); btn.textContent = '✅ Отправлено'; btn.disabled = true; setTimeout(() => { btn.textContent = '👍 Понял'; btn.disabled = false; }, 3000); };
+  if (btn) btn.onclick = () => { 
+    socket?.emit('understood'); 
+    btn.textContent = '✅ Отправлено'; 
+    btn.disabled = true; 
+    setTimeout(() => { btn.textContent = '👍 Понял'; btn.disabled = false; }, 3000); 
+  };
+
+  const nameEl = div.querySelector('.participant-name');
+  if (nameEl && !isMe) {
+    nameEl.onclick = () => {
+      const meta = getUserMeta(userId);
+      if (window.showUserProfile) window.showUserProfile(meta);
+    };
+  }
 }
 
 function removeParticipant(userId) {
@@ -620,6 +1047,8 @@ function hangUp() {
 
   if (window.stopVideo) window.stopVideo(); 
 }
+
+document.addEventListener('click', () => closeMsgMenu());
 
 window.initSocket  = initSocket;
 window.socketLeave = socketLeave;
