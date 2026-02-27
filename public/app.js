@@ -119,29 +119,43 @@ function initSocket(token, roomId, username) {
     document.getElementById('user-count').textContent = count;
   });
 
-  // ── Голосовой чат ──
+  // ── Голосовой чат и Синхронизация комнаты ──
   socket.on('existing-users', async (users) => {
-    // users = [{ socketId, username }]
     log('Existing: ' + JSON.stringify(users));
     for (const u of users) {
-      window._roomPeers.add(u.socketId);
-      window._peerNames.set(u.socketId, u.username);
+      // Универсальная обработка (если сервер шлет объекты или просто ID)
+      const socketId = typeof u === 'string' ? u : u.socketId;
+      const uname = typeof u === 'string' ? 'User' : (u.username || 'User');
+
+      window._roomPeers.add(socketId);
+      window._peerNames.set(socketId, uname);
+      
       if (joined && localStream) {
-        addParticipant(u.socketId, '👤 ' + u.username);
-        peers[u.socketId] = createPeer(u.socketId, true);
+        addParticipant(socketId, '👤 ' + uname);
+        peers[socketId] = createPeer(socketId, true);
       }
+
+      // ВАЖНО: триггер для видеосетки! Оповещаем index.html, что тут уже есть люди
+      if (window.onUserJoined) window.onUserJoined(socketId);
     }
   });
 
-  socket.on('user-joined', ({ socketId, username }) => {
-    log('User joined: ' + socketId + ' (' + username + ')');
+  socket.on('user-joined', (data) => {
+    const socketId = typeof data === 'string' ? data : data.socketId;
+    const uname = typeof data === 'string' ? 'User' : (data.username || 'User');
+
+    log('User joined: ' + socketId + ' (' + uname + ')');
     window._roomPeers.add(socketId);
-    window._peerNames.set(socketId, username);
+    window._peerNames.set(socketId, uname);
     playBeep('join');
+    
     if (joined) {
-      addParticipant(socketId, '👤 ' + username);
+      addParticipant(socketId, '👤 ' + uname);
     }
-    showToastJoin(username);
+    showToastJoin(uname);
+
+    // ВАЖНО: триггер для видеосетки! Оповещаем index.html о новичке
+    if (window.onUserJoined) window.onUserJoined(socketId);
   });
 
   socket.on('offer', async ({ from, offer }) => {
@@ -164,8 +178,10 @@ function initSocket(token, roomId, username) {
     }
   });
 
-  socket.on('user-left', ({ socketId }) => {
+  socket.on('user-left', (data) => {
+    const socketId = typeof data === 'string' ? data : data.socketId;
     log('User left: ' + socketId);
+    
     const uname = window._peerNames.get(socketId) || socketId.slice(0,6);
     window._roomPeers.delete(socketId);
     window._peerNames.delete(socketId);
@@ -173,11 +189,13 @@ function initSocket(token, roomId, username) {
     removeParticipant(socketId);
     stopVolumeAnalysis(socketId);
     stopQualityMonitor(socketId);
+    
     if (peers[socketId]) { peers[socketId].close(); delete peers[socketId]; }
     document.getElementById('audio-' + socketId)?.remove();
     showToastLeave(uname);
 
-    // Видео
+    // ВАЖНО: Очищаем видео человека, который вышел
+    if (window.onUserLeft) window.onUserLeft(socketId);
     if (window.onVideoStop) window.onVideoStop(socketId);
   });
 
@@ -226,26 +244,38 @@ function initSocket(token, roomId, username) {
     setTimeout(() => banner.remove(), 3000);
   });
 
-  // ── Видео ──
-  socket.on('video-start', ({ from, username: uname }) => {
+  // ── Видео ── 
+  // Изменен старый параметр ({from, username}) на прямую поддержку событий из index.html
+  socket.on('video-start', (data) => {
+    const from = typeof data === 'string' ? data : data.from;
     log('Video start from: ' + from);
-    if (window.onVideoStart) window.onVideoStart(from, uname);
+    if (window.onVideoStart) window.onVideoStart(from);
   });
 
-  socket.on('video-stop', ({ from }) => {
+  socket.on('video-stop', (data) => {
+    const from = typeof data === 'string' ? data : data.from;
     log('Video stop from: ' + from);
     if (window.onVideoStop) window.onVideoStop(from);
   });
 
-  socket.on('video-offer', async ({ from, offer }) => {
+  socket.on('video-offer', async (idOrData, offerObj) => {
+    const from  = typeof idOrData === 'string' ? idOrData : idOrData.from;
+    const offer = typeof idOrData === 'string' ? offerObj : idOrData.offer;
+    
+    // Если мы пропустили user-joined, добавим его превентивно
+    window._roomPeers.add(from);
     if (window.onVideoOffer) await window.onVideoOffer(from, offer);
   });
 
-  socket.on('video-answer', async ({ from, answer }) => {
+  socket.on('video-answer', async (idOrData, answerObj) => {
+    const from   = typeof idOrData === 'string' ? idOrData : idOrData.from;
+    const answer = typeof idOrData === 'string' ? answerObj : idOrData.answer;
     if (window.onVideoAnswer) await window.onVideoAnswer(from, answer);
   });
 
-  socket.on('video-ice', async ({ from, candidate }) => {
+  socket.on('video-ice', async (idOrData, candidateObj) => {
+    const from      = typeof idOrData === 'string' ? idOrData : idOrData.from;
+    const candidate = typeof idOrData === 'string' ? candidateObj : idOrData.candidate;
     if (window.onVideoIce) await window.onVideoIce(from, candidate);
   });
 }
@@ -254,9 +284,9 @@ function initSocket(token, roomId, username) {
 function socketLeave() {
   if (!socket) return;
   socket.emit('leave');
-  hangUp();
+  if (typeof hangUp === 'function') hangUp();
   joined = false;
-  resetVoiceUI();
+  if (typeof resetVoiceUI === 'function') resetVoiceUI();
   if (socket) {
     socket.removeAllListeners();
     socket.disconnect();
