@@ -22,12 +22,8 @@ const Crypto = (() => {
 
   async function encrypt(data) {
     const iv      = crypto.getRandomValues(new Uint8Array(12));
-    const encoded = typeof data === 'string'
-      ? new TextEncoder().encode(data)
-      : new Uint8Array(data);
-    const cipher = await crypto.subtle.encrypt(
-      { name:'AES-GCM', iv }, cryptoKey, encoded
-    );
+    const encoded = typeof data === 'string' ? new TextEncoder().encode(data) : new Uint8Array(data);
+    const cipher  = await crypto.subtle.encrypt({ name:'AES-GCM', iv }, cryptoKey, encoded);
     return {
       iv:        btoa(String.fromCharCode(...iv)),
       encrypted: btoa(String.fromCharCode(...new Uint8Array(cipher)))
@@ -55,8 +51,6 @@ const Crypto = (() => {
 //  SOCKET — ЯДРО СВЯЗИ С СЕРВЕРОМ
 // ═══════════════════════════════════════════════
 let socket = null;
-
-// Множество socketId всех пользователей в текущей комнате
 window._roomPeers = new Set();
 window._peerNames = new Map();
 
@@ -70,7 +64,7 @@ function initSocket(token, roomId, username) {
   window._roomPeers.clear();
   window._peerNames.clear();
 
-  Crypto.deriveKey(String(roomId)).then(() => { log('Ключ комнаты готов'); });
+  Crypto.deriveKey(String(roomId)).catch(e => console.error(e));
 
   socket = io({
     reconnection:         true,
@@ -85,25 +79,13 @@ function initSocket(token, roomId, username) {
 
   // ── Подключение ──
   socket.on('connect', () => {
-    log('Соединение установлено: ' + socket.id);
     document.getElementById('reconnect-banner').classList.remove('visible');
-    // ВОТ ПРАВИЛЬНАЯ КОМАНДА ВХОДА
     socket.emit('join-room', { token, roomId });
   });
 
-  socket.on('auth-ok', ({ username: uname }) => {
-    log('Авторизован как ' + uname);
-    joined = false;
-  });
-
-  socket.on('auth-fail', () => {
-    showScreen('screen-rooms');
-    toast('❌ Ошибка авторизации');
-  });
-
-  socket.on('disconnect', reason => {
-    if (joined) document.getElementById('reconnect-banner').classList.add('visible');
-  });
+  socket.on('auth-ok', ({ username: uname }) => { joined = false; });
+  socket.on('auth-fail', () => { showScreen('screen-rooms'); toast('❌ Ошибка авторизации'); });
+  socket.on('disconnect', () => { if (joined) document.getElementById('reconnect-banner').classList.add('visible'); });
 
   socket.on('user-count', count => {
     const el = document.getElementById('user-count');
@@ -123,9 +105,7 @@ function initSocket(token, roomId, username) {
         addParticipant(socketId, '👤 ' + uname);
         peers[socketId] = createPeer(socketId, true);
       }
-
-      // Оповещаем видео-интерфейс в index.html
-      if (window.onUserJoined) window.onUserJoined(socketId);
+      if (window.onUserJoined) window.onUserJoined(socketId); // Для Видеочата
     }
   });
 
@@ -140,8 +120,7 @@ function initSocket(token, roomId, username) {
     if (joined) addParticipant(socketId, '👤 ' + uname);
     showToastJoin(uname);
 
-    // Оповещаем видео-интерфейс в index.html
-    if (window.onUserJoined) window.onUserJoined(socketId);
+    if (window.onUserJoined) window.onUserJoined(socketId); // Для Видеочата
   });
 
   socket.on('user-left', (data) => {
@@ -160,11 +139,10 @@ function initSocket(token, roomId, username) {
     document.getElementById('audio-' + socketId)?.remove();
     showToastLeave(uname);
 
-    // Оповещаем видео-интерфейс в index.html о выходе
-    if (window.onUserLeft) window.onUserLeft(socketId);
+    if (window.onUserLeft) window.onUserLeft(socketId); // Для Видеочата
   });
 
-  // ── Голосовой WebRTC (Скрытый) ──
+  // ── Голосовой WebRTC ──
   socket.on('offer', async ({ from, offer }) => {
     if (!localStream) { pendingOffers.push({ from, offer }); return; }
     await handleOffer(from, offer);
@@ -180,8 +158,7 @@ function initSocket(token, roomId, username) {
   socket.on('ice-candidate', async ({ from, candidate }) => {
     const peer = peers[from];
     if (peer && candidate) {
-      try { await peer.addIceCandidate(new RTCIceCandidate(candidate)); }
-      catch(e) {}
+      try { await peer.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e) {}
     }
   });
 
@@ -226,31 +203,12 @@ function initSocket(token, roomId, username) {
     setTimeout(() => banner.remove(), 3000);
   });
 
-  // ── ВИДЕО WEB-RTC МОСТЫ (Для index.html) ── 
-  socket.on('video-start', (data) => {
-    const from = typeof data === 'string' ? data : data.from;
-    if (window.onVideoStart) window.onVideoStart(from);
-  });
-
-  socket.on('video-stop', (data) => {
-    const from = typeof data === 'string' ? data : data.from;
-    if (window.onVideoStop) window.onVideoStop(from);
-  });
-
-  socket.on('video-offer', async (data) => {
-    const from  = data.from;
-    const offer = data.offer;
-    window._roomPeers.add(from);
-    if (window.onVideoOffer) await window.onVideoOffer(from, offer);
-  });
-
-  socket.on('video-answer', async (data) => {
-    if (window.onVideoAnswer) await window.onVideoAnswer(data.from, data.answer);
-  });
-
-  socket.on('video-ice', async (data) => {
-    if (window.onVideoIce) await window.onVideoIce(data.from, data.candidate);
-  });
+  // ── ВИДЕО WEB-RTC МОСТЫ (Связь с index.html) ── 
+  socket.on('video-start',  (data) => { if (window.onVideoStart) window.onVideoStart(typeof data==='string'?data:data.from); });
+  socket.on('video-stop',   (data) => { if (window.onVideoStop) window.onVideoStop(typeof data==='string'?data:data.from); });
+  socket.on('video-offer',  async (data) => { window._roomPeers.add(data.from); if (window.onVideoOffer) await window.onVideoOffer(data.from, data.offer); });
+  socket.on('video-answer', async (data) => { if (window.onVideoAnswer) await window.onVideoAnswer(data.from, data.answer); });
+  socket.on('video-ice',    async (data) => { if (window.onVideoIce) await window.onVideoIce(data.from, data.candidate); });
 }
 
 function socketLeave() {
@@ -270,7 +228,7 @@ function socketLeave() {
 }
 
 // ═══════════════════════════════════════════════
-//  DOM ИНТЕРФЕЙС
+//  DOM ИНТЕРФЕЙС И УТИЛИТЫ ГЛОБАЛЬНОГО СОСТОЯНИЯ
 // ═══════════════════════════════════════════════
 const btnJoin          = document.getElementById('btn-join');
 const btnLeave         = document.getElementById('btn-leave');
@@ -303,11 +261,10 @@ let pendingFileType = 'image/*';
 const analysers     = {};
 const qualityTimers = {};
 
-const DEBUG = false;
-function log(msg) { if (DEBUG) console.log(new Date().toISOString().slice(11,19) + ' ' + msg); }
-
 function showToastJoin(username) { toast('👋 ' + username + ' вошёл в комнату'); }
 function showToastLeave(username) { toast('🚪 ' + username + ' покинул комнату'); }
+function escapeHtml(str) { return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function formatSize(b) { if(b<1024)return b+' Б'; if(b<1024*1024)return(b/1024).toFixed(1)+' КБ'; return(b/1024/1024).toFixed(1)+' МБ'; }
 
 // ═══════════════════════════════════════════════
 //  ЧАТ — ОТПРАВКА И ФАЙЛЫ
@@ -361,9 +318,6 @@ async function sendMediaBlob(blob, mimeType, fileName, type) {
   } catch(e) { toast('❌ Ошибка отправки'); }
 }
 
-// ═══════════════════════════════════════════════
-//  РЕНДЕР СООБЩЕНИЙ В ЧАТ
-// ═══════════════════════════════════════════════
 function appendMessage(msg) {
   const id = 'msg-' + (++msgCounter);
   const div = document.createElement('div');
@@ -419,11 +373,8 @@ function openLightbox(type, src) {
   lightbox.classList.add('open');
 }
 
-function escapeHtml(str) { return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function formatSize(b) { if(b<1024)return b+' Б'; if(b<1024*1024)return(b/1024).toFixed(1)+' КБ'; return(b/1024/1024).toFixed(1)+' МБ'; }
-
 // ═══════════════════════════════════════════════
-//  ГОЛОСОВОЙ ЧАТ WEB-RTC И ЗВУКИ (Скрытая часть)
+//  ГОЛОСОВОЙ ЧАТ WEB-RTC И УЛУЧШЕНИЕ ЗВУКА
 // ═══════════════════════════════════════════════
 const iceServers = {
   iceServers: [
@@ -432,26 +383,58 @@ const iceServers = {
   ]
 };
 
-function forceOpusMaxQuality(sdp) { return sdp; } // Оставляем заглушку ради безопасности
+// Функция улучшения качества аудио (Opus)
+function forceOpusMaxQuality(sdp) {
+  const lines = sdp.split('\r\n');
+  const result = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.includes('a=rtpmap') && line.toLowerCase().includes('opus')) {
+      result.push(line);
+      const pt = line.split(':')[1].split(' ')[0];
+      if (i + 1 < lines.length && lines[i + 1].startsWith('a=fmtp:' + pt)) i++;
+      result.push(`a=fmtp:${pt} minptime=10;useinbandfec=1;stereo=1;sprop-stereo=1;maxaveragebitrate=510000`);
+      continue;
+    }
+    if (line.startsWith('b=AS:') || line.startsWith('b=TIAS:')) continue;
+    result.push(line);
+  }
+  return result.join('\r\n');
+}
 
 btnJoin?.addEventListener('click', async () => {
   if (!socket) return toast('❌ Нет соединения');
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: { echoCancellation: true, noiseSuppression: true } });
-    await requestWakeLock(); startKeepAlive(); setMicStatus(true);
+    localStream = await navigator.mediaDevices.getUserMedia({
+      video: false,
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 2 }
+    });
+    
+    await requestWakeLock(); 
+    startKeepAlive(); 
+    setMicStatus(true);
+    
     btnJoin.style.display = 'none'; btnLeave.style.display = 'block'; btnMic.style.display = 'block';
     joined = true;
+    
     addParticipant(socket.id, '🟢 Вы (' + (window._currentUsername || socket.id.slice(0,6)) + ')');
     startVolumeAnalysis(socket.id, localStream);
     
     socket.emit('join');
+
+    // Подключаемся к тем, кто уже в комнате
     for (const peerId of window._roomPeers) {
       if (!peers[peerId]) {
         addParticipant(peerId, '👤 ' + (window._peerNames.get(peerId) || peerId.slice(0,6)));
         peers[peerId] = createPeer(peerId, true);
       }
     }
-  } catch(err) { toast('❌ Ошибка микрофона'); }
+    
+    // Подхватываем тех, кто звонил нам пока мы не приняли доступ
+    for (const { from, offer } of pendingOffers) await handleOffer(from, offer);
+    pendingOffers = [];
+
+  } catch(err) { toast('❌ Ошибка доступа к микрофону'); }
 });
 
 btnLeave?.addEventListener('click', () => {
@@ -485,8 +468,9 @@ function createPeer(userId, isInitiator) {
   if (isInitiator) {
     peer.onnegotiationneeded = async () => {
       const offer = await peer.createOffer();
-      await peer.setLocalDescription(offer);
-      socket.emit('offer', { to: userId, offer });
+      const improvedOffer = { type: offer.type, sdp: forceOpusMaxQuality(offer.sdp) };
+      await peer.setLocalDescription(improvedOffer);
+      socket.emit('offer', { to: userId, offer: improvedOffer });
     };
   }
   return peer;
@@ -497,12 +481,13 @@ async function handleOffer(from, offer) {
   peers[from] = peer;
   await peer.setRemoteDescription(new RTCSessionDescription(offer));
   const answer = await peer.createAnswer();
-  await peer.setLocalDescription(answer);
-  socket.emit('answer', { to: from, answer });
+  const improvedAnswer = { type: answer.type, sdp: forceOpusMaxQuality(answer.sdp) };
+  await peer.setLocalDescription(improvedAnswer);
+  socket.emit('answer', { to: from, answer: improvedAnswer });
 }
 
 // ═══════════════════════════════════════════════
-//  УТИЛИТЫ ГРОМКОСТИ И УЧАСТНИКОВ
+//  УТИЛИТЫ ГРОМКОСТИ И ВИЗУАЛИЗАЦИЯ
 // ═══════════════════════════════════════════════
 function addParticipant(userId, label) {
   if (document.getElementById('p-' + userId) || !participantsBox) return;
@@ -545,14 +530,63 @@ function stopVolumeAnalysis(userId) {
   if (analysers[userId]) { cancelAnimationFrame(analysers[userId].animFrame); try { analysers[userId].source.disconnect(); } catch(_) {} delete analysers[userId]; }
 }
 
-function stopQualityMonitor(id) {} // Оптимизировано
-function startKeepAlive() {} 
-function stopKeepAlive() {}
-function requestWakeLock() {} 
-function releaseWakeLock() {}
+function stopQualityMonitor(id) {
+  if (qualityTimers[id]) { clearInterval(qualityTimers[id]); delete qualityTimers[id]; }
+}
 
-function playBeep(t) {}
-function playOkSound() {}
+// ═══════════════════════════════════════════════
+//  СИСТЕМНЫЕ ЗВУКИ И WAKELOCK (ВОССТАНОВЛЕНО)
+// ═══════════════════════════════════════════════
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try { wakeLock = await navigator.wakeLock.request('screen'); } catch(e) {}
+}
+async function releaseWakeLock() {
+  if (wakeLock) { try { await wakeLock.release(); } catch(_) {} wakeLock = null; }
+}
+
+function startKeepAlive() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const buf = audioCtx.createBuffer(1, audioCtx.sampleRate, audioCtx.sampleRate);
+    const src = audioCtx.createBufferSource();
+    const dest = audioCtx.createMediaStreamDestination();
+    src.buffer = buf; src.loop = true; src.connect(dest); src.start();
+    keepAliveAudio.srcObject = dest.stream; keepAliveAudio.play().catch(e=>{});
+  } catch(e) {}
+}
+function stopKeepAlive() { keepAliveAudio.srcObject = null; keepAliveAudio.pause(); }
+
+function playBeep(type) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    if (type === 'join') { osc.frequency.setValueAtTime(600, ctx.currentTime); osc.frequency.setValueAtTime(900, ctx.currentTime + 0.12); } 
+    else { osc.frequency.setValueAtTime(900, ctx.currentTime); osc.frequency.setValueAtTime(500, ctx.currentTime + 0.12); }
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.35);
+    osc.onended = () => ctx.close();
+  } catch(e) {}
+}
+
+function playOkSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const gain = ctx.createGain(); gain.connect(ctx.destination);
+    [{ freq: 880, start: 0.00 }, { freq: 1100, start: 0.22 }].forEach(({ freq, start }) => {
+      const osc = ctx.createOscillator(); osc.type = 'sine'; osc.connect(gain);
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+      gain.gain.setValueAtTime(0, ctx.currentTime + start);
+      gain.gain.linearRampToValueAtTime(0.4, ctx.currentTime + start + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + 0.20);
+      osc.start(ctx.currentTime + start); osc.stop(ctx.currentTime + start + 0.22);
+    });
+    setTimeout(() => ctx.close(), 1500);
+  } catch(e) {}
+}
+
 function setMicStatus(active) { const el = document.getElementById('mic-status'); if(el) { el.textContent = active ? '🟢 Микрофон включен' : '🔴 Микрофон выключен'; el.className = 'mic-status ' + (active ? 'active' : 'muted'); } }
 function resetVoiceUI() { if(btnJoin) btnJoin.style.display='block'; if(btnLeave) btnLeave.style.display='none'; if(btnMic) btnMic.style.display='none'; setMicStatus(false); }
 
@@ -573,8 +607,8 @@ function hangUp() {
   if (participantsBox) participantsBox.style.display = 'none';
   micEnabled = true;
 
-  // Автоматически выключить также и видеочат из index.html (если он был включен)
-  if (window.stopVideo) { window.stopVideo(); }
+  // Если был включен видеочат (из index.html), автоматически закроем и его
+  if (window.stopVideo) window.stopVideo(); 
 }
 
 window.initSocket  = initSocket;
