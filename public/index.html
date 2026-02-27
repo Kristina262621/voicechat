@@ -1123,6 +1123,7 @@ function doLogout() {
 
 function enterApp(token, username) {
   currentUser = { token, username };
+  window._currentUsername = username;
   document.getElementById('header-username').textContent = '👤 ' + username;
   showScreen('screen-rooms');
   loadRooms();
