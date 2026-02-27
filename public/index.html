@@ -365,6 +365,7 @@
       overflow: hidden;
       flex: 1 1 140px; max-width: 280px;
       min-height: 110px;
+      transition: all 0.3s;
     }
     .video-tile video {
       width: 100%; height: 100%;
@@ -376,10 +377,6 @@
       color: white;
       background: rgba(0,0,0,0.55);
       padding: 2px 8px; border-radius: 8px;
-    }
-    .video-tile-muted {
-      position: absolute; top: 6px; right: 8px;
-      font-size: 14px;
     }
 
     /* ── Основная область ── */
@@ -704,6 +701,7 @@
      ЭКРАН АВТОРИЗАЦИИ
 ════════════════════════════════════ -->
 <div id="screen-auth" class="screen">
+  <!-- Тот же самый HTML -->
   <div class="auth-card">
     <div class="auth-logo">🔐</div>
     <div class="auth-title">Приватный чат</div>
@@ -714,41 +712,25 @@
       <button class="auth-tab"        id="tab-reg"    onclick="switchTab('reg')">Регистрация</button>
     </div>
 
-    <!-- Форма входа -->
     <form class="auth-form" id="form-login" onsubmit="doLogin(event)">
-      <input class="field" id="login-username"
-             type="text" placeholder="Имя пользователя"
-             autocomplete="username" maxlength="24"/>
+      <input class="field" id="login-username" type="text" placeholder="Имя пользователя" autocomplete="username" maxlength="24"/>
       <div class="pw-wrap">
-        <input class="field" id="login-password"
-               type="password" placeholder="Пароль"
-               autocomplete="current-password" maxlength="64"/>
-        <button type="button" class="toggle-pw"
-                onclick="togglePw('login-password',this)">👁</button>
+        <input class="field" id="login-password" type="password" placeholder="Пароль" autocomplete="current-password" maxlength="64"/>
+        <button type="button" class="toggle-pw" onclick="togglePw('login-password',this)">👁</button>
       </div>
       <div class="error-msg" id="login-error"></div>
       <button class="btn-primary" type="submit" id="btn-login">🔑 Войти</button>
     </form>
 
-    <!-- Форма регистрации -->
-    <form class="auth-form" id="form-reg" style="display:none"
-          onsubmit="doRegister(event)">
-      <input class="field" id="reg-username"
-             type="text" placeholder="Придумай имя (2–24 символа)"
-             autocomplete="username" maxlength="24"/>
+    <form class="auth-form" id="form-reg" style="display:none" onsubmit="doRegister(event)">
+      <input class="field" id="reg-username" type="text" placeholder="Придумай имя (2–24 символа)" autocomplete="username" maxlength="24"/>
       <div class="pw-wrap">
-        <input class="field" id="reg-password"
-               type="password" placeholder="Пароль (мин. 4 символа)"
-               autocomplete="new-password" maxlength="64"/>
-        <button type="button" class="toggle-pw"
-                onclick="togglePw('reg-password',this)">👁</button>
+        <input class="field" id="reg-password" type="password" placeholder="Пароль (мин. 4 символа)" autocomplete="new-password" maxlength="64"/>
+        <button type="button" class="toggle-pw" onclick="togglePw('reg-password',this)">👁</button>
       </div>
       <div class="pw-wrap">
-        <input class="field" id="reg-password2"
-               type="password" placeholder="Повтори пароль"
-               autocomplete="new-password" maxlength="64"/>
-        <button type="button" class="toggle-pw"
-                onclick="togglePw('reg-password2',this)">👁</button>
+        <input class="field" id="reg-password2" type="password" placeholder="Повтори пароль" autocomplete="new-password" maxlength="64"/>
+        <button type="button" class="toggle-pw" onclick="togglePw('reg-password2',this)">👁</button>
       </div>
       <div class="error-msg" id="reg-error"></div>
       <button class="btn-primary" type="submit" id="btn-reg">✅ Зарегистрироваться</button>
@@ -765,52 +747,39 @@
      ЭКРАН КОМНАТ
 ════════════════════════════════════ -->
 <div id="screen-rooms" class="screen hidden">
-
   <div class="rooms-header">
     <div class="rooms-header-title">💬 Комнаты</div>
     <div class="rooms-header-user" id="header-username"></div>
-    <button class="icon-btn" title="Создать комнату"
-            onclick="openCreateRoom()">➕</button>
-    <button class="icon-btn" title="Выйти из аккаунта"
-            onclick="doLogout()">🚪</button>
+    <button class="icon-btn" title="Создать комнату" onclick="openCreateRoom()">➕</button>
+    <button class="icon-btn" title="Выйти из аккаунта" onclick="doLogout()">🚪</button>
   </div>
-
   <div class="rooms-search">
-    <input type="text" placeholder="🔍 Поиск комнат…"
-           id="rooms-search-input" oninput="filterRooms()"/>
+    <input type="text" placeholder="🔍 Поиск комнат…" id="rooms-search-input" oninput="filterRooms()"/>
   </div>
-
   <div class="rooms-list" id="rooms-list">
     <div class="rooms-empty" id="rooms-empty" style="display:none">
       <div class="rooms-empty-icon">🏠</div>
       <div>Комнат пока нет</div>
-      <button class="btn-ghost" onclick="openCreateRoom()">
-        Создать первую комнату
-      </button>
+      <button class="btn-ghost" onclick="openCreateRoom()">Создать первую комнату</button>
     </div>
   </div>
-
 </div>
 
 <!-- ════════════════════════════════════
-     МОДАЛКА — Создать комнату
+     МОДАЛКИ
 ════════════════════════════════════ -->
 <div class="modal-overlay" id="modal-create">
   <div class="modal">
     <div class="modal-title">🏠 Новая комната</div>
     <div class="modal-sub">Придумай название и при желании защити паролем</div>
-    <input class="field" id="create-room-name"
-           type="text" placeholder="Название комнаты" maxlength="32"/>
+    <input class="field" id="create-room-name" type="text" placeholder="Название комнаты" maxlength="32"/>
     <label class="checkbox-row" id="create-pw-toggle-row">
-      <input type="checkbox" id="create-pw-check"
-             onchange="toggleCreatePw()"/>
+      <input type="checkbox" id="create-pw-check" onchange="toggleCreatePw()"/>
       <span>🔒 Защитить паролем</span>
     </label>
     <div class="pw-wrap" id="create-pw-wrap" style="display:none">
-      <input class="field" id="create-room-pw"
-             type="password" placeholder="Пароль комнаты" maxlength="64"/>
-      <button type="button" class="toggle-pw"
-              onclick="togglePw('create-room-pw',this)">👁</button>
+      <input class="field" id="create-room-pw" type="password" placeholder="Пароль комнаты" maxlength="64"/>
+      <button type="button" class="toggle-pw" onclick="togglePw('create-room-pw',this)">👁</button>
     </div>
     <div class="error-msg" id="create-room-error"></div>
     <div class="modal-row">
@@ -820,24 +789,18 @@
   </div>
 </div>
 
-<!-- ════════════════════════════════════
-     МОДАЛКА — Пароль комнаты
-════════════════════════════════════ -->
 <div class="modal-overlay" id="modal-room-pw">
   <div class="modal">
     <div class="modal-title">🔒 Введи пароль</div>
     <div class="modal-sub" id="modal-room-pw-name"></div>
     <div class="pw-wrap">
-      <input class="field" id="room-pw-input"
-             type="password" placeholder="Пароль комнаты" maxlength="64"/>
-      <button type="button" class="toggle-pw"
-              onclick="togglePw('room-pw-input',this)">👁</button>
+      <input class="field" id="room-pw-input" type="password" placeholder="Пароль комнаты" maxlength="64"/>
+      <button type="button" class="toggle-pw" onclick="togglePw('room-pw-input',this)">👁</button>
     </div>
     <div class="error-msg" id="room-pw-error"></div>
     <div class="modal-row">
       <button class="btn-cancel" onclick="closeModal('modal-room-pw')">Отмена</button>
-      <button class="btn-primary" id="btn-room-pw-enter"
-              onclick="doRoomPwEnter()">Войти</button>
+      <button class="btn-primary" id="btn-room-pw-enter" onclick="doRoomPwEnter()">Войти</button>
     </div>
   </div>
 </div>
@@ -846,28 +809,21 @@
      ЭКРАН ЧАТА
 ════════════════════════════════════ -->
 <div id="screen-chat" class="screen hidden">
-
   <!-- Шапка -->
   <div class="tg-header">
-    <button class="icon-btn" style="margin-left:-6px"
-            onclick="leaveRoom()">←</button>
+    <button class="icon-btn" style="margin-left:-6px" onclick="leaveRoom()">←</button>
     <div class="tg-avatar" id="chat-room-avatar">💬</div>
     <div class="tg-header-info">
       <div class="tg-header-name" id="chat-room-name">Комната</div>
       <div class="tg-header-sub">
-        🔒 E2E ·
-        <span class="online">
-          <span id="user-count">0</span> онлайн
-        </span>
+        🔒 E2E · <span class="online"><span id="user-count">0</span> онлайн</span>
       </div>
     </div>
     <div class="tg-header-btns">
-      <button class="icon-btn" id="btn-video-call"
-              title="Видеозвонок" onclick="toggleVideoCall()">📹</button>
+      <button class="icon-btn" id="btn-video-call" title="Видеозвонок" onclick="toggleVideoCall()">📹</button>
     </div>
   </div>
 
-  <!-- Reconnect -->
   <div id="reconnect-banner">🔄 Переподключаемся…</div>
 
   <!-- Видео -->
@@ -878,25 +834,15 @@
   <!-- Основная область -->
   <div class="main-body">
     <div id="chat-messages">
-
-      <!-- Голосовая панель -->
       <div id="participants" style="display:none">
         <div class="voice-panel-title">🎙 Голосовой чат</div>
         <div id="participants-list"></div>
       </div>
-
       <div class="date-divider">Начало чата</div>
-      <div style="align-self:center;text-align:center;color:var(--sub);
-                  font-size:12px;background:rgba(23,33,43,.85);
-                  padding:10px 18px;border-radius:12px;
-                  max-width:280px;line-height:1.65;margin:4px 0 8px">
-        🔒 Все сообщения зашифрованы.<br>
-        Сервер видит только случайный набор символов.
+      <div style="align-self:center;text-align:center;color:var(--sub);font-size:12px;background:rgba(23,33,43,.85);padding:10px 18px;border-radius:12px;max-width:280px;line-height:1.65;margin:4px 0 8px">
+        🔒 Все сообщения зашифрованы.<br>Сервер видит только случайный набор символов.
       </div>
-
     </div>
-
-    <!-- chat-panel для совместимости с app.js -->
     <div id="chat-panel" style="display:none;width:0;height:0;overflow:hidden"></div>
   </div>
 
@@ -904,50 +850,32 @@
   <div class="tg-bottom">
     <div class="voice-bar">
       <button id="btn-join">🎙 Войти в голосовой</button>
-      <button id="btn-mic"   style="display:none">🔇 Выкл. микрофон</button>
+      <button id="btn-mic" style="display:none">🔇 Выкл. микрофон</button>
       <button id="btn-leave" style="display:none">📵 Выйти</button>
     </div>
-
     <div id="mic-status" class="mic-status"></div>
-
     <div class="tg-input-row">
-
       <div class="attach-popup" id="attach-popup">
-        <button class="attach-item" id="btn-photo">
-          <span class="attach-item-icon">🖼</span> Фото
-        </button>
-        <button class="attach-item" id="btn-video">
-          <span class="attach-item-icon">🎬</span> Видео
-        </button>
-        <button class="attach-item" id="btn-file">
-          <span class="attach-item-icon">📎</span> Файл
-        </button>
+        <button class="attach-item" id="btn-photo"><span class="attach-item-icon">🖼</span> Фото</button>
+        <button class="attach-item" id="btn-video"><span class="attach-item-icon">🎬</span> Видео</button>
+        <button class="attach-item" id="btn-file"><span class="attach-item-icon">📎</span> Файл</button>
       </div>
-
-      <button class="btn-attach-tg" id="btn-attach-toggle"
-              title="Прикрепить">📎</button>
-
-      <textarea id="chat-input"
-                placeholder="Сообщение…" rows="1"></textarea>
-
+      <button class="btn-attach-tg" id="btn-attach-toggle" title="Прикрепить">📎</button>
+      <textarea id="chat-input" placeholder="Сообщение…" rows="1"></textarea>
       <button id="btn-send">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
           <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
         </svg>
       </button>
-
     </div>
   </div>
+</div>
 
-</div><!-- /screen-chat -->
+<div id="btn-close-chat" style="display:none"></div>
+<div id="secure-badge" style="display:none"></div>
+<div id="chat-badge" style="display:none"></div>
+<div id="btn-chat-open" style="display:none"></div>
 
-<!-- Скрытые элементы -->
-<div id="btn-close-chat"  style="display:none"></div>
-<div id="secure-badge"    style="display:none"></div>
-<div id="chat-badge"      style="display:none"></div>
-<div id="btn-chat-open"   style="display:none"></div>
-
-<!-- Lightbox -->
 <div id="lightbox">
   <span id="lightbox-close">✕</span>
   <div id="lightbox-content"></div>
@@ -957,9 +885,7 @@
 <audio id="keep-alive-audio" loop playsinline></audio>
 <div id="hidden-audios"></div>
 
-<!-- ════════════════════════════════════
-     СКРИПТЫ
-════════════════════════════════════ -->
+<!-- СКРИПТЫ -->
 <script src="/socket.io/socket.io.js"></script>
 <script src="app.js"></script>
 
@@ -967,57 +893,35 @@
 /* ══════════════════════════════════════════════════════
    СОСТОЯНИЕ
 ══════════════════════════════════════════════════════ */
-let currentUser  = null;   // { username, token }
-let currentRoom  = null;   // { id, name }
-let pendingRoom  = null;   // комната ожидающая ввода пароля
+let currentUser  = null;
+let currentRoom  = null;
+let pendingRoom  = null;
 let allRooms     = [];
 
-/* ══════════════════════════════════════════════════════
-   УТИЛИТЫ
-══════════════════════════════════════════════════════ */
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
   document.getElementById(id).classList.remove('hidden');
 }
-
-function openModal(id) {
-  document.getElementById(id).classList.add('open');
-}
-
-function closeModal(id) {
-  document.getElementById(id).classList.remove('open');
-}
-
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 function toast(msg) {
-  const t = document.createElement('div');
-  t.className = 'toast';
-  t.textContent = msg;
-  document.body.appendChild(t);
-  setTimeout(() => t.remove(), 2600);
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 2600);
 }
-
-function setError(id, msg) {
-  document.getElementById(id).textContent = msg;
-}
-
-function clearError(id) {
-  document.getElementById(id).textContent = '';
-}
-
+function setError(id, msg) { document.getElementById(id).textContent = msg; }
+function clearError(id) { document.getElementById(id).textContent = ''; }
 function togglePw(inputId, btn) {
   const inp = document.getElementById(inputId);
-  if (inp.type === 'password') { inp.type = 'text';     btn.textContent = '🙈'; }
-  else                         { inp.type = 'password'; btn.textContent = '👁';  }
+  if (inp.type === 'password') { inp.type = 'text'; btn.textContent = '🙈'; }
+  else { inp.type = 'password'; btn.textContent = '👁'; }
 }
-
 function switchTab(tab) {
   const isLogin = tab === 'login';
-  document.getElementById('tab-login').classList.toggle('active',  isLogin);
-  document.getElementById('tab-reg').classList.toggle('active',   !isLogin);
+  document.getElementById('tab-login').classList.toggle('active', isLogin);
+  document.getElementById('tab-reg').classList.toggle('active', !isLogin);
   document.getElementById('form-login').style.display = isLogin ? '' : 'none';
-  document.getElementById('form-reg').style.display   = isLogin ? 'none' : '';
-  clearError('login-error');
-  clearError('reg-error');
+  document.getElementById('form-reg').style.display = isLogin ? 'none' : '';
+  clearError('login-error'); clearError('reg-error');
 }
 
 /* ══════════════════════════════════════════════════════
@@ -1028,131 +932,79 @@ async function doLogin(e) {
   const username = document.getElementById('login-username').value.trim();
   const password = document.getElementById('login-password').value;
   clearError('login-error');
-
-  if (!username || !password) {
-    setError('login-error', 'Заполни все поля'); return;
-  }
+  if (!username || !password) { setError('login-error', 'Заполни все поля'); return; }
 
   const btn = document.getElementById('btn-login');
   btn.disabled = true; btn.textContent = 'Входим…';
-
   try {
     const r = await fetch('/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
     });
     const data = await r.json();
-    if (data.ok) {
-      saveSession(data.token, data.username);
-      enterApp(data.token, data.username);
-    } else {
-      const msgs = {
-        wrong_credentials: 'Неверное имя или пароль',
-        missing_fields:    'Заполни все поля'
-      };
-      setError('login-error', msgs[data.error] || 'Ошибка входа');
+    if (data.ok) { saveSession(data.token, data.username); enterApp(data.token, data.username); } 
+    else {
+      setError('login-error', data.error === 'wrong_credentials' ? 'Неверное имя или пароль' : 'Ошибка');
       document.getElementById('login-password').classList.add('error');
-      setTimeout(() =>
-        document.getElementById('login-password').classList.remove('error'), 600);
+      setTimeout(() => document.getElementById('login-password').classList.remove('error'), 600);
     }
-  } catch {
-    setError('login-error', 'Ошибка сети');
-  } finally {
-    btn.disabled = false; btn.textContent = '🔑 Войти';
-  }
+  } catch { setError('login-error', 'Ошибка сети'); } 
+  finally { btn.disabled = false; btn.textContent = '🔑 Войти'; }
 }
 
 async function doRegister(e) {
   e.preventDefault();
-  const username  = document.getElementById('reg-username').value.trim();
-  const password  = document.getElementById('reg-password').value;
+  const username = document.getElementById('reg-username').value.trim();
+  const password = document.getElementById('reg-password').value;
   const password2 = document.getElementById('reg-password2').value;
   clearError('reg-error');
 
-  if (!username || !password) {
-    setError('reg-error', 'Заполни все поля'); return;
-  }
-  if (password !== password2) {
-    setError('reg-error', 'Пароли не совпадают'); return;
-  }
-  if (password.length < 4) {
-    setError('reg-error', 'Пароль минимум 4 символа'); return;
-  }
+  if (!username || !password) { setError('reg-error', 'Заполни все поля'); return; }
+  if (password !== password2) { setError('reg-error', 'Пароли не совпадают'); return; }
+  if (password.length < 4) { setError('reg-error', 'Пароль минимум 4 символа'); return; }
 
   const btn = document.getElementById('btn-reg');
   btn.disabled = true; btn.textContent = 'Создаём…';
-
   try {
     const r = await fetch('/api/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
     });
     const data = await r.json();
-    if (data.ok) {
-      saveSession(data.token, data.username);
-      enterApp(data.token, data.username);
-    } else {
-      const msgs = {
-        username_taken:  'Имя уже занято',
-        username_length: 'Имя: 2–24 символа',
-        password_short:  'Пароль минимум 4 символа',
-        missing_fields:  'Заполни все поля'
-      };
-      setError('reg-error', msgs[data.error] || 'Ошибка регистрации');
-    }
-  } catch {
-    setError('reg-error', 'Ошибка сети');
-  } finally {
-    btn.disabled = false; btn.textContent = '✅ Зарегистрироваться';
-  }
+    if (data.ok) { saveSession(data.token, data.username); enterApp(data.token, data.username); } 
+    else { setError('reg-error', data.error === 'username_taken' ? 'Имя уже занято' : 'Ошибка регистрации'); }
+  } catch { setError('reg-error', 'Ошибка сети'); } 
+  finally { btn.disabled = false; btn.textContent = '✅ Зарегистрироваться'; }
 }
 
 function saveSession(token, username) {
-  localStorage.setItem('chat_token',    token);
+  localStorage.setItem('chat_token', token);
   localStorage.setItem('chat_username', username);
 }
 
 function doLogout() {
-  localStorage.removeItem('chat_token');
-  localStorage.removeItem('chat_username');
-  currentUser = null;
-  showScreen('screen-auth');
+  localStorage.removeItem('chat_token'); localStorage.removeItem('chat_username');
+  currentUser = null; showScreen('screen-auth');
 }
 
 function enterApp(token, username) {
-  currentUser = { token, username };
-  window._currentUsername = username;
+  currentUser = { token, username }; window._currentUsername = username;
   document.getElementById('header-username').textContent = '👤 ' + username;
-  showScreen('screen-rooms');
-  loadRooms();
+  showScreen('screen-rooms'); loadRooms();
 }
 
-/* ══════════════════════════════════════════════════════
-   АВТОВХОД ПО СОХРАНЁННОЙ СЕССИИ
-══════════════════════════════════════════════════════ */
 async function tryAutoLogin() {
-  const token    = localStorage.getItem('chat_token');
-  const username = localStorage.getItem('chat_username');
+  const token = localStorage.getItem('chat_token');
   if (!token) return;
-
   try {
-    const r    = await fetch('/api/verify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const r = await fetch('/api/verify', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token })
     });
     const data = await r.json();
-    if (data.ok) {
-      enterApp(token, data.username);
-    } else {
-      localStorage.removeItem('chat_token');
-      localStorage.removeItem('chat_username');
-    }
-  } catch {
-    // нет сети — показываем форму
-  }
+    if (data.ok) enterApp(token, data.username);
+    else { localStorage.removeItem('chat_token'); localStorage.removeItem('chat_username'); }
+  } catch {}
 }
 
 /* ══════════════════════════════════════════════════════
@@ -1160,43 +1012,27 @@ async function tryAutoLogin() {
 ══════════════════════════════════════════════════════ */
 async function loadRooms() {
   try {
-    const r = await fetch('/api/rooms', {
-      headers: { 'Authorization': 'Bearer ' + currentUser.token }
-    });
+    const r = await fetch('/api/rooms', { headers: { 'Authorization': 'Bearer ' + currentUser.token } });
     const data = await r.json();
-    if (data.ok) {
-      allRooms = data.rooms;
-      renderRooms(allRooms);
-    }
-  } catch {
-    toast('Ошибка загрузки комнат');
-  }
+    if (data.ok) { allRooms = data.rooms; renderRooms(allRooms); }
+  } catch { toast('Ошибка загрузки комнат'); }
 }
 
 function renderRooms(rooms) {
-  const list  = document.getElementById('rooms-list');
+  const list = document.getElementById('rooms-list');
   const empty = document.getElementById('rooms-empty');
-
-  // Удаляем старые айтемы, оставляем #rooms-empty
   list.querySelectorAll('.room-item').forEach(el => el.remove());
 
-  if (rooms.length === 0) {
-    empty.style.display = 'flex';
-    return;
-  }
+  if (rooms.length === 0) { empty.style.display = 'flex'; return; }
   empty.style.display = 'none';
 
   rooms.forEach(room => {
-    const el = document.createElement('div');
-    el.className = 'room-item';
+    const el = document.createElement('div'); el.className = 'room-item';
     el.innerHTML = `
       <div class="room-avatar">💬</div>
       <div class="room-info">
         <div class="room-name">${escHtml(room.name)}</div>
-        <div class="room-meta">
-          Создал ${escHtml(room.owner)}
-          ${room.has_password ? ' · 🔒 Пароль' : ''}
-        </div>
+        <div class="room-meta">Создал ${escHtml(room.owner)}${room.has_password ? ' · 🔒 Пароль' : ''}</div>
       </div>
       ${room.has_password ? '<div class="room-lock">🔒</div>' : ''}
     `;
@@ -1213,66 +1049,45 @@ function filterRooms() {
 function selectRoom(room) {
   if (room.has_password) {
     pendingRoom = room;
-    document.getElementById('modal-room-pw-name').textContent =
-      '🏠 ' + room.name;
+    document.getElementById('modal-room-pw-name').textContent = '🏠 ' + room.name;
     document.getElementById('room-pw-input').value = '';
-    clearError('room-pw-error');
-    openModal('modal-room-pw');
-  } else {
-    joinRoom(room, null);
-  }
+    clearError('room-pw-error'); openModal('modal-room-pw');
+  } else joinRoom(room, null);
 }
 
 async function doRoomPwEnter() {
-  const pw  = document.getElementById('room-pw-input').value;
+  const pw = document.getElementById('room-pw-input').value;
   const btn = document.getElementById('btn-room-pw-enter');
   clearError('room-pw-error');
-
   if (!pw) { setError('room-pw-error', 'Введи пароль'); return; }
 
   btn.disabled = true; btn.textContent = 'Проверяем…';
   try {
     const r = await fetch(`/api/rooms/${pendingRoom.id}/join`, {
       method: 'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': 'Bearer ' + currentUser.token
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + currentUser.token },
       body: JSON.stringify({ password: pw })
     });
     const data = await r.json();
-    if (data.ok) {
-      closeModal('modal-room-pw');
-      joinRoom(pendingRoom, pw);
-    } else {
+    if (data.ok) { closeModal('modal-room-pw'); joinRoom(pendingRoom, pw); } 
+    else {
       setError('room-pw-error', 'Неверный пароль');
       document.getElementById('room-pw-input').classList.add('error');
-      setTimeout(() =>
-        document.getElementById('room-pw-input').classList.remove('error'), 600);
+      setTimeout(() => document.getElementById('room-pw-input').classList.remove('error'), 600);
     }
-  } catch {
-    setError('room-pw-error', 'Ошибка сети');
-  } finally {
-    btn.disabled = false; btn.textContent = 'Войти';
-  }
+  } catch { setError('room-pw-error', 'Ошибка сети'); } 
+  finally { btn.disabled = false; btn.textContent = 'Войти'; }
 }
 
 function joinRoom(room, password) {
-  currentRoom = room;
-  document.getElementById('chat-room-name').textContent = room.name;
+  currentRoom = room; document.getElementById('chat-room-name').textContent = room.name;
   showScreen('screen-chat');
-
-  // Подключаем socket с токеном и roomId
-  if (typeof initSocket === 'function') {
-    initSocket(currentUser.token, room.id, currentUser.username);
-  }
+  if (typeof initSocket === 'function') initSocket(currentUser.token, room.id, currentUser.username);
 }
 
 function leaveRoom() {
   if (typeof socketLeave === 'function') socketLeave();
-  currentRoom = null;
-  showScreen('screen-rooms');
-  loadRooms();
+  currentRoom = null; showScreen('screen-rooms'); loadRooms();
 }
 
 /* ══════════════════════════════════════════════════════
@@ -1280,11 +1095,10 @@ function leaveRoom() {
 ══════════════════════════════════════════════════════ */
 function openCreateRoom() {
   document.getElementById('create-room-name').value = '';
-  document.getElementById('create-room-pw').value   = '';
+  document.getElementById('create-room-pw').value = '';
   document.getElementById('create-pw-check').checked = false;
   document.getElementById('create-pw-wrap').style.display = 'none';
-  clearError('create-room-error');
-  openModal('modal-create');
+  clearError('create-room-error'); openModal('modal-create');
 }
 
 function toggleCreatePw() {
@@ -1293,164 +1107,103 @@ function toggleCreatePw() {
 }
 
 async function doCreateRoom() {
-  const name     = document.getElementById('create-room-name').value.trim();
-  const hasPw    = document.getElementById('create-pw-check').checked;
-  const password = hasPw
-    ? document.getElementById('create-room-pw').value
-    : null;
-
+  const name = document.getElementById('create-room-name').value.trim();
+  const hasPw = document.getElementById('create-pw-check').checked;
+  const password = hasPw ? document.getElementById('create-room-pw').value : null;
   clearError('create-room-error');
 
   if (!name) { setError('create-room-error', 'Введи название'); return; }
-  if (hasPw && !password) {
-    setError('create-room-error', 'Введи пароль'); return;
-  }
+  if (hasPw && !password) { setError('create-room-error', 'Введи пароль'); return; }
 
   try {
     const r = await fetch('/api/rooms', {
       method: 'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': 'Bearer ' + currentUser.token
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + currentUser.token },
       body: JSON.stringify({ name, password })
     });
     const data = await r.json();
-    if (data.ok) {
-      closeModal('modal-create');
-      toast('✅ Комната создана');
-      await loadRooms();
-    } else {
-      const msgs = {
-        room_exists:  'Комната с таким именем уже есть',
-        invalid_name: 'Название: 2–32 символа'
-      };
-      setError('create-room-error', msgs[data.error] || 'Ошибка создания');
-    }
-  } catch {
-    setError('create-room-error', 'Ошибка сети');
-  }
+    if (data.ok) { closeModal('modal-create'); toast('✅ Комната создана'); loadRooms(); } 
+    else { setError('create-room-error', data.error === 'room_exists' ? 'Уже есть' : 'Ошибка'); }
+  } catch { setError('create-room-error', 'Ошибка сети'); }
 }
+
 
 /* ══════════════════════════════════════════════════════
-   ВИДЕОЧАТ
+   ИДЕАЛЬНЫЙ WEBRTC (Без зависаний, с переиспользованием)
 ══════════════════════════════════════════════════════ */
-let videoActive    = false;
-let localVideoStream = null;   // ← отдельная переменная, не трогаем localStream из app.js
-const videoPeers   = new Map();
+let videoActive = false;
+let localVideoStream = null;
+const videoPeers = new Map();
 
-async function toggleVideoCall() {
-  if (!videoActive) {
-    await startVideo();
+// Управление видимостью черного экрана
+function checkGridVisibility() {
+  const grid = document.getElementById('video-grid');
+  const section = document.getElementById('video-section');
+  if (videoActive || grid.children.length > 0) {
+    section.classList.add('visible');
   } else {
-    stopVideo();
+    section.classList.remove('visible');
   }
 }
 
-async function startVideo() {
-  try {
-    localVideoStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
-      audio: false   // ← аудио уже есть в localStream из app.js, не дублируем
-    });
-    videoActive = true;
-
-    document.getElementById('btn-video-call').classList.add('active');
-    document.getElementById('video-section').classList.add('visible');
-
-    addVideoTile('local', localVideoStream, currentUser.username, true);
-
-    if (window._socket) {
-      window._socket.emit('video-start');
-    }
-
-    if (window._roomPeers) {
-      for (const peerId of window._roomPeers) {
-        await createVideoPeer(peerId, true);
-      }
-    }
-  } catch (err) {
-    toast('❌ Нет доступа к камере: ' + err.message);
-  }
-}
-
-function stopVideo() {
-  videoActive = false;
-
-  // Останавливаем только видео-треки
-  if (localVideoStream) {
-    localVideoStream.getTracks().forEach(t => t.stop());
-    localVideoStream = null;
-  }
-
-  videoPeers.forEach(pc => pc.close());
-  videoPeers.clear();
-
-  document.getElementById('video-grid').innerHTML = '';
-  document.getElementById('video-section').classList.remove('visible');
-  document.getElementById('btn-video-call').classList.remove('active');
-
-  if (window._socket) {
-    window._socket.emit('video-stop');
-  }
-}
-
-function addVideoTile(id, stream, label, muted) {
+// Добавление плитки (С зеркальным отражением для себя)
+function addVideoTile(id, stream, label) {
   removeVideoTile(id);
   const grid = document.getElementById('video-grid');
   const tile = document.createElement('div');
   tile.className = 'video-tile';
-  tile.id        = 'vtile-' + id;
+  tile.id = 'vtile-' + id;
 
-  const vid        = document.createElement('video');
-  vid.autoplay     = true;
-  vid.playsinline  = true;
-  vid.muted        = !!muted;
-  vid.srcObject    = stream;
+  const vid = document.createElement('video');
+  vid.autoplay = true; 
+  vid.playsinline = true; 
+  vid.srcObject = stream;
+  
+  if (id === 'local') {
+    vid.muted = true; // Свой звук всегда замьючен
+    vid.style.transform = 'scaleX(-1)'; // ЗЕРКАЛО: только для локального видео!
+  } else {
+    vid.muted = false; // Чужой звук пускаем (хотя вы сказали аудио у вас идет через app.js)
+  }
 
-  const name       = document.createElement('div');
-  name.className   = 'video-tile-name';
+  const name = document.createElement('div');
+  name.className = 'video-tile-name';
   name.textContent = label;
 
   tile.appendChild(vid);
   tile.appendChild(name);
   grid.appendChild(tile);
+  checkGridVisibility();
 }
 
 function removeVideoTile(id) {
   document.getElementById('vtile-' + id)?.remove();
+  checkGridVisibility();
 }
 
-async function createVideoPeer(peerId, isInitiator) {
-  console.log('createVideoPeer:', peerId, 'isInitiator:', isInitiator);
-
+// "Умное" получение PeerConnection (Не ломаем старое, если можно использовать!)
+function getOrCreatePeer(peerId) {
   if (videoPeers.has(peerId)) {
-    videoPeers.get(peerId).close();
-    videoPeers.delete(peerId);
+    return videoPeers.get(peerId);
   }
 
   const pc = new RTCPeerConnection({
     iceServers: [
       { urls: 'stun:stun.relay.metered.ca:80' },
-      {
-        urls:       'turn:global.relay.metered.ca:80',
-        username:   '4219a9030e911d3a21936639',
-        credential: 'W9K/4EBqUUoxu9FC'
-      }
+      { urls: 'turn:global.relay.metered.ca:80', username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' }
     ]
   });
 
-  // НОВОЕ: Очередь для ICE кандидатов, которые пришли слишком рано
-  pc.pendingIceCandidates = []; 
-
+  pc.pendingIceCandidates = [];
   videoPeers.set(peerId, pc);
 
+  // Когда получаем видео трек от друга
   pc.ontrack = (e) => {
-    console.log('ontrack от:', peerId, e.streams);
     const label = window._peerNames?.get(peerId) || peerId.slice(0, 6);
-    addVideoTile(peerId, e.streams[0], label, false);
+    addVideoTile(peerId, e.streams[0], label);
   };
 
+  // Когда мы нашли наш IP роутер -> шлем собеседнику
   pc.onicecandidate = (e) => {
     if (e.candidate && window._socket) {
       window._socket.emit('video-ice', { to: peerId, candidate: e.candidate });
@@ -1458,157 +1211,204 @@ async function createVideoPeer(peerId, isInitiator) {
   };
 
   pc.onconnectionstatechange = () => {
-    console.log('VideoPeer', peerId, '→', pc.connectionState);
+    console.log(`WebRTC state with ${peerId}:`, pc.connectionState);
     if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
       removeVideoTile(peerId);
+      pc.close();
       videoPeers.delete(peerId);
     }
   };
 
-  if (isInitiator) {
-    // Добавляем треки И сразу создаём offer вручную
-    // НЕ используем onnegotiationneeded — он ненадёжен
-    if (localVideoStream) {
-      localVideoStream.getTracks().forEach(t => pc.addTrack(t, localVideoStream));
-    }
+  return pc;
+}
 
+// Включение/Отключение камеры
+async function toggleVideoCall() {
+  if (!videoActive) { await startVideo(); } 
+  else { stopVideo(); }
+}
+
+async function startVideo() {
+  try {
+    localVideoStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+      audio: false
+    });
+    
+    videoActive = true;
+    document.getElementById('btn-video-call').classList.add('active');
+    
+    // Добавляем себе свое зеркальное видео
+    addVideoTile('local', localVideoStream, 'Вы');
+
+    // Сообщаем серверу, что мы начали звонок
+    if (window._socket) window._socket.emit('video-start');
+
+    // Подключаем НАШЕ видео КО ВСЕМ, КТО СЕЙЧАС В КОМНАТЕ
+    if (window._roomPeers) {
+      for (const peerId of window._roomPeers) {
+        const pc = getOrCreatePeer(peerId);
+        
+        // Аккуратно добавляем треки в существующее соединение, не ломая его
+        const senders = pc.getSenders();
+        localVideoStream.getTracks().forEach(track => {
+          if (!senders.find(s => s.track === track)) {
+            pc.addTrack(track, localVideoStream);
+          }
+        });
+
+        // Создаем оффер (мы - инициаторы передачи видео)
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        window._socket?.emit('video-offer', { to: peerId, offer: pc.localDescription });
+      }
+    }
+  } catch (err) { toast('❌ Нет доступа к камере: ' + err.message); }
+}
+
+function stopVideo() {
+  videoActive = false;
+
+  if (localVideoStream) {
+    localVideoStream.getTracks().forEach(t => t.stop());
+    localVideoStream = null;
+  }
+
+  // МЫ НЕ УБИВАЕМ PeerConnection! 
+  // Мы просто убираем свои треки из трансляции. Так чужие стримы не лагают.
+  videoPeers.forEach((pc, peerId) => {
+    try {
+      pc.getSenders().forEach(sender => {
+        if (sender.track) pc.removeTrack(sender);
+      });
+      // Оповестим всех, что треки исчезли
+      pc.createOffer()
+        .then(offer => pc.setLocalDescription(offer))
+        .then(() => window._socket?.emit('video-offer', { to: peerId, offer: pc.localDescription }))
+        .catch(e => console.error("Renegotiation error", e));
+    } catch(err) {}
+  });
+
+  // Убираем свою плитку (чужие останутся если они включены)
+  removeVideoTile('local');
+  document.getElementById('btn-video-call').classList.remove('active');
+
+  if (window._socket) window._socket.emit('video-stop');
+}
+
+
+/* ══════════════════════════════════════════════════════
+   ПОЛУЧЕНИЕ СИГНАЛОВ ПО СЕТИ
+══════════════════════════════════════════════════════ */
+
+// Этот хук нужен, если в комнату кто-то зашел, А У ВАС УЖЕ РАБОТАЕТ ВЕБКА. 
+// Вам нужно отправить ему ваше видео автоматически.
+window.onUserJoined = async function(socketId) {
+  if (videoActive && localVideoStream) {
+    const pc = getOrCreatePeer(socketId);
+    localVideoStream.getTracks().forEach(t => pc.addTrack(t, localVideoStream));
+    
     try {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      console.log('Отправляем video-offer →', peerId);
-      window._socket?.emit('video-offer', { to: peerId, offer: pc.localDescription });
-    } catch(e) {
-      console.error('createOffer error:', e);
-    }
-
-  } else {
-    // Не-инициатор: добавляем треки но offer не создаём
-    if (localVideoStream) {
-      localVideoStream.getTracks().forEach(t => pc.addTrack(t, localVideoStream));
-    }
+      window._socket?.emit('video-offer', { to: socketId, offer: pc.localDescription });
+    } catch(e) {}
   }
+};
 
-  return pc;
-}
-/* ══════════════════════════════════════════════════════
-   ВИДЕО-СОБЫТИЯ от сервера
-══════════════════════════════════════════════════════ */
-window.onVideoStart = async function(socketId, username) {
-  // ВАЖНО: Мы больше НЕ создаем здесь createVideoPeer(socketId, true);
-  // Если собеседник включил видео, он УЖЕ отправил нам свой video-offer.
-  // Обработка соединения произойдет в onVideoOffer.
-  // Это предотвращает дублирование и конфликт (Glare).
-  console.log('Пользователь запустил видео:', socketId);
+window.onVideoStart = async function(socketId) {
+  // Нам не нужно тут ничего делать, ждем onVideoOffer от него!
 };
 
 window.onVideoStop = function(socketId) {
-  const pc = videoPeers.get(socketId);
-  if (pc) { pc.close(); videoPeers.delete(socketId); }
+  // Собеседник выключил видео - удаляем только его плитку. 
+  // Не ломаем сам peer, вдруг он сейчас его назад включит.
   removeVideoTile(socketId);
 };
 
-// Вспомогательная функция, чтобы применить накопившихся кандидатов
+// Применение ICE из очереди
 async function processIceQueue(pc) {
   if (pc.pendingIceCandidates && pc.pendingIceCandidates.length > 0) {
-    for (let c of pc.pendingIceCandidates) {
-      try {
-        await pc.addIceCandidate(new RTCIceCandidate(c));
-      } catch(e) {
-        console.warn('Ошибка добавления ICE из очереди:', e);
-      }
+    for (const c of pc.pendingIceCandidates) {
+      try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch(e) {}
     }
     pc.pendingIceCandidates = [];
   }
 }
 
 window.onVideoOffer = async function(socketId, offer) {
-  console.log('onVideoOffer от:', socketId);
-  
-  // Закрываем старый peer если был
-  if (videoPeers.has(socketId)) {
-    videoPeers.get(socketId).close();
-    videoPeers.delete(socketId);
-  }
-  
-  // Создаём новый как НЕ-инициатор
-  const pc = await createVideoPeer(socketId, false);
-  
-  // Сохраняем удаленное описание
-  await pc.setRemoteDescription(new RTCSessionDescription(offer));
-  
-  // Теперь, когда RemoteDescription установлен, применяем ICE из очереди
-  await processIceQueue(pc);
+  try {
+    const pc = getOrCreatePeer(socketId);
+    
+    // Защита от Glare: если мы тут тоже пытаемся отправить видео одновременно
+    if (pc.signalingState !== 'stable') {
+      await Promise.all([
+        pc.setLocalDescription({type: "rollback"}),
+        pc.setRemoteDescription(new RTCSessionDescription(offer))
+      ]);
+    } else {
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+    }
 
-  // Формируем ответ
-  const answer = await pc.createAnswer();
-  await pc.setLocalDescription(answer);
-  
-  console.log('Отправляем video-answer →', socketId);
-  window._socket?.emit('video-answer', { to: socketId, answer: pc.localDescription });
+    await processIceQueue(pc);
+
+    // Если у нас включено видео - добавляем свои треки в ответ
+    if (videoActive && localVideoStream) {
+       const senders = pc.getSenders();
+       localVideoStream.getTracks().forEach(t => {
+         if (!senders.find(s => s.track === t)) pc.addTrack(t, localVideoStream);
+       });
+    }
+
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    window._socket?.emit('video-answer', { to: socketId, answer: pc.localDescription });
+  } catch (e) { console.error("Offer error:", e); }
 };
 
 window.onVideoAnswer = async function(socketId, answer) {
-  console.log('onVideoAnswer от', socketId);
-  const pc = videoPeers.get(socketId);
-  if (pc) {
-    await pc.setRemoteDescription(new RTCSessionDescription(answer));
-    // Применяем ICE из очереди (если кандидат прилетел раньше ответа)
-    await processIceQueue(pc);
-  }
+  try {
+    const pc = videoPeers.get(socketId);
+    if (pc) {
+      await pc.setRemoteDescription(new RTCSessionDescription(answer));
+      await processIceQueue(pc);
+    }
+  } catch (e) { console.error("Answer error:", e); }
 };
 
 window.onVideoIce = async function(socketId, candidate) {
   const pc = videoPeers.get(socketId);
   if (pc && candidate) {
     try {
-      // Можно добавлять ICE напрямую только если уже есть Remote Description
       if (pc.remoteDescription && pc.remoteDescription.type) {
         await pc.addIceCandidate(new RTCIceCandidate(candidate));
       } else {
-        // Иначе прячем в очередь (они применятся в onVideoOffer / onVideoAnswer)
         if (!pc.pendingIceCandidates) pc.pendingIceCandidates = [];
         pc.pendingIceCandidates.push(candidate);
       }
-    } catch(e) {
-      console.warn('video-ice error:', e.message);
-    }
+    } catch(e) {}
   }
 };
+
+
 /* ══════════════════════════════════════════════════════
-   ПОПАП ПРИКРЕПЛЕНИЯ
+   UI И ОСТАЛЬНАЯ ЛОГИКА
 ══════════════════════════════════════════════════════ */
 const attachToggle = document.getElementById('btn-attach-toggle');
 const attachPopup  = document.getElementById('attach-popup');
 
-attachToggle.addEventListener('click', (e) => {
-  e.stopPropagation();
-  attachPopup.classList.toggle('open');
-});
-
-document.addEventListener('click', () => {
-  attachPopup.classList.remove('open');
-});
-
+attachToggle.addEventListener('click', (e) => { e.stopPropagation(); attachPopup.classList.toggle('open'); });
+document.addEventListener('click', () => { attachPopup.classList.remove('open'); });
 attachPopup.addEventListener('click', (e) => e.stopPropagation());
 
 ['btn-photo','btn-video','btn-file'].forEach(id => {
-  document.getElementById(id)?.addEventListener('click', () => {
-    attachPopup.classList.remove('open');
-  });
+  document.getElementById(id)?.addEventListener('click', () => { attachPopup.classList.remove('open'); });
 });
 
-/* ══════════════════════════════════════════════════════
-   ЗАКРЫТИЕ МОДАЛОК ПО ОВЕРЛЕЮ
-══════════════════════════════════════════════════════ */
 document.querySelectorAll('.modal-overlay').forEach(overlay => {
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) overlay.classList.remove('open');
-  });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.remove('open'); });
 });
 
-/* ══════════════════════════════════════════════════════
-   LIGHTBOX
-══════════════════════════════════════════════════════ */
 document.getElementById('lightbox-close').onclick = () => {
   document.getElementById('lightbox').classList.remove('open');
   document.getElementById('lightbox-content').innerHTML = '';
@@ -1621,22 +1421,9 @@ document.getElementById('lightbox').addEventListener('click', (e) => {
   }
 });
 
-/* ══════════════════════════════════════════════════════
-   УТИЛИТА — экранирование HTML
-══════════════════════════════════════════════════════ */
-function escHtml(str) {
-  return String(str)
-    .replace(/&/g,'&amp;')
-    .replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;');
-}
+function escHtml(str) { return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-/* ══════════════════════════════════════════════════════
-   СТАРТ
-══════════════════════════════════════════════════════ */
 tryAutoLogin();
 </script>
-
 </body>
 </html>
