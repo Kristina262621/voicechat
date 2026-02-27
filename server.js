@@ -202,36 +202,61 @@ const io = new Server(server, {
   maxHttpBufferSize: 50 * 1024 * 1024,
   transports:        ['websocket', 'polling'],
   allowUpgrades:     true,
-  cors:              { origin: '*' }
+  cors:              { origin: '*' } // В проде настройте CORS
 });
 
-// socket.id → { username, roomId }
+// Хранилище: socket.id → { username, roomId }
 const socketMeta = new Map();
 
 io.on('connection', (socket) => {
-  console.log('Connected:', socket.id);
+  console.log('🔌 Connected:', socket.id);
 
-  // Аутентификация через токен
-  socket.on('join-room', ({ roomId, token, username }) => {
-    if (!users.has(token)) return; 
-    currentRoom = roomId;
-    socket.join(roomId);
-
-    // Узнаем, кто УЖЕ в комнате (исключая самого себя)
-    const roomSockets = io.sockets.adapter.rooms.get(roomId);
-    const existingUsers = Array.from(roomSockets || []).filter(id => id !== socket.id);
+  // Аутентификация и присоединение к комнате
+  socket.on('join-room', ({ roomId, token }) => {
+    const user = getUserByToken(token);
     
-    // ОТПРАВЛЯЕМ новичку список тех, кто тут сидит
+    // Если токен невалидный - выкидываем ошибку на клиент
+    if (!user) {
+      socket.emit('auth-fail');
+      return;
+    }
+
+    // Запоминаем данные о сокете
+    socketMeta.set(socket.id, { username: user.username, roomId: roomId });
+    socket.join(String(roomId));
+
+    // Ищем всех, кто УЖЕ в этой комнате
+    const roomSockets = io.sockets.adapter.rooms.get(String(roomId));
+    const existingUsers = [];
+
+    if (roomSockets) {
+      for (const sid of roomSockets) {
+        if (sid !== socket.id) {
+          const meta = socketMeta.get(sid);
+          existingUsers.push({
+            socketId: sid,
+            username: meta ? meta.username : 'User'
+          });
+        }
+      }
+    }
+
+    // Сообщаем новичку, кто есть в комнате
     socket.emit('existing-users', existingUsers);
 
-    // Оповещаем остальных, что новичок зашел
-    socket.to(roomId).emit('user-joined', socket.id);
+    // Сообщаем всей комнате, что зашел новичок
+    socket.to(String(roomId)).emit('user-joined', {
+      socketId: socket.id,
+      username: user.username
+    });
+
+    // Обновляем счетчик онлайн
+    io.to(String(roomId)).emit('user-count', roomSockets ? roomSockets.size : 1);
+    
+    console.log(`👤 ${user.username} joined room ${roomId}`);
   });
 
-    console.log(`${user.username} joined room ${room.name}`);
-  });
-
-  // WebRTC сигнализация
+  // WebRTC аудио-сигнализация
   socket.on('offer', ({ to, offer }) => {
     if (!socketMeta.has(socket.id)) return;
     io.to(to).emit('offer', { from: socket.id, offer });
@@ -251,7 +276,7 @@ io.on('connection', (socket) => {
   socket.on('chat-message', (data) => {
     const meta = socketMeta.get(socket.id);
     if (!meta) return;
-    socket.to(meta.roomId).emit('chat-message', {
+    socket.to(String(meta.roomId)).emit('chat-message', {
       from:      socket.id,
       username:  meta.username,
       encrypted: data.encrypted,
@@ -268,13 +293,13 @@ io.on('connection', (socket) => {
   socket.on('understood', () => {
     const meta = socketMeta.get(socket.id);
     if (!meta) return;
-    socket.to(meta.roomId).emit('understood', {
+    socket.to(String(meta.roomId)).emit('understood', {
       from:     socket.id,
       username: meta.username
     });
   });
 
-  // Видео-сигнализация
+  // WebRTC видео-сигнализация
   socket.on('video-offer', ({ to, offer }) => {
     if (!socketMeta.has(socket.id)) return;
     io.to(to).emit('video-offer', { from: socket.id, offer });
@@ -293,7 +318,7 @@ io.on('connection', (socket) => {
   socket.on('video-start', () => {
     const meta = socketMeta.get(socket.id);
     if (!meta) return;
-    socket.to(meta.roomId).emit('video-start', {
+    socket.to(String(meta.roomId)).emit('video-start', {
       from:     socket.id,
       username: meta.username
     });
@@ -302,27 +327,31 @@ io.on('connection', (socket) => {
   socket.on('video-stop', () => {
     const meta = socketMeta.get(socket.id);
     if (!meta) return;
-    socket.to(meta.roomId).emit('video-stop', { from: socket.id });
+    socket.to(String(meta.roomId)).emit('video-stop', { from: socket.id });
   });
 
-  // Отключение
+  // Отключение / Выход из комнаты
   socket.on('leave',      () => handleLeave(socket));
   socket.on('disconnect', () => handleLeave(socket));
 
   function handleLeave(socket) {
     const meta = socketMeta.get(socket.id);
     if (meta) {
-      socket.to(meta.roomId).emit('user-left', { socketId: socket.id });
-      const roomSockets = io.sockets.adapter.rooms.get(meta.roomId);
-      const count = roomSockets ? roomSockets.size - 1 : 0;
-      io.to(meta.roomId).emit('user-count', Math.max(0, count));
+      // Сообщаем другим, что пользователь вышел
+      socket.to(String(meta.roomId)).emit('user-left', { socketId: socket.id });
+      
+      // Считаем оставшихся
+      const roomSockets = io.sockets.adapter.rooms.get(String(meta.roomId));
+      const count = roomSockets ? roomSockets.size : 0;
+      io.to(String(meta.roomId)).emit('user-count', count);
+      
+      socketMeta.delete(socket.id);
+      console.log(`🚪 Disconnected: ${meta.username} (${socket.id})`);
     }
-    socketMeta.delete(socket.id);
-    console.log('Disconnected:', socket.id);
   }
-});
+}); // <-- Теперь эта закрывающая скобка стоит на правильном месте!
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Server on port ${PORT}`);
+  console.log(`✅ Server is running on port ${PORT}`);
 });
