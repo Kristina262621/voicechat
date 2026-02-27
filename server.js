@@ -212,33 +212,21 @@ io.on('connection', (socket) => {
   console.log('Connected:', socket.id);
 
   // Аутентификация через токен
-  socket.on('authenticate', ({ token, roomId }) => {
-    const user = getUserByToken(token);
-    if (!user) { socket.emit('auth-fail'); return; }
+  socket.on('join-room', ({ roomId, token, username }) => {
+    if (!users.has(token)) return; 
+    currentRoom = roomId;
+    socket.join(roomId);
 
-    // Проверяем существование комнаты
-    const room = db.prepare('SELECT * FROM chat_rooms WHERE id = ?').get(roomId);
-    if (!room) { socket.emit('auth-fail'); return; }
+    // Узнаем, кто УЖЕ в комнате (исключая самого себя)
+    const roomSockets = io.sockets.adapter.rooms.get(roomId);
+    const existingUsers = Array.from(roomSockets || []).filter(id => id !== socket.id);
+    
+    // ОТПРАВЛЯЕМ новичку список тех, кто тут сидит
+    socket.emit('existing-users', existingUsers);
 
-    socketMeta.set(socket.id, { username: user.username, roomId: String(roomId) });
-    socket.join(String(roomId));
-    socket.emit('auth-ok', { username: user.username });
-
-    // Считаем онлайн в комнате
-    const roomSockets = io.sockets.adapter.rooms.get(String(roomId));
-    const count = roomSockets ? roomSockets.size : 1;
-    io.to(String(roomId)).emit('user-count', count);
-
-    // Сообщить остальным в комнате
-    const others = [...(roomSockets || [])]
-      .filter(id => id !== socket.id)
-      .map(id => ({ socketId: id, username: socketMeta.get(id)?.username || '?' }));
-
-    socket.emit('existing-users', others);
-    socket.to(String(roomId)).emit('user-joined', {
-      socketId: socket.id,
-      username: user.username
-    });
+    // Оповещаем остальных, что новичок зашел
+    socket.to(roomId).emit('user-joined', socket.id);
+  });
 
     console.log(`${user.username} joined room ${room.name}`);
   });
