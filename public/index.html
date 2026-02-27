@@ -1360,15 +1360,14 @@ async function startVideo() {
 
     addVideoTile('local', localStream, currentUser.username, true);
 
-    // Сообщаем остальным
     if (window._socket) {
       window._socket.emit('video-start');
     }
 
-    // Создаём соединения со всеми кто уже в комнате
+    // Мы инициируем offer всем кто уже в комнате
     if (window._roomPeers) {
       for (const peerId of window._roomPeers) {
-        await createVideoPeer(peerId, true);
+        await createVideoPeer(peerId, true);  // ← мы шлём offer
       }
     }
   } catch (err) {
@@ -1468,7 +1467,8 @@ async function createVideoPeer(peerId, isInitiator) {
 ══════════════════════════════════════════════════════ */
 window.onVideoStart = async function(socketId, username) {
   if (!videoActive) return;
-  await createVideoPeer(socketId, false);
+  // Тот кто УЖЕ в видео — создаёт offer для нового участника
+  await createVideoPeer(socketId, true);  // ← isInitiator = true
 };
 
 window.onVideoStop = function(socketId) {
