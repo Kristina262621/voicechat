@@ -105,7 +105,7 @@ function initSocket(token, roomId, username) {
         addParticipant(socketId, '👤 ' + uname);
         peers[socketId] = createPeer(socketId, true);
       }
-      if (window.onUserJoined) window.onUserJoined(socketId); // Для Видеочата
+      if (window.onUserJoined) window.onUserJoined(socketId);
     }
   });
 
@@ -120,7 +120,7 @@ function initSocket(token, roomId, username) {
     if (joined) addParticipant(socketId, '👤 ' + uname);
     showToastJoin(uname);
 
-    if (window.onUserJoined) window.onUserJoined(socketId); // Для Видеочата
+    if (window.onUserJoined) window.onUserJoined(socketId);
   });
 
   socket.on('user-left', (data) => {
@@ -139,7 +139,7 @@ function initSocket(token, roomId, username) {
     document.getElementById('audio-' + socketId)?.remove();
     showToastLeave(uname);
 
-    if (window.onUserLeft) window.onUserLeft(socketId); // Для Видеочата
+    if (window.onUserLeft) window.onUserLeft(socketId);
   });
 
   // ── Голосовой WebRTC ──
@@ -374,7 +374,7 @@ function openLightbox(type, src) {
 }
 
 // ═══════════════════════════════════════════════
-//  ГОЛОСОВОЙ ЧАТ WEB-RTC И УЛУЧШЕНИЕ ЗВУКА
+//  ГОЛОСОВОЙ ЧАТ WEB-RTC И ПРОДВИНУТОЕ ШУМОПОДАВЛЕНИЕ
 // ═══════════════════════════════════════════════
 const iceServers = {
   iceServers: [
@@ -383,7 +383,7 @@ const iceServers = {
   ]
 };
 
-// Функция улучшения качества аудио (Opus)
+// 🔥 Максимальное улучшение качества звука: Opus Codec
 function forceOpusMaxQuality(sdp) {
   const lines = sdp.split('\r\n');
   const result = [];
@@ -393,9 +393,15 @@ function forceOpusMaxQuality(sdp) {
       result.push(line);
       const pt = line.split(':')[1].split(' ')[0];
       if (i + 1 < lines.length && lines[i + 1].startsWith('a=fmtp:' + pt)) i++;
-      result.push(`a=fmtp:${pt} minptime=10;useinbandfec=1;stereo=1;sprop-stereo=1;maxaveragebitrate=510000`);
+      // Флаги магии звука:
+      // usedtx=1 : При молчании микрофон вообще вырубает передачу (никакого белого шума или дыхания)
+      // useinbandfec=1 : Помогает восстанавливать голос при потере интернета
+      // stereo=0 : Концентрирует качество только на частотах голоса, не тратя силы на панораму
+      // maxaveragebitrate=64000 : Кристально чистый голос 64 кбит/с
+      result.push(`a=fmtp:${pt} minptime=10;useinbandfec=1;usedtx=1;stereo=0;sprop-stereo=0;maxaveragebitrate=64000`);
       continue;
     }
+    // Выкидываем лишние лимиты браузера на интернет
     if (line.startsWith('b=AS:') || line.startsWith('b=TIAS:')) continue;
     result.push(line);
   }
@@ -405,9 +411,16 @@ function forceOpusMaxQuality(sdp) {
 btnJoin?.addEventListener('click', async () => {
   if (!socket) return toast('❌ Нет соединения');
   try {
+    // 🔥 Запрашиваем у браузера максимальное подавление шумов и эха на уровне железа
     localStream = await navigator.mediaDevices.getUserMedia({
       video: false,
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 2 }
+      audio: { 
+        echoCancellation: true,    // Подавление эха (чтоб не слышать себя у собеседника)
+        noiseSuppression: true,    // Подавление лишних шумов (машин, ветра)
+        autoGainControl: true,     // Авто-выравнивание громкости (тихий голос станет громким)
+        sampleRate: 48000,         // Про студийное качество
+        channelCount: 1            // Моно (идеально для голоса)
+      }
     });
     
     await requestWakeLock(); 
@@ -422,7 +435,6 @@ btnJoin?.addEventListener('click', async () => {
     
     socket.emit('join');
 
-    // Подключаемся к тем, кто уже в комнате
     for (const peerId of window._roomPeers) {
       if (!peers[peerId]) {
         addParticipant(peerId, '👤 ' + (window._peerNames.get(peerId) || peerId.slice(0,6)));
@@ -430,7 +442,6 @@ btnJoin?.addEventListener('click', async () => {
       }
     }
     
-    // Подхватываем тех, кто звонил нам пока мы не приняли доступ
     for (const { from, offer } of pendingOffers) await handleOffer(from, offer);
     pendingOffers = [];
 
@@ -535,7 +546,7 @@ function stopQualityMonitor(id) {
 }
 
 // ═══════════════════════════════════════════════
-//  СИСТЕМНЫЕ ЗВУКИ И WAKELOCK (ВОССТАНОВЛЕНО)
+//  СИСТЕМНЫЕ ЗВУКИ И WAKELOCK
 // ═══════════════════════════════════════════════
 async function requestWakeLock() {
   if (!('wakeLock' in navigator)) return;
@@ -607,7 +618,6 @@ function hangUp() {
   if (participantsBox) participantsBox.style.display = 'none';
   micEnabled = true;
 
-  // Если был включен видеочат (из index.html), автоматически закроем и его
   if (window.stopVideo) window.stopVideo(); 
 }
 
