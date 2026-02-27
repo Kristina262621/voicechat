@@ -464,7 +464,7 @@ function switchTab(t) {
 }
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-async function doLogin(e) { /* Ваш стандартный логин (оригинал) */
+async function doLogin(e) {
   e.preventDefault(); const u = document.getElementById('login-username').value.trim(), p = document.getElementById('login-password').value;
   clearError('login-error'); if(!u||!p){ setError('login-error','Заполни поля'); return; }
   const btn = document.getElementById('btn-login'); btn.disabled=true; btn.textContent='Входим…';
@@ -530,11 +530,12 @@ async function doCreateRoom() {
 
 /* ══════════════════════════════════════════════════════
    НОВЫЙ WEBRTC ВИДЕОЧАТ (ИДЕАЛЬНАЯ MESH-СЕТЬ)
+   Заменено имя localStream на localVidStream, чтобы не конфликтовать с app.js
 ══════════════════════════════════════════════════════ */
 const videoOverlay = document.getElementById('video-call-overlay');
 const videoGrid    = document.getElementById('video-grid');
 let videoActive    = false;
-let localStream    = null;
+let localVidStream = null; // <- ВОТ ЗДЕСЬ ИСПРАВЛЕНИЕ
 let vidCamMuted    = false;
 let vidMicMuted    = false;
 const videoPeers   = new Map();
@@ -614,7 +615,6 @@ function getOrCreateVideoPeer(peerId) {
 document.getElementById('btn-video-call').addEventListener('click', async () => {
   if (videoActive) return; // Уже в звонке
 
-  // Показываем красивый черный оверлей плавно
   videoOverlay.classList.remove('hidden');
   videoActive = true;
   vidCamMuted = false;
@@ -622,26 +622,23 @@ document.getElementById('btn-video-call').addEventListener('click', async () => 
 
   try {
     // Включаем камеру и микрофон телефона
-    localStream = await navigator.mediaDevices.getUserMedia({
+    localVidStream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: 'user' },
-      audio: true // В видеочате свой отдельный звук
+      audio: true 
     });
 
-    // Рисуем себя
-    addVideoTile('local', localStream, 'Вы', true);
+    addVideoTile('local', localVidStream, 'Вы', true);
 
-    // Оповещаем остальных, что мы включили видео (чтобы они у себя открыли оверлей)
     if (window._socket) window._socket.emit('video-start');
 
-    // 🏆 ПРАВИЛО MESH-СЕТИ: Рассылаем наше видео ВСЕМ, КТО УЖЕ В КОМНАТЕ
+    // Рассылаем наше видео ВСЕМ
     if (window._roomPeers) {
       for (const peerId of window._roomPeers) {
         if (peerId === window._socket?.id) continue;
 
         const pc = getOrCreateVideoPeer(peerId);
-        localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+        localVidStream.getTracks().forEach(track => pc.addTrack(track, localVidStream));
 
-        // Мы инициаторы оффера
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         window._socket.emit('video-offer', { to: peerId, offer: pc.localDescription });
@@ -657,29 +654,32 @@ document.getElementById('btn-video-call').addEventListener('click', async () => 
 // Кнопки управления внутри видеозвонка
 document.getElementById('v-btn-cam').addEventListener('click', function() {
   vidCamMuted = !vidCamMuted;
-  if(localStream) localStream.getVideoTracks().forEach(t => t.enabled = !vidCamMuted);
+  if(localVidStream) localVidStream.getVideoTracks().forEach(t => t.enabled = !vidCamMuted);
   this.classList.toggle('off', vidCamMuted);
 });
 
 document.getElementById('v-btn-mic').addEventListener('click', function() {
   vidMicMuted = !vidMicMuted;
-  if(localStream) localStream.getAudioTracks().forEach(t => t.enabled = !vidMicMuted);
+  if(localVidStream) localVidStream.getAudioTracks().forEach(t => t.enabled = !vidMicMuted);
   this.classList.toggle('off', vidMicMuted);
 });
 
 // 2️⃣ НАЖАТИЕ "СБРОС" (Трубка)
 document.getElementById('v-btn-hangup').addEventListener('click', () => {
+  window.stopVideo(); // Вызываем глобальную функцию остановки
+});
+
+window.stopVideo = function() {
+  if (!videoActive) return;
   videoOverlay.classList.add('hidden');
   videoActive = false;
 
-  // Отключаем свою камеру
-  if (localStream) {
-    localStream.getTracks().forEach(t => t.stop());
-    localStream = null;
+  if (localVidStream) {
+    localVidStream.getTracks().forEach(t => t.stop());
+    localVidStream = null;
   }
   removeVideoTile('local');
 
-  // Закрываем все соединения
   videoPeers.forEach((pc, id) => {
     pc.close();
     removeVideoTile(id);
@@ -687,31 +687,25 @@ document.getElementById('v-btn-hangup').addEventListener('click', () => {
   videoPeers.clear();
 
   if (window._socket) window._socket.emit('video-stop');
-});
-
+};
 
 // 3️⃣ ИДЕАЛЬНАЯ ПРИЕМКА СИГНАЛОВ ПО СЕТИ (Хуки из app.js)
-
-// Если кто-то нажал "Начать видеозвонок" у себя — он шлет НАМ оффер.
 window.onVideoOffer = async function(socketId, offer) {
   try {
-    // 🔔 ФИШКА: Если у нас закрыто видео, а кто-то позвонил — само откроется!
     if (!videoActive) {
       videoOverlay.classList.remove('hidden');
       videoActive = true;
-      // Включаем свою камеру в ответ
       try {
-        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        addVideoTile('local', localStream, 'Вы', true);
+        localVidStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        addVideoTile('local', localVidStream, 'Вы', true);
       } catch(e) { toast('Видео без вашей камеры'); }
     }
 
     const pc = getOrCreateVideoPeer(socketId);
     
-    // Защита от коллизий (Идеальное согласование / Perfect Negotiation)
     if (pc.signalingState !== 'stable') {
       const isPolite = (window._socket?.id || "") > socketId;
-      if (!isPolite) return; // Уступаем, берем его оффер
+      if (!isPolite) return; 
       await Promise.all([
         pc.setLocalDescription({ type: "rollback" }),
         pc.setRemoteDescription(new RTCSessionDescription(offer))
@@ -720,11 +714,10 @@ window.onVideoOffer = async function(socketId, offer) {
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
     }
 
-    // Отправляем свои треки в ответ (даже свежие)
-    if (localStream) {
+    if (localVidStream) {
        const senders = pc.getSenders();
-       localStream.getTracks().forEach(t => {
-         if (!senders.find(s => s.track === t)) pc.addTrack(t, localStream);
+       localVidStream.getTracks().forEach(t => {
+         if (!senders.find(s => s.track === t)) pc.addTrack(t, localVidStream);
        });
     }
 
@@ -752,7 +745,6 @@ window.onUserLeft = window.onVideoStop = function(socketId) {
   const pc = videoPeers.get(socketId);
   if (pc) { pc.close(); videoPeers.delete(socketId); }
   removeVideoTile(socketId);
-  // Если никого не осталось в сетке (только мы), можно свернуть автоматически (по желанию).
 };
 
 /* ══════════════════════════════════════════════════════
