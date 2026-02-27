@@ -1440,6 +1440,9 @@ async function createVideoPeer(peerId, isInitiator) {
     ]
   });
 
+  // НОВОЕ: Очередь для ICE кандидатов, которые пришли слишком рано
+  pc.pendingIceCandidates = []; 
+
   videoPeers.set(peerId, pc);
 
   pc.ontrack = (e) => {
@@ -1491,9 +1494,11 @@ async function createVideoPeer(peerId, isInitiator) {
    ВИДЕО-СОБЫТИЯ от сервера
 ══════════════════════════════════════════════════════ */
 window.onVideoStart = async function(socketId, username) {
-  console.log('onVideoStart', socketId, 'videoActive=', videoActive);
-  if (!videoActive) return;
-  await createVideoPeer(socketId, true);
+  // ВАЖНО: Мы больше НЕ создаем здесь createVideoPeer(socketId, true);
+  // Если собеседник включил видео, он УЖЕ отправил нам свой video-offer.
+  // Обработка соединения произойдет в onVideoOffer.
+  // Это предотвращает дублирование и конфликт (Glare).
+  console.log('Пользователь запустил видео:', socketId);
 };
 
 window.onVideoStop = function(socketId) {
@@ -1501,6 +1506,20 @@ window.onVideoStop = function(socketId) {
   if (pc) { pc.close(); videoPeers.delete(socketId); }
   removeVideoTile(socketId);
 };
+
+// Вспомогательная функция, чтобы применить накопившихся кандидатов
+async function processIceQueue(pc) {
+  if (pc.pendingIceCandidates && pc.pendingIceCandidates.length > 0) {
+    for (let c of pc.pendingIceCandidates) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(c));
+      } catch(e) {
+        console.warn('Ошибка добавления ICE из очереди:', e);
+      }
+    }
+    pc.pendingIceCandidates = [];
+  }
+}
 
 window.onVideoOffer = async function(socketId, offer) {
   console.log('onVideoOffer от:', socketId);
@@ -1511,10 +1530,16 @@ window.onVideoOffer = async function(socketId, offer) {
     videoPeers.delete(socketId);
   }
   
-  // Создаём новый как не-инициатор (треки добавятся внутри)
+  // Создаём новый как НЕ-инициатор
   const pc = await createVideoPeer(socketId, false);
   
+  // Сохраняем удаленное описание
   await pc.setRemoteDescription(new RTCSessionDescription(offer));
+  
+  // Теперь, когда RemoteDescription установлен, применяем ICE из очереди
+  await processIceQueue(pc);
+
+  // Формируем ответ
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
   
@@ -1523,10 +1548,12 @@ window.onVideoOffer = async function(socketId, offer) {
 };
 
 window.onVideoAnswer = async function(socketId, answer) {
-  console.log('onVideoAnswer from', socketId);
+  console.log('onVideoAnswer от', socketId);
   const pc = videoPeers.get(socketId);
   if (pc) {
     await pc.setRemoteDescription(new RTCSessionDescription(answer));
+    // Применяем ICE из очереди (если кандидат прилетел раньше ответа)
+    await processIceQueue(pc);
   }
 };
 
@@ -1534,7 +1561,14 @@ window.onVideoIce = async function(socketId, candidate) {
   const pc = videoPeers.get(socketId);
   if (pc && candidate) {
     try {
-      await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      // Можно добавлять ICE напрямую только если уже есть Remote Description
+      if (pc.remoteDescription && pc.remoteDescription.type) {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } else {
+        // Иначе прячем в очередь (они применятся в onVideoOffer / onVideoAnswer)
+        if (!pc.pendingIceCandidates) pc.pendingIceCandidates = [];
+        pc.pendingIceCandidates.push(candidate);
+      }
     } catch(e) {
       console.warn('video-ice error:', e.message);
     }
