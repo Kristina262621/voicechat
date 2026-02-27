@@ -25,7 +25,9 @@ const Crypto = (() => {
     const encoded = typeof data === 'string'
       ? new TextEncoder().encode(data)
       : new Uint8Array(data);
-    const cipher  = await crypto.subtle.encrypt({ name:'AES-GCM', iv }, cryptoKey, encoded);
+    const cipher = await crypto.subtle.encrypt(
+      { name:'AES-GCM', iv }, cryptoKey, encoded
+    );
     return {
       iv:        btoa(String.fromCharCode(...iv)),
       encrypted: btoa(String.fromCharCode(...new Uint8Array(cipher)))
@@ -33,8 +35,8 @@ const Crypto = (() => {
   }
 
   async function decrypt(encB64, ivB64) {
-    const iv     = Uint8Array.from(atob(ivB64),  c=>c.charCodeAt(0));
-    const cipher = Uint8Array.from(atob(encB64), c=>c.charCodeAt(0));
+    const iv     = Uint8Array.from(atob(ivB64),  c => c.charCodeAt(0));
+    const cipher = Uint8Array.from(atob(encB64), c => c.charCodeAt(0));
     return crypto.subtle.decrypt({ name:'AES-GCM', iv }, cryptoKey, cipher);
   }
 
@@ -50,47 +52,239 @@ const Crypto = (() => {
 })();
 
 // ═══════════════════════════════════════════════
-//  SOCKET
+//  SOCKET — инициализируется через initSocket()
 // ═══════════════════════════════════════════════
-const socket = io({
-  reconnection:         true,
-  reconnectionAttempts: Infinity,
-  reconnectionDelay:    1000,
-  reconnectionDelayMax: 5000,
-  timeout:              20000,
-  transports:           ['websocket','polling'],
-  autoConnect:          false,
-});
+let socket = null;
+
+// Множество socketId всех в текущей комнате
+window._roomPeers = new Set();
+// Map socketId → username
+window._peerNames = new Map();
+
+function initSocket(token, roomId, username) {
+  // Закрываем предыдущее соединение если есть
+  if (socket) {
+    socket.removeAllListeners();
+    socket.disconnect();
+    socket = null;
+  }
+
+  window._roomPeers.clear();
+  window._peerNames.clear();
+
+  // Ключ шифрования = token (уникален для пользователя)
+  // Все в одной комнате используют roomId как общий ключ шифрования
+  Crypto.deriveKey(String(roomId)).then(() => {
+    log('Crypto key derived from roomId');
+  });
+
+  socket = io({
+    reconnection:         true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay:    1000,
+    reconnectionDelayMax: 5000,
+    timeout:              20000,
+    transports:           ['websocket', 'polling'],
+    autoConnect:          true,
+  });
+
+  window._socket = socket;
+
+  // ── Подключение ──
+  socket.on('connect', () => {
+    log('Connected: ' + socket.id);
+    document.getElementById('reconnect-banner').classList.remove('visible');
+    socket.emit('authenticate', { token, roomId });
+  });
+
+  socket.on('auth-ok', ({ username: uname }) => {
+    log('Auth OK as ' + uname);
+    joined = false;
+  });
+
+  socket.on('auth-fail', () => {
+    log('Auth FAIL');
+    showScreen('screen-rooms');
+    toast('❌ Ошибка авторизации');
+  });
+
+  socket.on('disconnect', reason => {
+    log('Disconnected: ' + reason);
+    if (joined) {
+      document.getElementById('reconnect-banner').classList.add('visible');
+    }
+  });
+
+  socket.on('user-count', count => {
+    document.getElementById('user-count').textContent = count;
+  });
+
+  // ── Голосовой чат ──
+  socket.on('existing-users', async (users) => {
+    // users = [{ socketId, username }]
+    log('Existing: ' + JSON.stringify(users));
+    for (const u of users) {
+      window._roomPeers.add(u.socketId);
+      window._peerNames.set(u.socketId, u.username);
+      if (joined && localStream) {
+        addParticipant(u.socketId, '👤 ' + u.username);
+        peers[u.socketId] = createPeer(u.socketId, true);
+      }
+    }
+  });
+
+  socket.on('user-joined', ({ socketId, username }) => {
+    log('User joined: ' + socketId + ' (' + username + ')');
+    window._roomPeers.add(socketId);
+    window._peerNames.set(socketId, username);
+    playBeep('join');
+    if (joined) {
+      addParticipant(socketId, '👤 ' + username);
+    }
+    showToastJoin(username);
+  });
+
+  socket.on('offer', async ({ from, offer }) => {
+    if (!localStream) { pendingOffers.push({ from, offer }); return; }
+    await handleOffer(from, offer);
+  });
+
+  socket.on('answer', async ({ from, answer }) => {
+    const peer = peers[from];
+    if (peer?.signalingState === 'have-local-offer') {
+      await peer.setRemoteDescription(new RTCSessionDescription(answer));
+    }
+  });
+
+  socket.on('ice-candidate', async ({ from, candidate }) => {
+    const peer = peers[from];
+    if (peer && candidate) {
+      try { await peer.addIceCandidate(new RTCIceCandidate(candidate)); }
+      catch(e) { log('ICE: ' + e.message); }
+    }
+  });
+
+  socket.on('user-left', ({ socketId }) => {
+    log('User left: ' + socketId);
+    const uname = window._peerNames.get(socketId) || socketId.slice(0,6);
+    window._roomPeers.delete(socketId);
+    window._peerNames.delete(socketId);
+    playBeep('leave');
+    removeParticipant(socketId);
+    stopVolumeAnalysis(socketId);
+    stopQualityMonitor(socketId);
+    if (peers[socketId]) { peers[socketId].close(); delete peers[socketId]; }
+    document.getElementById('audio-' + socketId)?.remove();
+    showToastLeave(uname);
+
+    // Видео
+    if (window.onVideoStop) window.onVideoStop(socketId);
+  });
+
+  // ── Чат ──
+  socket.on('chat-message', async (data) => {
+    log('Chat msg type=' + data.type + ' from=' + data.from);
+    const uname = window._peerNames.get(data.from) || data.username || data.from?.slice(0,6);
+
+    const msgId = appendMessage({
+      from:      data.from,
+      username:  uname,
+      type:      data.type,
+      fileName:  data.fileName,
+      fileSize:  data.fileSize,
+      mimeType:  data.mimeType,
+      timestamp: data.timestamp,
+      mine:      false,
+      status:    'decrypting'
+    });
+
+    try {
+      if (data.type === 'text') {
+        const text = await Crypto.decryptText(data.encrypted, data.iv);
+        updateMessage(msgId, { text, status: 'ok' });
+      } else {
+        const mime = data.mimeType || 'application/octet-stream';
+        const blob = await Crypto.decryptBlob(data.encrypted, data.iv, mime);
+        const url  = URL.createObjectURL(blob);
+        updateMessage(msgId, { localUrl: url, status: 'ok' });
+      }
+    } catch(e) {
+      log('Decrypt error: ' + e.message);
+      updateMessage(msgId, { status: 'error' });
+    }
+  });
+
+  // ── Понял ──
+  socket.on('understood', ({ from, username: uname }) => {
+    log('Understood from: ' + from);
+    playOkSound();
+    const name = uname || window._peerNames.get(from) || from?.slice(0,6);
+    const banner = document.createElement('div');
+    banner.className   = 'understood-banner';
+    banner.textContent = '✅ Понял! (' + name + ')';
+    document.body.appendChild(banner);
+    setTimeout(() => banner.remove(), 3000);
+  });
+
+  // ── Видео ──
+  socket.on('video-start', ({ from, username: uname }) => {
+    log('Video start from: ' + from);
+    if (window.onVideoStart) window.onVideoStart(from, uname);
+  });
+
+  socket.on('video-stop', ({ from }) => {
+    log('Video stop from: ' + from);
+    if (window.onVideoStop) window.onVideoStop(from);
+  });
+
+  socket.on('video-offer', async ({ from, offer }) => {
+    if (window.onVideoOffer) await window.onVideoOffer(from, offer);
+  });
+
+  socket.on('video-answer', async ({ from, answer }) => {
+    if (window.onVideoAnswer) await window.onVideoAnswer(from, answer);
+  });
+
+  socket.on('video-ice', async ({ from, candidate }) => {
+    if (window.onVideoIce) await window.onVideoIce(from, candidate);
+  });
+}
+
+// Вызывается при выходе из комнаты
+function socketLeave() {
+  if (!socket) return;
+  socket.emit('leave');
+  hangUp();
+  joined = false;
+  resetVoiceUI();
+  if (socket) {
+    socket.removeAllListeners();
+    socket.disconnect();
+    socket = null;
+    window._socket = null;
+  }
+  window._roomPeers.clear();
+  window._peerNames.clear();
+}
 
 // ── DOM ──
-const screenPassword   = document.getElementById('screen-password');
-const screenMain       = document.getElementById('screen-main');
-const pwInput          = document.getElementById('pw-input');
-const pwError          = document.getElementById('pw-error');
-const btnEnter         = document.getElementById('btn-enter');
-const btnTogglePw      = document.getElementById('btn-toggle-pw');
 const btnJoin          = document.getElementById('btn-join');
 const btnLeave         = document.getElementById('btn-leave');
 const btnMic           = document.getElementById('btn-mic');
-const btnChatOpen      = document.getElementById('btn-chat-open');
 const userCount        = document.getElementById('user-count');
 const micStatus        = document.getElementById('mic-status');
 const hiddenAudios     = document.getElementById('hidden-audios');
 const participantsBox  = document.getElementById('participants');
 const participantsList = document.getElementById('participants-list');
 const reconnectBanner  = document.getElementById('reconnect-banner');
-const secureBadge      = document.getElementById('secure-badge');
 const keepAliveAudio   = document.getElementById('keep-alive-audio');
-const chatPanel        = document.getElementById('chat-panel');
 const chatMessages     = document.getElementById('chat-messages');
 const chatInput        = document.getElementById('chat-input');
 const btnSend          = document.getElementById('btn-send');
-const btnClosChat      = document.getElementById('btn-close-chat');
 const btnPhoto         = document.getElementById('btn-photo');
 const btnVideo         = document.getElementById('btn-video');
 const btnFile          = document.getElementById('btn-file');
 const fileInput        = document.getElementById('file-input');
-const chatBadge        = document.getElementById('chat-badge');
 const lightbox         = document.getElementById('lightbox');
 const lightboxContent  = document.getElementById('lightbox-content');
 const lightboxClose    = document.getElementById('lightbox-close');
@@ -102,19 +296,16 @@ let pendingOffers   = [];
 let joined          = false;
 let audioCtx        = null;
 let wakeLock        = null;
-let savedPassword   = '';
-let unreadCount     = 0;
-let chatOpen        = false;
-let pendingFileType = 'image/*';
 let msgCounter      = 0;
+let pendingFileType = 'image/*';
 
 const analysers     = {};
 const qualityTimers = {};
 
 // ═══════════════════════════════════════════════
-//  ЛОГ
+//  DEBUG LOG
 // ═══════════════════════════════════════════════
-const DEBUG = false; // true — включить логи, false — выключить
+const DEBUG = false;
 
 function log(msg) {
   if (!DEBUG) return;
@@ -138,91 +329,29 @@ function log(msg) {
 }
 
 // ═══════════════════════════════════════════════
-//  ПАРОЛЬ
+//  TOAST УВЕДОМЛЕНИЯ О ВХОДЕ / ВЫХОДЕ
 // ═══════════════════════════════════════════════
-btnTogglePw.addEventListener('click', () => {
-  const isText = pwInput.type === 'text';
-  pwInput.type            = isText ? 'password' : 'text';
-  btnTogglePw.textContent = isText ? '👁' : '🙈';
-});
-
-pwInput.addEventListener('keydown', e => { if (e.key==='Enter') attemptEnter(); });
-btnEnter.addEventListener('click', attemptEnter);
-
-async function attemptEnter() {
-  const pw = pwInput.value.trim();
-  if (!pw) { showPwError('Введи пароль'); return; }
-
-  btnEnter.disabled    = true;
-  btnEnter.textContent = '⏳ Проверяем…';
-  pwError.textContent  = '';
-
-  try {
-    const res  = await fetch('/auth', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ password: pw })
-    });
-    const data = await res.json();
-    if (data.ok) {
-      savedPassword = pw;
-      await Crypto.deriveKey(pw);
-      log('Crypto key derived');
-      enterChat();
-    } else {
-      showPwError('❌ Неверный пароль');
-      pwInput.classList.add('error');
-      setTimeout(() => pwInput.classList.remove('error'), 400);
-    }
-  } catch(e) {
-    showPwError('⚠️ Ошибка соединения');
-    log('Auth error: ' + e.message);
-  } finally {
-    btnEnter.disabled    = false;
-    btnEnter.textContent = '🔑 Войти';
-  }
+function showToastJoin(username) {
+  toast('👋 ' + username + ' вошёл в комнату');
 }
 
-function showPwError(msg) {
-  pwError.textContent = msg;
-  setTimeout(() => { pwError.textContent = ''; }, 3000);
-}
-
-function enterChat() {
-  screenPassword.style.display = 'none';
-  screenMain.style.display     = 'block';
-  secureBadge.classList.add('visible');
-  btnChatOpen.classList.add('visible');
-  socket.connect();
+function showToastLeave(username) {
+  toast('🚪 ' + username + ' покинул комнату');
 }
 
 // ═══════════════════════════════════════════════
-//  ЧАТ — ОТКРЫТИЕ / ЗАКРЫТИЕ
+//  ЧАТ — ВВОД
 // ═══════════════════════════════════════════════
-btnChatOpen.addEventListener('click', openChat);
-btnClosChat.addEventListener('click', closeChat);
-
-function openChat() {
-  chatPanel.classList.add('open');
-  chatOpen    = true;
-  unreadCount = 0;
-  chatBadge.classList.remove('visible');
-  chatBadge.textContent = '0';
-  setTimeout(() => { chatMessages.scrollTop = chatMessages.scrollHeight; }, 100);
-}
-
-function closeChat() {
-  chatPanel.classList.remove('open');
-  chatOpen = false;
-}
-
 chatInput.addEventListener('input', () => {
   chatInput.style.height = 'auto';
   chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
 });
 
 chatInput.addEventListener('keydown', e => {
-  if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); sendTextMessage(); }
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendTextMessage();
+  }
 });
 
 btnSend.addEventListener('click', sendTextMessage);
@@ -232,49 +361,55 @@ btnSend.addEventListener('click', sendTextMessage);
 // ═══════════════════════════════════════════════
 async function sendTextMessage() {
   const text = chatInput.value.trim();
-  if (!text) return;
+  if (!text || !socket) return;
   btnSend.disabled = true;
   try {
     const { encrypted, iv } = await Crypto.encrypt(text);
-    socket.emit('chat-message', { encrypted, iv, type:'text' });
-    appendMessage({ from:socket.id, text, type:'text', timestamp:Date.now(), mine:true, status:'ok' });
-    chatInput.value = '';
+    socket.emit('chat-message', { encrypted, iv, type: 'text' });
+    appendMessage({
+      from:      socket.id,
+      username:  window._currentUsername || 'Вы',
+      text,
+      type:      'text',
+      timestamp: Date.now(),
+      mine:      true,
+      status:    'ok'
+    });
+    chatInput.value       = '';
     chatInput.style.height = 'auto';
-  } catch(e) { log('Send text error: '+e.message); }
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  } catch(e) { log('Send text error: ' + e.message); }
   finally    { btnSend.disabled = false; }
 }
 
 // ═══════════════════════════════════════════════
-//  ФАЙЛЫ — кнопки
+//  ФАЙЛЫ
 // ═══════════════════════════════════════════════
-btnPhoto.addEventListener('click', () => {
+btnPhoto?.addEventListener('click', () => {
   pendingFileType  = 'image/*';
   fileInput.accept = 'image/*';
   fileInput.click();
 });
 
-btnVideo.addEventListener('click', () => {
+btnVideo?.addEventListener('click', () => {
   pendingFileType  = 'video/*';
   fileInput.accept = 'video/*';
   fileInput.click();
 });
 
-btnFile.addEventListener('click', () => {
+btnFile?.addEventListener('click', () => {
   pendingFileType  = '*/*';
   fileInput.accept = '*/*';
   fileInput.click();
 });
 
-// ═══════════════════════════════════════════════
-//  ФАЙЛЫ — обработка выбора + редактор
-// ═══════════════════════════════════════════════
-fileInput.addEventListener('change', async () => {
+fileInput?.addEventListener('change', async () => {
   const file = fileInput.files[0];
   if (!file) return;
   fileInput.value = '';
 
   if (file.size > 50 * 1024 * 1024) {
-    alert('Файл слишком большой. Максимум 50 МБ.');
+    toast('❌ Файл слишком большой. Максимум 50 МБ.');
     return;
   }
 
@@ -282,35 +417,24 @@ fileInput.addEventListener('change', async () => {
   const isVideo = file.type.startsWith('video/');
 
   if (isImage) {
-    MediaEditor.openPhoto(
-      file,
-      async (blob, mimeType, fileName) => {
-        await sendMediaBlob(blob, mimeType, fileName, 'image');
-      },
-      () => {}
-    );
+    await sendMediaBlob(file, file.type, file.name, 'image');
     return;
   }
-
   if (isVideo) {
-    MediaEditor.openVideo(
-      file,
-      async (blob, mimeType, fileName) => {
-        await sendMediaBlob(blob, mimeType, fileName, 'video');
-      },
-      () => {}
-    );
+    await sendMediaBlob(file, file.type, file.name, 'video');
     return;
   }
-
   await sendMediaBlob(file, file.type, file.name, 'file');
 });
 
 async function sendMediaBlob(blob, mimeType, fileName, type) {
+  if (!socket) return;
   try {
     const arrayBuf          = await blob.arrayBuffer();
     const { encrypted, iv } = await Crypto.encrypt(arrayBuf);
-    const localUrl          = URL.createObjectURL(new Blob([arrayBuf], { type: mimeType }));
+    const localUrl          = URL.createObjectURL(
+      new Blob([arrayBuf], { type: mimeType })
+    );
 
     socket.emit('chat-message', {
       encrypted, iv, type,
@@ -321,6 +445,7 @@ async function sendMediaBlob(blob, mimeType, fileName, type) {
 
     appendMessage({
       from:      socket.id,
+      username:  window._currentUsername || 'Вы',
       type,
       localUrl,
       fileName:  fileName || 'file',
@@ -330,59 +455,21 @@ async function sendMediaBlob(blob, mimeType, fileName, type) {
       mine:      true,
       status:    'ok'
     });
+    chatMessages.scrollTop = chatMessages.scrollHeight;
   } catch(e) {
-    log('Send media error: '+e.message);
-    alert('Ошибка при отправке: '+e.message);
+    log('Send media error: ' + e.message);
+    toast('❌ Ошибка при отправке: ' + e.message);
   }
 }
-
-// ═══════════════════════════════════════════════
-//  ПОЛУЧЕНИЕ СООБЩЕНИЙ
-// ═══════════════════════════════════════════════
-socket.on('chat-message', async (data) => {
-  log('Chat msg type='+data.type+' from='+data.from);
-
-  const msgId = appendMessage({
-    from:      data.from,
-    type:      data.type,
-    fileName:  data.fileName,
-    fileSize:  data.fileSize,
-    mimeType:  data.mimeType,
-    timestamp: data.timestamp,
-    mine:      false,
-    status:    'decrypting'
-  });
-
-  try {
-    if (data.type === 'text') {
-      const text = await Crypto.decryptText(data.encrypted, data.iv);
-      updateMessage(msgId, { text, status:'ok' });
-    } else {
-      const mime = data.mimeType || 'application/octet-stream';
-      const blob = await Crypto.decryptBlob(data.encrypted, data.iv, mime);
-      const url  = URL.createObjectURL(blob);
-      updateMessage(msgId, { localUrl:url, status:'ok' });
-    }
-  } catch(e) {
-    log('Decrypt error: '+e.message);
-    updateMessage(msgId, { status:'error' });
-  }
-
-  if (!chatOpen) {
-    unreadCount++;
-    chatBadge.textContent = unreadCount > 99 ? '99+' : String(unreadCount);
-    chatBadge.classList.add('visible');
-  }
-});
 
 // ═══════════════════════════════════════════════
 //  РЕНДЕР СООБЩЕНИЙ
 // ═══════════════════════════════════════════════
 function appendMessage(msg) {
-  const id  = 'msg-'+(++msgCounter);
+  const id  = 'msg-' + (++msgCounter);
   const div = document.createElement('div');
   div.id        = id;
-  div.className = 'msg '+(msg.mine ? 'mine' : 'theirs');
+  div.className = 'msg ' + (msg.mine ? 'mine' : 'theirs');
   div.dataset.type     = msg.type     || 'text';
   div.dataset.mimeType = msg.mimeType || '';
   div.dataset.fileName = msg.fileName || '';
@@ -402,35 +489,51 @@ function updateMessage(id, updates) {
   const mimeType = div.dataset.mimeType;
   const fileName = div.dataset.fileName;
   const fileSize = div.dataset.fileSize;
-  const mine     = div.classList.contains('mine');
 
   const content = div.querySelector('.msg-content');
   if (content) {
-    content.innerHTML = buildContentHTML({ type, mimeType, fileName, fileSize, mine, ...updates });
+    content.innerHTML = buildContentHTML({
+      type, mimeType, fileName, fileSize, ...updates
+    });
     bindMediaEvents(div);
   }
 
   const statusEl = div.querySelector('.msg-decrypt-status');
   if (statusEl) {
-    if (updates.status==='ok')         { statusEl.className='msg-decrypt-status ok';  statusEl.textContent='🔓 расшифровано'; }
-    if (updates.status==='error')      { statusEl.className='msg-decrypt-status err'; statusEl.textContent='⚠️ ошибка расшифровки'; }
-    if (updates.status==='decrypting') statusEl.textContent = '⏳ расшифровываем…';
+    if (updates.status === 'ok') {
+      statusEl.className   = 'msg-decrypt-status ok';
+      statusEl.textContent = '🔓 расшифровано';
+    }
+    if (updates.status === 'error') {
+      statusEl.className   = 'msg-decrypt-status err';
+      statusEl.textContent = '⚠️ ошибка расшифровки';
+    }
+    if (updates.status === 'decrypting') {
+      statusEl.textContent = '⏳ расшифровываем…';
+    }
   }
 
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
 function buildMsgHTML(msg) {
-  const time   = new Date(msg.timestamp||Date.now()).toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'});
-  const sender = msg.mine ? '' : `<div class="msg-sender">👤 ${shortId(msg.from)}</div>`;
-  const statusText  = msg.status==='ok'    ? '🔓 расшифровано'
-    : msg.status==='error'                 ? '⚠️ ошибка расшифровки'
+  const time = new Date(msg.timestamp || Date.now())
+    .toLocaleTimeString('ru', { hour:'2-digit', minute:'2-digit' });
+
+  const senderName = msg.mine
+    ? ''
+    : `<div class="msg-sender">👤 ${escapeHtml(msg.username || '??')}</div>`;
+
+  const statusText  = msg.status === 'ok'          ? '🔓 расшифровано'
+    : msg.status === 'error'                        ? '⚠️ ошибка расшифровки'
     : '⏳ расшифровываем…';
-  const statusClass = msg.status==='ok' ? 'ok' : msg.status==='error' ? 'err' : '';
-  const showStatus  = msg.mine ? '' : `<div class="msg-decrypt-status ${statusClass}">${statusText}</div>`;
+  const statusClass = msg.status === 'ok' ? 'ok' : msg.status === 'error' ? 'err' : '';
+  const showStatus  = msg.mine
+    ? ''
+    : `<div class="msg-decrypt-status ${statusClass}">${statusText}</div>`;
 
   return `
-    ${sender}
+    ${senderName}
     <div class="msg-content">${buildContentHTML(msg)}</div>
     <div class="msg-meta">${time}</div>
     ${showStatus}
@@ -438,34 +541,38 @@ function buildMsgHTML(msg) {
 }
 
 function buildContentHTML(msg) {
-  if (msg.type==='text') {
+  if (msg.type === 'text') {
     return escapeHtml(msg.text || '');
   }
-  if (msg.type==='image') {
-    if (msg.localUrl) return `<img class="msg-media" src="${msg.localUrl}" alt="фото" loading="lazy">`;
-    return '<span style="color:#888;font-size:12px">⏳ загрузка изображения…</span>';
+  if (msg.type === 'image') {
+    if (msg.localUrl)
+      return `<img class="msg-media" src="${msg.localUrl}" alt="фото" loading="lazy">`;
+    return '<span style="color:#888;font-size:12px">⏳ загрузка…</span>';
   }
-  if (msg.type==='video') {
-    if (msg.localUrl) return `<video class="msg-media" src="${msg.localUrl}" controls playsinline></video>`;
-    return '<span style="color:#888;font-size:12px">⏳ загрузка видео…</span>';
+  if (msg.type === 'video') {
+    if (msg.localUrl)
+      return `<video class="msg-media" src="${msg.localUrl}" controls playsinline></video>`;
+    return '<span style="color:#888;font-size:12px">⏳ загрузка…</span>';
   }
-  if (msg.type==='file') {
+  if (msg.type === 'file') {
     const size = msg.fileSize ? formatSize(parseInt(msg.fileSize)) : '';
     if (msg.localUrl) {
       return `<div class="msg-file">
         <span class="msg-file-icon">📄</span>
         <div class="msg-file-info">
-          <div class="msg-file-name">${escapeHtml(msg.fileName||'файл')}</div>
+          <div class="msg-file-name">${escapeHtml(msg.fileName || 'файл')}</div>
           <div class="msg-file-size">${size}</div>
         </div>
-        <a class="msg-file-dl" href="${msg.localUrl}"
-           download="${escapeHtml(msg.fileName||'file')}" title="Скачать">⬇️</a>
+        <a class="msg-file-dl"
+           href="${msg.localUrl}"
+           download="${escapeHtml(msg.fileName || 'file')}"
+           title="Скачать">⬇️</a>
       </div>`;
     }
     return `<div class="msg-file">
       <span class="msg-file-icon">📄</span>
       <div class="msg-file-info">
-        <div class="msg-file-name">${escapeHtml(msg.fileName||'файл')}</div>
+        <div class="msg-file-name">${escapeHtml(msg.fileName || 'файл')}</div>
         <div class="msg-file-size">${size}</div>
       </div>
       <span style="color:#888;font-size:12px">⏳</span>
@@ -487,19 +594,20 @@ function bindMediaEvents(container) {
 //  LIGHTBOX
 // ═══════════════════════════════════════════════
 function openLightbox(type, src) {
-  lightboxContent.innerHTML = type==='img'
+  lightboxContent.innerHTML = type === 'img'
     ? `<img src="${src}" alt="">`
-    : `<video src="${src}" controls autoplay playsinline style="max-width:95vw;max-height:85vh"></video>`;
+    : `<video src="${src}" controls autoplay playsinline
+         style="max-width:95vw;max-height:85vh"></video>`;
   lightbox.classList.add('open');
 }
 
-lightboxClose.addEventListener('click', () => {
+lightboxClose?.addEventListener('click', () => {
   lightbox.classList.remove('open');
   lightboxContent.innerHTML = '';
 });
 
-lightbox.addEventListener('click', e => {
-  if (e.target===lightbox) {
+lightbox?.addEventListener('click', e => {
+  if (e.target === lightbox) {
     lightbox.classList.remove('open');
     lightboxContent.innerHTML = '';
   }
@@ -515,12 +623,10 @@ function escapeHtml(str) {
 }
 
 function formatSize(bytes) {
-  if (bytes < 1024)         return bytes+' Б';
-  if (bytes < 1024*1024)    return (bytes/1024).toFixed(1)+' КБ';
-  return (bytes/1024/1024).toFixed(1)+' МБ';
+  if (bytes < 1024)           return bytes + ' Б';
+  if (bytes < 1024 * 1024)    return (bytes / 1024).toFixed(1) + ' КБ';
+  return (bytes / 1024 / 1024).toFixed(1) + ' МБ';
 }
-
-function shortId(id) { return id ? id.slice(0,6) : '??'; }
 
 // ═══════════════════════════════════════════════
 //  WAKELOCK
@@ -530,11 +636,14 @@ async function requestWakeLock() {
   try {
     wakeLock = await navigator.wakeLock.request('screen');
     log('WakeLock acquired');
-  } catch(e) { log('WakeLock: '+e.message); }
+  } catch(e) { log('WakeLock: ' + e.message); }
 }
 
 async function releaseWakeLock() {
-  if (wakeLock) { try { await wakeLock.release(); } catch(_){} wakeLock=null; }
+  if (wakeLock) {
+    try { await wakeLock.release(); } catch(_) {}
+    wakeLock = null;
+  }
 }
 
 // ═══════════════════════════════════════════════
@@ -542,15 +651,15 @@ async function releaseWakeLock() {
 // ═══════════════════════════════════════════════
 function startKeepAlive() {
   try {
-    const ctx    = new (window.AudioContext||window.webkitAudioContext)();
-    const buf    = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
-    const src    = ctx.createBufferSource();
-    const dest   = ctx.createMediaStreamDestination();
-    src.buffer   = buf; src.loop = true;
+    const ctx  = new (window.AudioContext || window.webkitAudioContext)();
+    const buf  = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    const src  = ctx.createBufferSource();
+    const dest = ctx.createMediaStreamDestination();
+    src.buffer = buf; src.loop = true;
     src.connect(dest); src.start();
     keepAliveAudio.srcObject = dest.stream;
-    keepAliveAudio.play().catch(e=>log('KeepAlive: '+e.message));
-  } catch(e) { log('KeepAlive init: '+e.message); }
+    keepAliveAudio.play().catch(e => log('KeepAlive: ' + e.message));
+  } catch(e) { log('KeepAlive init: ' + e.message); }
 }
 
 function stopKeepAlive() {
@@ -566,29 +675,39 @@ document.addEventListener('visibilitychange', async () => {
   await requestWakeLock();
 
   const tracks = localStream.getAudioTracks();
-  if (tracks.every(t => t.readyState==='ended')) {
+  if (tracks.every(t => t.readyState === 'ended')) {
     log('Tracks ended — reacquiring...');
     try {
       const newStream = await navigator.mediaDevices.getUserMedia({
-        video:false,
-        audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,sampleRate:48000,channelCount:2}
+        video: false,
+        audio: {
+          echoCancellation: true, noiseSuppression: true,
+          autoGainControl:  true, sampleRate: 48000, channelCount: 2
+        }
       });
       const newTrack = newStream.getAudioTracks()[0];
       for (const [uid, peer] of Object.entries(peers)) {
-        const sender = peer.getSenders().find(s=>s.track?.kind==='audio');
-        if (sender) { await sender.replaceTrack(newTrack); log('Replaced track for '+uid); }
+        const sender = peer.getSenders().find(s => s.track?.kind === 'audio');
+        if (sender) {
+          await sender.replaceTrack(newTrack);
+          log('Replaced track for ' + uid);
+        }
       }
-      tracks.forEach(t=>{ localStream.removeTrack(t); t.stop(); });
+      tracks.forEach(t => { localStream.removeTrack(t); t.stop(); });
       localStream.addTrack(newTrack);
       stopVolumeAnalysis(socket.id);
       startVolumeAnalysis(socket.id, localStream);
       newTrack.enabled = micEnabled;
       log('Mic restored');
-    } catch(e) { log('Restore mic failed: '+e.message); }
+    } catch(e) { log('Restore mic failed: ' + e.message); }
   } else {
-    tracks.forEach(t=>{ t.enabled = micEnabled; });
+    tracks.forEach(t => { t.enabled = micEnabled; });
   }
-  if (audioCtx?.state==='suspended') { await audioCtx.resume(); log('AudioCtx resumed'); }
+
+  if (audioCtx?.state === 'suspended') {
+    await audioCtx.resume();
+    log('AudioCtx resumed');
+  }
 });
 
 // ═══════════════════════════════════════════════
@@ -596,30 +715,27 @@ document.addEventListener('visibilitychange', async () => {
 // ═══════════════════════════════════════════════
 function playBeep(type) {
   try {
-    const ctx  = new (window.AudioContext||window.webkitAudioContext)();
+    const ctx  = new (window.AudioContext || window.webkitAudioContext)();
     const osc  = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain); gain.connect(ctx.destination);
     gain.gain.setValueAtTime(0.3, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.35);
-    if (type==='join') {
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    if (type === 'join') {
       osc.frequency.setValueAtTime(600, ctx.currentTime);
-      osc.frequency.setValueAtTime(900, ctx.currentTime+0.12);
+      osc.frequency.setValueAtTime(900, ctx.currentTime + 0.12);
     } else {
       osc.frequency.setValueAtTime(900, ctx.currentTime);
-      osc.frequency.setValueAtTime(500, ctx.currentTime+0.12);
+      osc.frequency.setValueAtTime(500, ctx.currentTime + 0.12);
     }
-    osc.start(ctx.currentTime); osc.stop(ctx.currentTime+0.35);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.35);
     osc.onended = () => ctx.close();
-  } catch(e) { log('Beep: '+e.message); }
+  } catch(e) { log('Beep: ' + e.message); }
 }
 
-// ═══════════════════════════════════════════════
-//  ЗВУК "ОК" — двойной тон когда друг нажал "Понял"
-// ═══════════════════════════════════════════════
 function playOkSound() {
   try {
-    const ctx  = new (window.AudioContext||window.webkitAudioContext)();
+    const ctx  = new (window.AudioContext || window.webkitAudioContext)();
     const gain = ctx.createGain();
     gain.connect(ctx.destination);
 
@@ -631,7 +747,7 @@ function playOkSound() {
       osc.type  = 'sine';
       osc.connect(gain);
       osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
-      gain.gain.setValueAtTime(0,    ctx.currentTime + start);
+      gain.gain.setValueAtTime(0, ctx.currentTime + start);
       gain.gain.linearRampToValueAtTime(0.4,   ctx.currentTime + start + 0.04);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + 0.20);
       osc.start(ctx.currentTime + start);
@@ -639,11 +755,11 @@ function playOkSound() {
     });
 
     setTimeout(() => ctx.close(), 1500);
-  } catch(e) { log('OkSound: '+e.message); }
+  } catch(e) { log('OkSound: ' + e.message); }
 }
 
 // ═══════════════════════════════════════════════
-//  ICE
+//  ICE CONFIG
 // ═══════════════════════════════════════════════
 const iceServers = {
   iceServers: [
@@ -672,14 +788,18 @@ const iceServers = {
 };
 
 function forceOpusMaxQuality(sdp) {
-  const lines = sdp.split('\r\n'), result = [];
-  for (let i=0; i<lines.length; i++) {
+  const lines = sdp.split('\r\n');
+  const result = [];
+  for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (line.includes('a=rtpmap') && line.toLowerCase().includes('opus')) {
       result.push(line);
       const pt = line.split(':')[1].split(' ')[0];
-      if (i+1<lines.length && lines[i+1].startsWith('a=fmtp:'+pt)) i++;
-      result.push(`a=fmtp:${pt} minptime=10;useinbandfec=1;stereo=1;sprop-stereo=1;maxaveragebitrate=510000`);
+      if (i + 1 < lines.length && lines[i + 1].startsWith('a=fmtp:' + pt)) i++;
+      result.push(
+        `a=fmtp:${pt} minptime=10;useinbandfec=1;stereo=1;` +
+        `sprop-stereo=1;maxaveragebitrate=510000`
+      );
       continue;
     }
     if (line.startsWith('b=AS:') || line.startsWith('b=TIAS:')) continue;
@@ -692,26 +812,33 @@ function forceOpusMaxQuality(sdp) {
 //  КАЧЕСТВО СВЯЗИ
 // ═══════════════════════════════════════════════
 function calcLevel(rtt, lost, total, jitter) {
-  if (rtt===null) return 'none';
-  const lr = (lost+total)>0 ? lost/(lost+total) : 0;
-  if (rtt<80  && lr<0.02 && jitter<0.02) return 'excellent';
-  if (rtt<150 && lr<0.05 && jitter<0.05) return 'good';
-  if (rtt<300 && lr<0.10 && jitter<0.10) return 'fair';
+  if (rtt === null) return 'none';
+  const lr = (lost + total) > 0 ? lost / (lost + total) : 0;
+  if (rtt < 80  && lr < 0.02 && jitter < 0.02) return 'excellent';
+  if (rtt < 150 && lr < 0.05 && jitter < 0.05) return 'good';
+  if (rtt < 300 && lr < 0.10 && jitter < 0.10) return 'fair';
   return 'poor';
 }
 
 function renderSignal(userId, level) {
-  const w = document.getElementById('sig-'+userId);
-  if (w) w.className = 'signal-wrap signal-'+level;
+  const w = document.getElementById('sig-' + userId);
+  if (w) w.className = 'signal-wrap signal-' + level;
 }
 
 async function measureRemoteQuality(peer) {
   try {
     const stats = await peer.getStats();
-    let rtt=null, lost=0, received=0, jitter=0;
+    let rtt = null, lost = 0, received = 0, jitter = 0;
     stats.forEach(r => {
-      if (r.type==='inbound-rtp'&&r.kind==='audio')   { lost=r.packetsLost||0; received=r.packetsReceived||0; jitter=r.jitter||0; }
-      if (r.type==='candidate-pair'&&r.state==='succeeded'&&r.currentRoundTripTime!=null) rtt=r.currentRoundTripTime*1000;
+      if (r.type === 'inbound-rtp' && r.kind === 'audio') {
+        lost     = r.packetsLost    || 0;
+        received = r.packetsReceived || 0;
+        jitter   = r.jitter         || 0;
+      }
+      if (r.type === 'candidate-pair' && r.state === 'succeeded' &&
+          r.currentRoundTripTime != null) {
+        rtt = r.currentRoundTripTime * 1000;
+      }
     });
     return calcLevel(rtt, lost, received, jitter);
   } catch { return 'none'; }
@@ -720,10 +847,16 @@ async function measureRemoteQuality(peer) {
 async function measureLocalQuality(peer) {
   try {
     const stats = await peer.getStats();
-    let rtt=null, lost=0, sent=0, jitter=0;
+    let rtt = null, lost = 0, sent = 0, jitter = 0;
     stats.forEach(r => {
-      if (r.type==='remote-inbound-rtp'&&r.kind==='audio') { lost=r.packetsLost||0; jitter=r.jitter||0; if(r.roundTripTime!=null) rtt=r.roundTripTime*1000; }
-      if (r.type==='outbound-rtp'&&r.kind==='audio')        sent=r.packetsSent||0;
+      if (r.type === 'remote-inbound-rtp' && r.kind === 'audio') {
+        lost   = r.packetsLost || 0;
+        jitter = r.jitter      || 0;
+        if (r.roundTripTime != null) rtt = r.roundTripTime * 1000;
+      }
+      if (r.type === 'outbound-rtp' && r.kind === 'audio') {
+        sent = r.packetsSent || 0;
+      }
     });
     return calcLevel(rtt, lost, sent, jitter);
   } catch { return 'none'; }
@@ -732,44 +865,54 @@ async function measureLocalQuality(peer) {
 function startQualityMonitor(userId, peer, isLocal) {
   stopQualityMonitor(userId);
   qualityTimers[userId] = setInterval(async () => {
-    const level = isLocal ? await measureLocalQuality(peer) : await measureRemoteQuality(peer);
+    const level = isLocal
+      ? await measureLocalQuality(peer)
+      : await measureRemoteQuality(peer);
     renderSignal(userId, level);
   }, 2000);
 }
 
 function stopQualityMonitor(userId) {
-  if (qualityTimers[userId]) { clearInterval(qualityTimers[userId]); delete qualityTimers[userId]; }
+  if (qualityTimers[userId]) {
+    clearInterval(qualityTimers[userId]);
+    delete qualityTimers[userId];
+  }
 }
 
 // ═══════════════════════════════════════════════
 //  УЧАСТНИКИ
 // ═══════════════════════════════════════════════
 function addParticipant(userId, label) {
-  if (document.getElementById('p-'+userId)) return;
+  if (document.getElementById('p-' + userId)) return;
   participantsBox.style.display = 'block';
-  const div = document.createElement('div');
-  div.className = 'participant';
-  div.id        = 'p-'+userId;
 
-  const isMe          = userId === socket.id;
+  const div     = document.createElement('div');
+  div.className = 'participant';
+  div.id        = 'p-' + userId;
+
+  const isMe          = socket && userId === socket.id;
   const understoodBtn = isMe
     ? ''
     : `<button class="btn-understood" data-uid="${userId}">👍 Понял</button>`;
 
   div.innerHTML = `
-    <span class="participant-name">${label}</span>
-    <div class="volume-bar-wrap"><div class="volume-bar" id="vol-${userId}"></div></div>
+    <span class="participant-name">${escapeHtml(label)}</span>
+    <div class="volume-bar-wrap">
+      <div class="volume-bar" id="vol-${userId}"></div>
+    </div>
     <div class="signal-wrap signal-none" id="sig-${userId}">
       <div class="bar"></div><div class="bar"></div>
       <div class="bar"></div><div class="bar"></div>
     </div>
-    ${understoodBtn}`;
+    ${understoodBtn}
+  `;
 
   participantsList.appendChild(div);
 
   const btn = div.querySelector('.btn-understood');
   if (btn) {
     btn.addEventListener('click', () => {
+      if (!socket) return;
       socket.emit('understood');
       btn.textContent = '✅ Отправлено';
       btn.disabled    = true;
@@ -782,98 +925,76 @@ function addParticipant(userId, label) {
 }
 
 function removeParticipant(userId) {
-  const el = document.getElementById('p-'+userId);
-  if (el) el.remove();
-  if (participantsList.children.length===0) participantsBox.style.display='none';
+  document.getElementById('p-' + userId)?.remove();
+  if (participantsList.children.length === 0) {
+    participantsBox.style.display = 'none';
+  }
 }
 
 // ═══════════════════════════════════════════════
-//  ГРОМКОСТЬ
+//  АНАЛИЗ ГРОМКОСТИ
 // ═══════════════════════════════════════════════
 function startVolumeAnalysis(userId, stream) {
-  if (!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)({ sampleRate:48000 });
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)(
+      { sampleRate: 48000 }
+    );
+  }
   stopVolumeAnalysis(userId);
+
   const source   = audioCtx.createMediaStreamSource(stream);
   const analyser = audioCtx.createAnalyser();
   analyser.fftSize = 512;
   source.connect(analyser);
+
   const data = new Uint8Array(analyser.frequencyBinCount);
+
   function tick() {
     if (!analysers[userId]) return;
     analyser.getByteFrequencyData(data);
-    let sum=0; for(let i=0;i<data.length;i++) sum+=data[i];
-    const pct = Math.min(100, (sum/data.length)*3);
-    const bar = document.getElementById('vol-'+userId);
-    if (bar) { bar.style.width=pct+'%'; bar.className='volume-bar'+(pct>60?' loud':''); }
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) sum += data[i];
+    const pct = Math.min(100, (sum / data.length) * 3);
+    const bar = document.getElementById('vol-' + userId);
+    if (bar) {
+      bar.style.width = pct + '%';
+      bar.className   = 'volume-bar' + (pct > 60 ? ' loud' : '');
+    }
     analysers[userId].animFrame = requestAnimationFrame(tick);
   }
-  analysers[userId] = { analyser, source, animFrame: requestAnimationFrame(tick) };
+
+  analysers[userId] = {
+    analyser,
+    source,
+    animFrame: requestAnimationFrame(tick)
+  };
 }
 
 function stopVolumeAnalysis(userId) {
   if (analysers[userId]) {
     cancelAnimationFrame(analysers[userId].animFrame);
-    try { analysers[userId].source.disconnect(); } catch(_){}
+    try { analysers[userId].source.disconnect(); } catch(_) {}
     delete analysers[userId];
   }
 }
 
 // ═══════════════════════════════════════════════
-//  SOCKET СОБЫТИЯ
-// ═══════════════════════════════════════════════
-socket.on('connect', () => {
-  log('Connected: '+socket.id);
-  reconnectBanner.classList.remove('visible');
-  socket.emit('authenticate', savedPassword);
-});
-
-socket.on('auth-ok', () => {
-  log('Auth OK');
-  if (joined && localStream) socket.emit('join');
-});
-
-socket.on('auth-fail', () => {
-  log('Auth FAIL');
-  savedPassword = '';
-  screenPassword.style.display = 'block';
-  screenMain.style.display     = 'none';
-  secureBadge.classList.remove('visible');
-  btnChatOpen.classList.remove('visible');
-  showPwError('❌ Сессия истекла, войди заново');
-  hangUp();
-  joined = false;
-});
-
-socket.on('disconnect', reason => {
-  log('Disconnected: '+reason);
-  if (joined) reconnectBanner.classList.add('visible');
-});
-
-socket.on('user-count', count => { userCount.textContent = count; });
-
-// ── Получаем сигнал "Понял" от друга ──
-socket.on('understood', ({ from }) => {
-  log('Understood from: '+from);
-  playOkSound();
-
-  const banner = document.createElement('div');
-  banner.className   = 'understood-banner';
-  banner.textContent = '✅ Понял! (' + shortId(from) + ')';
-  document.body.appendChild(banner);
-  setTimeout(() => banner.remove(), 3000);
-});
-
-// ═══════════════════════════════════════════════
 //  ГОЛОСОВЫЕ КНОПКИ
 // ═══════════════════════════════════════════════
-btnJoin.addEventListener('click', async () => {
+btnJoin?.addEventListener('click', async () => {
+  if (!socket) { toast('❌ Нет соединения'); return; }
+
   try {
     localStream = await navigator.mediaDevices.getUserMedia({
       video: false,
       audio: {
-        echoCancellation:true, noiseSuppression:true,
-        autoGainControl:true,  sampleRate:48000,
-        sampleSize:16,         channelCount:2, latency:0
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl:  true,
+        sampleRate:       48000,
+        sampleSize:       16,
+        channelCount:     2,
+        latency:          0
       }
     });
 
@@ -886,161 +1007,143 @@ btnJoin.addEventListener('click', async () => {
     btnMic.style.display   = 'block';
     joined = true;
 
-    addParticipant(socket.id, '🟢 Вы ('+shortId(socket.id)+')');
+    const myLabel = '🟢 Вы (' + (window._currentUsername || socket.id.slice(0,6)) + ')';
+    addParticipant(socket.id, myLabel);
     startVolumeAnalysis(socket.id, localStream);
+
     socket.emit('join');
 
-    for (const { from, offer } of pendingOffers) await handleOffer(from, offer);
+    // Обрабатываем накопленные офферы
+    for (const { from, offer } of pendingOffers) {
+      await handleOffer(from, offer);
+    }
     pendingOffers = [];
 
+    // Создаём peer-соединения с теми кто уже в комнате
+    for (const peerId of window._roomPeers) {
+      if (!peers[peerId]) {
+        const uname = window._peerNames.get(peerId) || peerId.slice(0,6);
+        addParticipant(peerId, '👤 ' + uname);
+        peers[peerId] = createPeer(peerId, true);
+      }
+    }
+
   } catch(err) {
-    log('MIC ERROR: '+err.name);
+    log('MIC ERROR: ' + err.name);
     const msgs = {
       NotAllowedError:  '❌ Доступ к микрофону запрещён.',
       NotFoundError:    '❌ Микрофон не найден.',
-      NotReadableError: '❌ Микрофон занят.'
+      NotReadableError: '❌ Микрофон занят другим приложением.'
     };
-    alert(msgs[err.name] || '❌ '+err.name+': '+err.message);
+    toast(msgs[err.name] || '❌ ' + err.name + ': ' + err.message);
   }
 });
 
-btnLeave.addEventListener('click', () => {
-  socket.emit('leave');
+btnLeave?.addEventListener('click', () => {
+  if (socket) socket.emit('leave');
   hangUp();
   joined = false;
-  btnJoin.style.display  = 'block';
-  btnLeave.style.display = 'none';
-  btnMic.style.display   = 'none';
-  reconnectBanner.classList.remove('visible');
-  micStatus.className = 'mic-status'; micStatus.textContent = '';
+  resetVoiceUI();
   releaseWakeLock();
   stopKeepAlive();
 });
 
-btnMic.addEventListener('click', () => {
+btnMic?.addEventListener('click', () => {
   micEnabled = !micEnabled;
-  localStream.getAudioTracks().forEach(t => { t.enabled = micEnabled; });
+  if (localStream) {
+    localStream.getAudioTracks().forEach(t => { t.enabled = micEnabled; });
+  }
   setMicStatus(micEnabled);
-  btnMic.textContent = micEnabled ? '🔇 Выключить микрофон' : '🎙️ Включить микрофон';
+  btnMic.textContent = micEnabled
+    ? '🔇 Выкл. микрофон'
+    : '🎙 Вкл. микрофон';
 });
 
 function setMicStatus(active) {
-  micStatus.textContent = active ? '🟢 Микрофон активен' : '🔴 Микрофон выключен';
-  micStatus.className   = 'mic-status '+(active ? 'active' : 'muted');
+  const el = document.getElementById('mic-status');
+  if (!el) return;
+  el.textContent = active ? '🟢 Микрофон активен' : '🔴 Микрофон выключен';
+  el.className   = 'mic-status ' + (active ? 'active' : 'muted');
+}
+
+function resetVoiceUI() {
+  if (btnJoin)  btnJoin.style.display  = 'block';
+  if (btnLeave) btnLeave.style.display = 'none';
+  if (btnMic)   btnMic.style.display   = 'none';
+  document.getElementById('reconnect-banner')?.classList.remove('visible');
+  const ms = document.getElementById('mic-status');
+  if (ms) { ms.className = 'mic-status'; ms.textContent = ''; }
 }
 
 // ═══════════════════════════════════════════════
-//  WebRTC
+//  WebRTC — создание peer
 // ═══════════════════════════════════════════════
-socket.on('existing-users', async (userIds) => {
-  log('Existing: '+JSON.stringify(userIds));
-  for (const uid of userIds) {
-    addParticipant(uid, '👤 '+shortId(uid));
-    peers[uid] = createPeer(uid, true);
-  }
-});
-
-socket.on('user-joined', uid => {
-  log('User joined: '+uid);
-  playBeep('join');
-  addParticipant(uid, '👤 '+shortId(uid));
-});
-
-socket.on('offer', async ({ from, offer }) => {
-  if (!localStream) { pendingOffers.push({ from, offer }); return; }
-  await handleOffer(from, offer);
-});
-
-async function handleOffer(from, offer) {
-  const peer = createPeer(from, false);
-  peers[from] = peer;
-  await peer.setRemoteDescription(new RTCSessionDescription(offer));
-  const answer   = await peer.createAnswer();
-  const improved = { type:answer.type, sdp:forceOpusMaxQuality(answer.sdp) };
-  await peer.setLocalDescription(improved);
-  socket.emit('answer', { to:from, answer:improved });
-}
-
-socket.on('answer', async ({ from, answer }) => {
-  const peer = peers[from];
-  if (peer?.signalingState==='have-local-offer')
-    await peer.setRemoteDescription(new RTCSessionDescription(answer));
-});
-
-socket.on('ice-candidate', async ({ from, candidate }) => {
-  const peer = peers[from];
-  if (peer && candidate) {
-    try { await peer.addIceCandidate(new RTCIceCandidate(candidate)); }
-    catch(e) { log('ICE: '+e.message); }
-  }
-});
-
-socket.on('user-left', uid => {
-  log('User left: '+uid);
-  playBeep('leave');
-  removeParticipant(uid);
-  stopVolumeAnalysis(uid);
-  stopQualityMonitor(uid);
-  if (peers[uid]) { peers[uid].close(); delete peers[uid]; }
-  document.getElementById('audio-'+uid)?.remove();
-});
-
 function createPeer(userId, isInitiator) {
-  log('Creating peer '+userId+' init='+isInitiator);
+  log('Creating peer ' + userId + ' init=' + isInitiator);
   const peer = new RTCPeerConnection(iceServers);
 
-  localStream.getTracks().forEach(t => peer.addTrack(t, localStream));
+  if (localStream) {
+    localStream.getTracks().forEach(t => peer.addTrack(t, localStream));
+  }
 
+  // Максимальный битрейт для аудио
   peer.getSenders().forEach(sender => {
-    if (sender.track?.kind==='audio') {
+    if (sender.track?.kind === 'audio') {
       const p = sender.getParameters();
       if (!p.encodings) p.encodings = [{}];
       p.encodings[0].maxBitrate = 510000;
       p.encodings[0].priority   = 'high';
-      sender.setParameters(p).catch(()=>{});
+      sender.setParameters(p).catch(() => {});
     }
   });
 
   peer.addEventListener('connectionstatechange', () => {
-    log('Peer '+userId+': '+peer.connectionState);
-    if (peer.connectionState==='connected') {
-      if (Object.keys(peers).length===1) startQualityMonitor(socket.id, peer, true);
+    log('Peer ' + userId + ': ' + peer.connectionState);
+    if (peer.connectionState === 'connected') {
+      if (Object.keys(peers).length === 1) {
+        startQualityMonitor(socket.id, peer, true);
+      }
       startQualityMonitor(userId, peer, false);
     }
-    if (peer.connectionState==='failed') peer.restartIce();
+    if (peer.connectionState === 'failed') peer.restartIce();
   });
 
   peer.ontrack = event => {
-    let audio = document.getElementById('audio-'+userId);
+    let audio = document.getElementById('audio-' + userId);
     if (!audio) {
-      audio = document.createElement('audio');
-      audio.id          = 'audio-'+userId;
+      audio             = document.createElement('audio');
+      audio.id          = 'audio-' + userId;
       audio.autoplay    = true;
       audio.playsInline = true;
       hiddenAudios.appendChild(audio);
     }
     audio.srcObject = event.streams[0];
     audio.play()
-      .then(()  => startVolumeAnalysis(userId, event.streams[0]))
-      .catch(e  => log('Autoplay: '+e.message));
+      .then(() => startVolumeAnalysis(userId, event.streams[0]))
+      .catch(e  => log('Autoplay: ' + e.message));
   };
 
   peer.onicecandidate = e => {
-    if (e.candidate) socket.emit('ice-candidate', { to:userId, candidate:e.candidate });
+    if (e.candidate && socket) {
+      socket.emit('ice-candidate', { to: userId, candidate: e.candidate });
+    }
   };
 
   peer.oniceconnectionstatechange = () => {
-    if (peer.iceConnectionState==='failed') peer.restartIce();
+    if (peer.iceConnectionState === 'failed') peer.restartIce();
   };
 
   if (isInitiator) {
     peer.onnegotiationneeded = async () => {
       try {
         const offer    = await peer.createOffer();
-        const improved = { type:offer.type, sdp:forceOpusMaxQuality(offer.sdp) };
+        const improved = {
+          type: offer.type,
+          sdp:  forceOpusMaxQuality(offer.sdp)
+        };
         await peer.setLocalDescription(improved);
-        socket.emit('offer', { to:userId, offer:improved });
-      } catch(e) { log('Offer error: '+e.message); }
+        socket.emit('offer', { to: userId, offer: improved });
+      } catch(e) { log('Offer error: ' + e.message); }
     };
   }
 
@@ -1048,17 +1151,49 @@ function createPeer(userId, isInitiator) {
 }
 
 // ═══════════════════════════════════════════════
-//  ЗАВЕРШЕНИЕ
+//  WebRTC — обработка входящего оффера
+// ═══════════════════════════════════════════════
+async function handleOffer(from, offer) {
+  const peer  = createPeer(from, false);
+  peers[from] = peer;
+
+  await peer.setRemoteDescription(new RTCSessionDescription(offer));
+  const answer   = await peer.createAnswer();
+  const improved = {
+    type: answer.type,
+    sdp:  forceOpusMaxQuality(answer.sdp)
+  };
+  await peer.setLocalDescription(improved);
+  socket.emit('answer', { to: from, answer: improved });
+}
+
+// ═══════════════════════════════════════════════
+//  ЗАВЕРШЕНИЕ ГОЛОСОВОГО
 // ═══════════════════════════════════════════════
 function hangUp() {
-  Object.keys(analysers)    .forEach(id => stopVolumeAnalysis(id));
-  Object.keys(qualityTimers).forEach(id => stopQualityMonitor(id));
-  Object.values(peers).forEach(p => p.close());
+  Object.keys(analysers)     .forEach(id => stopVolumeAnalysis(id));
+  Object.keys(qualityTimers) .forEach(id => stopQualityMonitor(id));
+  Object.values(peers)       .forEach(p  => p.close());
   peers = {};
-  if (localStream) { localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
-  if (audioCtx)    { audioCtx.close(); audioCtx=null; }
-  hiddenAudios.innerHTML        = '';
-  pendingOffers                 = [];
-  participantsList.innerHTML    = '';
+
+  if (localStream) {
+    localStream.getTracks().forEach(t => t.stop());
+    localStream = null;
+  }
+  if (audioCtx) {
+    audioCtx.close();
+    audioCtx = null;
+  }
+
+  hiddenAudios.innerHTML     = '';
+  pendingOffers              = [];
+  participantsList.innerHTML = '';
   participantsBox.style.display = 'none';
+  micEnabled = true;
 }
+
+// ═══════════════════════════════════════════════
+//  ЭКСПОРТ глобальных функций для index.html
+// ═══════════════════════════════════════════════
+window.initSocket   = initSocket;
+window.socketLeave  = socketLeave;
