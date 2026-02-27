@@ -1306,14 +1306,33 @@ function stopVideo() {
 window.onUserJoined = async function(socketId) {
   if (videoActive && localVideoStream) {
     const pc = getOrCreatePeer(socketId);
-    localVideoStream.getTracks().forEach(t => pc.addTrack(t, localVideoStream));
+    
+    // Проверяем, не добавлены ли треки уже (защита от дубликатов)
+    const senders = pc.getSenders();
+    localVideoStream.getTracks().forEach(t => {
+      if (!senders.find(s => s.track === t)) {
+        pc.addTrack(t, localVideoStream);
+      }
+    });
     
     try {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       window._socket?.emit('video-offer', { to: socketId, offer: pc.localDescription });
-    } catch(e) {}
+    } catch(e) {
+      console.warn("Ошибка отправки оффера новичку:", e);
+    }
   }
+};
+
+// Новый хук: Собеседник полностью вышел из комнаты (или закрыл вкладку)
+window.onUserLeft = function(socketId) {
+  const pc = videoPeers.get(socketId);
+  if (pc) {
+    pc.close();
+    videoPeers.delete(socketId);
+  }
+  removeVideoTile(socketId);
 };
 
 window.onVideoStart = async function(socketId) {
@@ -1340,10 +1359,18 @@ window.onVideoOffer = async function(socketId, offer) {
   try {
     const pc = getOrCreatePeer(socketId);
     
-    // Защита от Glare: если мы тут тоже пытаемся отправить видео одновременно
+    // WebRTC Perfect Negotiation (защита от коллизий/Glare)
+    // Если обе стороны нажали "Включить видео" одновременно
     if (pc.signalingState !== 'stable') {
+      // Тот, чей socketId больше, становится "вежливым" (уступает)
+      const isPolite = (window._socket.id || "") > socketId;
+      if (!isPolite) {
+        // Мы игнорируем его оффер, он сам примет наш (так как он polite)
+        return; 
+      }
+      // Мы уступаем: откатываем свой оффер и принимаем его
       await Promise.all([
-        pc.setLocalDescription({type: "rollback"}),
+        pc.setLocalDescription({ type: "rollback" }),
         pc.setRemoteDescription(new RTCSessionDescription(offer))
       ]);
     } else {
@@ -1356,24 +1383,31 @@ window.onVideoOffer = async function(socketId, offer) {
     if (videoActive && localVideoStream) {
        const senders = pc.getSenders();
        localVideoStream.getTracks().forEach(t => {
-         if (!senders.find(s => s.track === t)) pc.addTrack(t, localVideoStream);
+         if (!senders.find(s => s.track === t)) {
+           pc.addTrack(t, localVideoStream);
+         }
        });
     }
 
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     window._socket?.emit('video-answer', { to: socketId, answer: pc.localDescription });
-  } catch (e) { console.error("Offer error:", e); }
+  } catch (e) { 
+    console.error("Offer error:", e); 
+  }
 };
 
 window.onVideoAnswer = async function(socketId, answer) {
   try {
     const pc = videoPeers.get(socketId);
-    if (pc) {
+    // Принимаем ответ только если мы сами инициировали звонок
+    if (pc && pc.signalingState !== 'stable') {
       await pc.setRemoteDescription(new RTCSessionDescription(answer));
       await processIceQueue(pc);
     }
-  } catch (e) { console.error("Answer error:", e); }
+  } catch (e) { 
+    console.error("Answer error:", e); 
+  }
 };
 
 window.onVideoIce = async function(socketId, candidate) {
@@ -1389,7 +1423,6 @@ window.onVideoIce = async function(socketId, candidate) {
     } catch(e) {}
   }
 };
-
 
 /* ══════════════════════════════════════════════════════
    UI И ОСТАЛЬНАЯ ЛОГИКА
