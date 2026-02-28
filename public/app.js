@@ -1,128 +1,125 @@
 'use strict';
 
-/* ─── СОСТОЯНИЕ ─── */
+/* ══════════════════════════════════════════════
+   СОСТОЯНИЕ
+══════════════════════════════════════════════ */
 const App = {
   socket:       null,
   currentUser:  null,
   currentChat:  null,
   chats:        new Map(),
   contacts:     new Map(),
-  typingTimers: new Map(),
+  unread:       new Map(),
+  activeTab:    'chats',
   replyTo:      null,
   editMsg:      null,
   keyPair:      null,
   sharedKeys:   new Map(),
-  unread:       new Map(),
-  activeTab:    'chats',
-  searchQuery:  '',
   e2eEnabled:   false,
   _pendingRequests: [],
-  _ctxMsg:      null,
 };
 
-const $ = id => document.getElementById(id);
+/* ══════════════════════════════════════════════
+   DOM-КЭШ
+══════════════════════════════════════════════ */
 const DOM = {};
 
+function $(id) { return document.getElementById(id); }
+
 function initDOM() {
-  Object.assign(DOM, {
-    screenAuth:      $('screen-auth'),
-    screenApp:       $('screen-app'),
-    myAvatar:        $('my-avatar-el'),
-    searchInput:     $('search-input'),
-    searchClear:     $('search-clear'),
-    chatList:        $('chat-list'),
-    contactsPanel:   $('contacts-panel'),
-    contactsList:    $('contacts-list'),
-    requestsList:    $('requests-list'),
-    explorePanel:    $('explore-panel'),
-    exploreList:     $('explore-list'),
-    chatPlaceholder: $('chat-placeholder'),
-    chatWrap:        $('chat-wrap'),
-    backBtn:         $('back-btn'),
-    chAvatar:        $('ch-avatar'),
-    chName:          $('ch-name'),
-    chStatus:        $('ch-status'),
-    messagesList:    $('messages-list'),
-    messagesArea:    $('messages-area'),
-    replyBar:        $('reply-bar'),
-    replyText:       $('reply-bar-text'),
-    editBar:         $('edit-bar'),
-    editText:        $('edit-bar-text'),
-    fileInput:       $('file-input'),
-    msgInput:        $('msg-input'),
-    sendBtn:         $('send-btn'),
-    attachMenu:      $('attach-menu'),
-    notifications:   $('notifications'),
-    overlay:         $('overlay'),
-    msgCtxMenu:      $('msg-ctx-menu'),
-    reactionPicker:  $('reaction-picker'),
-    modalProfile:    $('modal-profile'),
-    profileAvatar:   $('profile-avatar-el'),
-    profileUsername: $('profile-username-el'),
-    profileBio:      $('profile-bio'),
-    modalNewChat:    $('modal-new-chat'),
-    ncUserSearch:    $('nc-user-search'),
-    ncUserList:      $('nc-user-list'),
-    ncGroupName:     $('nc-group-name'),
-    modalChatInfo:   $('modal-chat-info'),
-    chatInfoTitle:   $('chat-info-title'),
-    chatInfoAvatar:  $('chat-info-avatar'),
-    chatInfoName:    $('chat-info-name'),
-    chatInfoMeta:    $('chat-info-meta'),
-    chatInfoLeave:   $('chat-info-leave-btn'),
-    chatInfoAvatarBtn: $('chat-info-avatar-btn'),
-    modalImage:      $('modal-image'),
-    modalImageEl:    $('modal-image-el'),
-  });
+  DOM.authScreen      = $('auth-screen');
+  DOM.appScreen       = $('app-screen');
+  DOM.chatList        = $('chat-list');
+  DOM.messagesList    = $('messages-list');
+  DOM.messagesArea    = $('messages-area');
+  DOM.msgInput        = $('msg-input');
+  DOM.sendBtn         = $('send-btn');
+  DOM.fileInput       = $('file-input');
+  DOM.searchInput     = $('search-input');
+  DOM.searchClear     = $('search-clear');
+  DOM.backBtn         = $('back-btn');
+  DOM.replyBar        = $('reply-bar');
+  DOM.replyText       = $('reply-text');
+  DOM.editBar         = $('edit-bar');
+  DOM.editText        = $('edit-text');
+  DOM.overlay         = $('overlay');
+  DOM.msgCtxMenu      = $('msg-ctx-menu');
+  DOM.reactionPicker  = $('reaction-picker');
+  DOM.modalProfile    = $('modal-profile');
+  DOM.modalNewChat    = $('modal-new-chat');
+  DOM.modalChatInfo   = $('modal-chat-info');
+  DOM.modalImage      = $('modal-image');
+  DOM.modalImageEl    = $('modal-image-el');
+  DOM.profileAvatar   = $('profile-avatar');
+  DOM.profileUsername = $('profile-username');
+  DOM.profileBio      = $('profile-bio');
+  DOM.chatInfoAvatar  = $('chat-info-avatar');
+  DOM.chatInfoName    = $('chat-info-name');
+  DOM.chatInfoTitle   = $('chat-info-title');
+  DOM.chatInfoMeta    = $('chat-info-meta');
+  DOM.chatInfoLeave   = $('chat-info-leave');
+  DOM.chatInfoAvatarBtn = $('chat-info-avatar-btn');
+  DOM.ncUserSearch    = $('nc-user-search');
+  DOM.ncGroupName     = $('nc-group-name');
+  DOM.ncUserList      = $('nc-user-list');
+  DOM.contactsList    = $('contacts-list');
+  DOM.requestsList    = $('requests-list');
+  DOM.exploreList     = $('explore-list');
+  DOM.attachMenu      = $('attach-menu');
+  DOM.typingIndicator = $('typing-indicator');
+  DOM.sidebarPanel    = $('sidebar-panel');
+  DOM.chatPanel       = $('chat-panel');
 }
 
 /* ══════════════════════════════════════════════
    УТИЛИТЫ
 ══════════════════════════════════════════════ */
-function getInitialsEmoji(name) {
-  return `<span>${(name || '?')[0].toUpperCase()}</span>`;
-}
-
-function formatTime(ts) {
-  return new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-}
-
-function formatDate(ts) {
-  const d   = new Date(ts);
-  const now = new Date();
-  const diff = now - d;
-  if (diff < 86_400_000 && d.getDate() === now.getDate()) return 'Сегодня';
-  if (diff < 172_800_000) return 'Вчера';
-  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
-}
-
-function formatSize(bytes) {
-  if (bytes < 1024)    return bytes + ' Б';
-  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' КБ';
-  return (bytes / 1048576).toFixed(1) + ' МБ';
-}
-
 function escHtml(str) {
   return String(str)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
-function showNotif(text, type = 'info', duration = 3500) {
-  if (!DOM.notifications) return;
+function formatTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatDate(ts) {
+  if (!ts) return '';
+  const d   = new Date(ts);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return 'Сегодня';
+  const y = d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+  return y;
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024)        return bytes + ' Б';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' КБ';
+  return (bytes / 1024 / 1024).toFixed(1) + ' МБ';
+}
+
+function getInitialsEmoji(name) {
+  if (!name) return '<div class="avatar-placeholder">?</div>';
+  const initials = name.trim().slice(0, 2).toUpperCase();
+  return `<div class="avatar-placeholder">${initials}</div>`;
+}
+
+function showNotif(text, type = 'info') {
   const el = document.createElement('div');
-  el.className = `notif${type === 'error' ? ' error' : type === 'success' ? ' success' : ''}`;
+  el.className   = `notif notif-${type}`;
   el.textContent = text;
-  DOM.notifications.appendChild(el);
-  setTimeout(() => el.remove(), duration);
-}
-
-function updateDocTitle() {
-  let total = 0;
-  App.unread.forEach(v => { total += v; });
-  document.title = total > 0 ? `(${total > 99 ? '99+' : total}) SecureChat` : 'SecureChat';
+  document.body.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 300);
+  }, 3000);
 }
 
 /* ══════════════════════════════════════════════
@@ -130,60 +127,60 @@ function updateDocTitle() {
 ══════════════════════════════════════════════ */
 const Theme = {
   init() {
-    const saved  = localStorage.getItem('chat_theme');
-    const prefer = window.matchMedia('(prefers-color-scheme: dark)').matches
-      ? 'dark' : 'light';
-    this.apply(saved || prefer);
+    const saved = localStorage.getItem('theme') || 'light';
+    this.apply(saved);
   },
-  apply(theme) {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('chat_theme', theme);
+  apply(t) {
+    document.documentElement.setAttribute('data-theme', t);
+    localStorage.setItem('theme', t);
+    const btn = $('theme-btn');
+    if (btn) btn.textContent = t === 'dark' ? '☀️' : '🌙';
   },
   toggle() {
-    const curr = document.documentElement.getAttribute('data-theme');
-    this.apply(curr === 'dark' ? 'light' : 'dark');
+    const cur = document.documentElement.getAttribute('data-theme') || 'light';
+    this.apply(cur === 'dark' ? 'light' : 'dark');
   },
 };
 
 /* ══════════════════════════════════════════════
-   PUSH / ЗВУК
+   ЗВУК
 ══════════════════════════════════════════════ */
-const PushNotif = {
-  allowed: false,
-  async request() {
-    if (!('Notification' in window)) return;
-    if (Notification.permission === 'granted') { this.allowed = true; return; }
-    if (Notification.permission !== 'denied') {
-      const p = await Notification.requestPermission();
-      this.allowed = p === 'granted';
-    }
+const Sound = {
+  ctx: null,
+  getCtx() {
+    if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    return this.ctx;
   },
-  send(title, body) {
-    if (!this.allowed || document.visibilityState === 'visible') return;
-    try { new Notification(title, { body, icon: '/icons/icon-192.png' }); } catch {}
+  playBeep() {
+    try {
+      const ctx  = this.getCtx();
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.3);
+    } catch {}
   },
 };
 
-const Sound = {
-  _ctx: null,
-  playBeep() {
-    if (localStorage.getItem('chat_sound') === 'off') return;
-    try {
-      if (!this._ctx)
-        this._ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc  = this._ctx.createOscillator();
-      const gain = this._ctx.createGain();
-      osc.connect(gain);
-      gain.connect(this._ctx.destination);
-      osc.frequency.value = 880;
-      osc.type = 'sine';
-      gain.gain.setValueAtTime(0.15, this._ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(
-        0.0001, this._ctx.currentTime + 0.35
-      );
-      osc.start(this._ctx.currentTime);
-      osc.stop(this._ctx.currentTime + 0.35);
-    } catch {}
+/* ══════════════════════════════════════════════
+   PUSH-УВЕДОМЛЕНИЯ
+══════════════════════════════════════════════ */
+const PushNotif = {
+  async request() {
+    if (!('Notification' in window)) return;
+    if (Notification.permission === 'default') {
+      await Notification.requestPermission();
+    }
+  },
+  send(title, body) {
+    if (Notification.permission !== 'granted') return;
+    if (document.visibilityState === 'visible')  return;
+    new Notification(title, { body, icon: '/icon-192.png' });
   },
 };
 
@@ -192,445 +189,396 @@ const Sound = {
 ══════════════════════════════════════════════ */
 function registerSW() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js')
-      .then(r => console.log('SW зарегистрирован:', r.scope))
-      .catch(e => console.warn('SW ошибка:', e));
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
 }
+
 /* ══════════════════════════════════════════════
-   SOCKET.IO
+   SOCKET.IO — ПОДКЛЮЧЕНИЕ
 ══════════════════════════════════════════════ */
 function connectSocket() {
-  if (App.socket) {
-    App.socket.disconnect();
-    App.socket = null;
+  const token = sessionStorage.getItem('chat_token');
+  App.socket  = io({ auth: { token }, transports: ['websocket'] });
+
+  App.socket.on('connect',       onSocketConnect);
+  App.socket.on('disconnect',    onSocketDisconnect);
+  App.socket.on('connect_error', onSocketError);
+
+  App.socket.on('init',              onInit);
+  App.socket.on('msg:new',           onMsgNew);
+  App.socket.on('msg:edited',        onMsgEdited);
+  App.socket.on('msg:deleted',       onMsgDeleted);
+  App.socket.on('msg:reaction',      onMsgReaction);
+  App.socket.on('chat:typing',       onTyping);
+  App.socket.on('user:online',       onUserOnline);
+  App.socket.on('user:offline',      onUserOffline);
+  App.socket.on('contact:request',   onContactRequest);
+  App.socket.on('contact:accepted',  onContactAccepted);
+  App.socket.on('groups:explore',    onGroupsExplore);
+  App.socket.on('e2e:pubkey',        onE2EPubkey);
+}
+
+function onSocketConnect() {
+  console.log('✅ Socket connected');
+  showNotif('Подключено', 'success');
+}
+
+function onSocketDisconnect() {
+  showNotif('Соединение потеряно', 'error');
+}
+
+function onSocketError(err) {
+  if (err.message === 'unauthorized') {
+    showAuth();
   }
+}
 
-  App.socket = io({ transports: ['websocket', 'polling'] });
+/* ══════════════════════════════════════════════
+   INIT — данные с сервера
+══════════════════════════════════════════════ */
+function onInit(data) {
+  App.currentUser = data.user;
+  sessionStorage.setItem('chat_session', JSON.stringify(data.user));
 
-  App.socket.on('connect', () => {
-    console.log('Socket connected:', App.socket.id);
-    const token = sessionStorage.getItem('chat_token');
-    if (token) {
-      App.socket.emit('auth', { token });
-    }
+  App.chats.clear();
+  (data.chats || []).forEach(c => {
+    App.chats.set(c.id, { info: c, messages: c.messages || [] });
   });
 
-  App.socket.on('disconnect', () =>
-    showNotif('Соединение потеряно…', 'error')
-  );
-  App.socket.on('connect_error', (e) => {
-    console.error('connect_error', e);
-    showNotif('Ошибка подключения', 'error');
-  });
+  App.contacts.clear();
+  (data.contacts || []).forEach(c => App.contacts.set(c.id, c));
 
-  App.socket.on('auth:ok',          onAuthOk);
-  App.socket.on('auth:error',       onAuthErr);
-  App.socket.on('chat:new',         onChatNew);
-  App.socket.on('chat:updated',     onChatUpdated);
-  App.socket.on('chat:joined',      onChatJoined);
-  App.socket.on('chat:left',        onChatLeft);
-  App.socket.on('msg:new',          onMsgNew);
-  App.socket.on('msg:edited',       onMsgEdited);
-  App.socket.on('msg:deleted',      onMsgDeleted);
-  App.socket.on('msg:reaction',     onMsgReaction);
-  App.socket.on('contact:request',  onContactRequest);
-  App.socket.on('contact:accepted', onContactAccepted);
-  App.socket.on('groups:list',      onGroupsExplore);
-  App.socket.on('user:online',      onUserOnline);
-  App.socket.on('chat:typing',      onChatTyping);
-  App.socket.on('e2e:pubkey',       onE2EPubkey);
+  App._pendingRequests = data.pendingRequests || [];
+
+  showApp();
+  renderMyAvatar();
+  renderChatList();
 }
 
 /* ══════════════════════════════════════════════
    АВТОРИЗАЦИЯ
 ══════════════════════════════════════════════ */
-window.switchAuthTab = function(tab) {
-  document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.auth-form').forEach(f => f.classList.add('hidden'));
-  if (tab === 'login') {
-    document.querySelectorAll('.auth-tab')[0].classList.add('active');
-    $('tab-login').classList.remove('hidden');
-  } else {
-    document.querySelectorAll('.auth-tab')[1].classList.add('active');
-    $('tab-register').classList.remove('hidden');
-  }
-};
-
-window.doLogin = async function() {
-  const username = $('login-username').value.trim();
-  const password = $('login-password').value;
-  $('login-err').textContent = '';
-
-  if (!username || !password) {
-    $('login-err').textContent = 'Заполните все поля';
-    return;
-  }
-
-  try {
-    const res  = await fetch('/api/login', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ username, password }),
-    });
-    const data = await res.json();
-
-    if (!data.ok) {
-      const msgs = {
-        wrong_credentials: 'Неверный логин или пароль',
-        rate_limited:      'Слишком много попыток, подождите',
-        missing_fields:    'Заполните все поля',
-        server_error:      'Ошибка сервера',
-      };
-      $('login-err').textContent = msgs[data.error] || data.error;
-      return;
-    }
-
-    sessionStorage.setItem('chat_token', data.token);
-
-    if (App.socket && App.socket.connected) {
-      App.socket.emit('auth', { token: data.token });
-    } else {
-      connectSocket();
-    }
-
-  } catch(e) {
-    $('login-err').textContent = 'Ошибка: ' + e.message;
-    console.error(e);
-  }
-};
-
-window.doRegister = async function() {
-  const username  = $('reg-username').value.trim();
-  const password  = $('reg-password').value;
-  const password2 = $('reg-password2').value;
-  $('reg-err').textContent = '';
-
-  if (!username || !password) {
-    $('reg-err').textContent = 'Заполните все поля';
-    return;
-  }
-  if (password !== password2) {
-    $('reg-err').textContent = 'Пароли не совпадают';
-    return;
-  }
-  if (password.length < 6) {
-    $('reg-err').textContent = 'Минимум 6 символов';
-    return;
-  }
-
-  try {
-    const res  = await fetch('/api/register', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ username, password }),
-    });
-    const data = await res.json();
-
-    if (!data.ok) {
-      const msgs = {
-        username_taken:  'Имя пользователя занято',
-        username_length: 'Имя: от 2 до 32 символов',
-        password_short:  'Минимум 4 символа',
-        rate_limited:    'Слишком много попыток',
-        server_error:    'Ошибка сервера',
-      };
-      $('reg-err').textContent = msgs[data.error] || data.error;
-      return;
-    }
-
-    sessionStorage.setItem('chat_token', data.token);
-
-    if (App.socket && App.socket.connected) {
-      App.socket.emit('auth', { token: data.token });
-    } else {
-      connectSocket();
-    }
-
-  } catch(e) {
-    $('reg-err').textContent = 'Ошибка: ' + e.message;
-    console.error(e);
-  }
-};
-
-window.doLogout = async function() {
-  const token = sessionStorage.getItem('chat_token');
-  if (token) {
-    try {
-      await fetch('/api/logout', {
-        method:  'POST',
-        headers: { 'Authorization': 'Bearer ' + token },
-      });
-    } catch {}
-  }
-  sessionStorage.removeItem('chat_token');
-  sessionStorage.removeItem('chat_session');
-  if (App.socket) {
-    App.socket.disconnect();
-    App.socket = null;
-  }
-  showAuth();
-};
-
-async function onAuthOk(data) {
-  App.currentUser = data;
-  sessionStorage.setItem('chat_session', JSON.stringify(data));
-
-  if (App.e2eEnabled && App.keyPair) {
-    try {
-      const pubKey = await E2E.exportPublicKey(App.keyPair.publicKey);
-      App.socket.emit('e2e:pubkey', { pubKey });
-    } catch(e) { console.warn('E2E export:', e); }
-  }
-
-  showApp();
-  await loadChats();
-  await loadContacts();
-}
-
-function onAuthErr(data) {
-  const err = data?.error || data?.message || 'Ошибка авторизации';
-  const loginForm = $('tab-login');
-  if (loginForm && !loginForm.classList.contains('hidden')) {
-    $('login-err').textContent = err;
-  } else {
-    $('reg-err').textContent = err;
-  }
+function showAuth() {
+  if (DOM.authScreen) DOM.authScreen.classList.remove('hidden');
+  if (DOM.appScreen)  DOM.appScreen.classList.add('hidden');
 }
 
 function showApp() {
-  DOM.screenAuth.classList.add('hidden');
-  DOM.screenApp.classList.remove('hidden');
-  renderMyAvatar();
+  if (DOM.authScreen) DOM.authScreen.classList.add('hidden');
+  if (DOM.appScreen)  DOM.appScreen.classList.remove('hidden');
 }
 
-function showAuth() {
-  DOM.screenApp.classList.add('hidden');
-  DOM.screenAuth.classList.remove('hidden');
+function switchAuthTab(tab) {
+  $('tab-login')?.classList.toggle('active', tab === 'login');
+  $('tab-reg')?.classList.toggle('active',   tab === 'reg');
+  $('login-form')?.classList.toggle('hidden', tab !== 'login');
+  $('reg-form')?.classList.toggle('hidden',   tab !== 'reg');
+}
+
+async function doLogin() {
+  const username = $('login-username')?.value.trim();
+  const password = $('login-password')?.value.trim();
+  if (!username || !password) {
+    showNotif('Заполните все поля', 'error');
+    return;
+  }
+  try {
+    const res  = await fetch('/api/auth/login', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ username, password }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      sessionStorage.setItem('chat_token', data.token);
+      App.socket?.disconnect();
+      connectSocket();
+    } else {
+      showNotif(data.error || 'Ошибка входа', 'error');
+    }
+  } catch {
+    showNotif('Ошибка сети', 'error');
+  }
+}
+
+async function doRegister() {
+  const username  = $('reg-username')?.value.trim();
+  const password  = $('reg-password')?.value.trim();
+  const password2 = $('reg-password2')?.value.trim();
+  if (!username || !password || !password2) {
+    showNotif('Заполните все поля', 'error');
+    return;
+  }
+  if (password !== password2) {
+    showNotif('Пароли не совпадают', 'error');
+    return;
+  }
+  try {
+    const res  = await fetch('/api/auth/register', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ username, password }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      sessionStorage.setItem('chat_token', data.token);
+      App.socket?.disconnect();
+      connectSocket();
+    } else {
+      showNotif(data.error || 'Ошибка регистрации', 'error');
+    }
+  } catch {
+    showNotif('Ошибка сети', 'error');
+  }
+}
+
+function doLogout() {
+  sessionStorage.removeItem('chat_token');
+  sessionStorage.removeItem('chat_session');
+  App.socket?.disconnect();
   App.currentUser = null;
   App.currentChat = null;
   App.chats.clear();
   App.contacts.clear();
-  App._pendingRequests = [];
   App.unread.clear();
-  sessionStorage.removeItem('chat_session');
+  showAuth();
 }
 
+/* ══════════════════════════════════════════════
+   E2E — ECDH + AES-GCM
+══════════════════════════════════════════════ */
+const E2E = {
+  async generateKeyPair() {
+    return await crypto.subtle.generateKey(
+      { name: 'ECDH', namedCurve: 'P-256' },
+      true,
+      ['deriveKey', 'deriveBits']
+    );
+  },
+  async exportPublicKey(pubKey) {
+    const raw = await crypto.subtle.exportKey('spki', pubKey);
+    return btoa(String.fromCharCode(...new Uint8Array(raw)));
+  },
+  async importPublicKey(b64) {
+    const bin = atob(b64);
+    const buf = new Uint8Array(bin.length).map((_, i) => bin.charCodeAt(i));
+    return await crypto.subtle.importKey(
+      'spki', buf.buffer,
+      { name: 'ECDH', namedCurve: 'P-256' },
+      true, []
+    );
+  },
+  async deriveSharedKey(privKey, theirPubKey) {
+    return await crypto.subtle.deriveKey(
+      { name: 'ECDH', public: theirPubKey },
+      privKey,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
+  },
+  async encrypt(sharedKey, plaintext) {
+    const iv  = crypto.getRandomValues(new Uint8Array(12));
+    const enc = new TextEncoder();
+    const ct  = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv }, sharedKey, enc.encode(plaintext)
+    );
+    const combined = new Uint8Array(iv.byteLength + ct.byteLength);
+    combined.set(iv, 0);
+    combined.set(new Uint8Array(ct), iv.byteLength);
+    return btoa(String.fromCharCode(...combined));
+  },
+  async decrypt(sharedKey, b64) {
+    const bin      = atob(b64);
+    const combined = new Uint8Array(bin.length).map((_, i) => bin.charCodeAt(i));
+    const iv       = combined.slice(0, 12);
+    const ct       = combined.slice(12);
+    const pt       = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv }, sharedKey, ct
+    );
+    return new TextDecoder().decode(pt);
+  },
+};
+
+async function onE2EPubkey(data) {
+  if (!App.e2eEnabled || !App.keyPair) return;
+  try {
+    const theirKey  = await E2E.importPublicKey(data.pubKey);
+    const shared    = await E2E.deriveSharedKey(App.keyPair.privateKey, theirKey);
+    App.sharedKeys.set(data.userId, shared);
+  } catch(e) {
+    console.error('E2E key exchange error:', e);
+  }
+}
+
+async function toggleE2E() {
+  const btn = $('e2e-toggle-btn');
+  if (App.e2eEnabled) {
+    App.e2eEnabled = false;
+    App.keyPair    = null;
+    App.sharedKeys.clear();
+    if (btn) { btn.textContent = '🔓 E2E выкл.'; btn.classList.remove('active'); }
+    showNotif('E2E-шифрование отключено');
+    return;
+  }
+  try {
+    App.keyPair    = await E2E.generateKeyPair();
+    App.e2eEnabled = true;
+    const pubKey   = await E2E.exportPublicKey(App.keyPair.publicKey);
+    App.socket.emit('e2e:pubkey', { pubKey });
+    if (btn) { btn.textContent = '🔐 E2E вкл.'; btn.classList.add('active'); }
+    showNotif('E2E-шифрование включено', 'success');
+  } catch(e) {
+    console.error('E2E init:', e);
+    showNotif('Ошибка инициализации E2E', 'error');
+  }
+}
+
+/* ══════════════════════════════════════════════
+   САЙДБАР — ТАБЫ
+══════════════════════════════════════════════ */
+function switchTab(tab) {
+  App.activeTab = tab;
+  ['chats','contacts','explore'].forEach(t => {
+    $(`tab-${t}`)?.classList.toggle('active', t === tab);
+    $(`panel-${t}`)?.classList.toggle('hidden', t !== tab);
+  });
+  if (tab === 'contacts') renderContactsPanel();
+  if (tab === 'explore')  App.socket.emit('groups:explore', { query: '' });
+}
+
+/* ══════════════════════════════════════════════
+   АВАТАР ТЕКУЩЕГО ПОЛЬЗОВАТЕЛЯ
+══════════════════════════════════════════════ */
 function renderMyAvatar() {
-  if (!App.currentUser || !DOM.myAvatar) return;
-  const u = App.currentUser;
-  DOM.myAvatar.innerHTML = u.avatar
+  const u  = App.currentUser;
+  const el = $('my-avatar');
+  if (!el || !u) return;
+  el.innerHTML = u.avatar
     ? `<img class="avatar-img" src="${escHtml(u.avatar)}" alt="">`
     : getInitialsEmoji(u.username);
 }
 
 /* ══════════════════════════════════════════════
-   ЗАГРУЗКА ЧАТОВ И КОНТАКТОВ (REST)
-══════════════════════════════════════════════ */
-async function loadChats() {
-  const token = sessionStorage.getItem('chat_token');
-  try {
-    const res  = await fetch('/api/chats', {
-      headers: { 'Authorization': 'Bearer ' + token },
-    });
-    const data = await res.json();
-    if (data.ok) {
-      App.chats.clear();
-      data.chats.forEach(chat => {
-        App.chats.set(chat.id, { info: chat, messages: [] });
-      });
-      renderChatList();
-    }
-  } catch(e) { console.error('loadChats:', e); }
-}
-
-async function loadContacts() {
-  const token = sessionStorage.getItem('chat_token');
-  try {
-    const [cRes, rRes] = await Promise.all([
-      fetch('/api/contacts',          { headers: { 'Authorization': 'Bearer ' + token } }),
-      fetch('/api/contacts/requests', { headers: { 'Authorization': 'Bearer ' + token } }),
-    ]);
-    const [cData, rData] = await Promise.all([cRes.json(), rRes.json()]);
-
-    if (cData.ok) {
-      App.contacts.clear();
-      cData.contacts.forEach(c => App.contacts.set(c.id, c));
-    }
-    if (rData.ok) {
-      App._pendingRequests = rData.requests.map(r => ({
-        fromId:   r.id,
-        username: r.username,
-        avatar:   r.avatar,
-      }));
-    }
-  } catch(e) { console.error('loadContacts:', e); }
-}
-
-/* ══════════════════════════════════════════════
-   E2E
-══════════════════════════════════════════════ */
-async function onE2EPubkey(data) {
-  if (!App.e2eEnabled || !data.userId || !data.pubKey) return;
-  try {
-    const theirPub  = await E2E.importPublicKey(data.pubKey);
-    const sharedKey = await E2E.deriveSharedKey(App.keyPair.privateKey, theirPub);
-    App.chats.forEach((chat, chatId) => {
-      if (chat.info.type === 'private') {
-        App.sharedKeys.set(chatId, sharedKey);
-      }
-    });
-  } catch(e) { console.warn('E2E:', e); }
-}
-/* ══════════════════════════════════════════════
-   SOCKET — СОБЫТИЯ ЧАТОВ
-══════════════════════════════════════════════ */
-function onChatNew(data) {
-  const chat = data.chat || data;
-  if (!App.chats.has(chat.id)) {
-    App.chats.set(chat.id, { info: chat, messages: [] });
-  }
-  renderChatList();
-}
-
-function onChatUpdated(chat) {
-  const existing = App.chats.get(chat.id);
-  if (existing) existing.info = { ...existing.info, ...chat };
-  else App.chats.set(chat.id, { info: chat, messages: [] });
-  renderChatList();
-  if (App.currentChat === chat.id) renderChatHeader();
-}
-
-function onChatJoined(data) {
-  loadChats();
-}
-
-function onChatLeft(data) {
-  App.chats.delete(data.chatId);
-  if (App.currentChat === data.chatId) {
-    App.currentChat = null;
-    showChatPlaceholder();
-  }
-  renderChatList();
-  showNotif('Вы покинули чат');
-}
-
-/* ══════════════════════════════════════════════
-   РЕНДЕР СПИСКА ЧАТОВ
+   СПИСОК ЧАТОВ
 ══════════════════════════════════════════════ */
 function renderChatList() {
-  const q = App.searchQuery.toLowerCase();
+  if (!DOM.chatList) return;
+  const query = DOM.searchInput?.value.toLowerCase() || '';
+
   let chats = [...App.chats.values()];
-  if (q) chats = chats.filter(c => c.info.name?.toLowerCase().includes(q));
+
+  if (query) {
+    chats = chats.filter(c =>
+      (c.info.name || '').toLowerCase().includes(query)
+    );
+  }
+
   chats.sort((a, b) => {
-    const at = a.info.last_msg_at ? new Date(a.info.last_msg_at).getTime() : 0;
-    const bt = b.info.last_msg_at ? new Date(b.info.last_msg_at).getTime() : 0;
-    return bt - at;
+    const ta = new Date(a.info.last_msg_at || 0).getTime();
+    const tb = new Date(b.info.last_msg_at || 0).getTime();
+    return tb - ta;
   });
 
   if (!chats.length) {
-    DOM.chatList.innerHTML = `
-      <div style="text-align:center;padding:32px 16px;color:var(--text2)">
-        <div style="font-size:40px">💬</div>
-        <div>${q ? 'Ничего не найдено' : 'Нет чатов'}</div>
-      </div>`;
-    updateDocTitle();
+    DOM.chatList.innerHTML =
+      `<div style="text-align:center;padding:32px;color:var(--text2)">
+         <div style="font-size:40px">💬</div>
+         <div>${query ? 'Ничего не найдено' : 'Нет чатов'}</div>
+       </div>`;
     return;
   }
 
-  DOM.chatList.innerHTML = chats.map(c => {
-    const info   = c.info;
-    const unread = App.unread.get(info.id) || 0;
-    const active = App.currentChat === info.id;
-    const avatar = info.avatar
-      ? `<img class="avatar-img" src="${escHtml(info.avatar)}" alt="">`
-      : getInitialsEmoji(info.name);
-    const lastMsg = info.last_msg
-      ? escHtml(info.last_msg).slice(0, 42)
-      : '<span style="opacity:.5">Нет сообщений</span>';
-    const timeStr = info.last_msg_at ? formatTime(info.last_msg_at) : '';
-    const badge   = unread > 0
-      ? `<span class="ci-badge">${unread > 99 ? '99+' : unread}</span>` : '';
+  DOM.chatList.innerHTML = chats.map(c => buildChatItem(c)).join('');
+}
 
-    return `
-      <div class="chat-item${active ? ' active' : ''}"
-           data-id="${info.id}"
-           onclick="openChat(${info.id})">
-        <div class="ci-avatar">${avatar}</div>
-        <div class="ci-body">
-          <div class="ci-top">
-            <span class="ci-name">
-              ${escHtml(info.name)}${info.type === 'group' ? ' 👥' : ''}
-            </span>
-            <span class="ci-time">${timeStr}</span>
-          </div>
-          <div class="ci-bottom">
-            <span class="ci-last">${lastMsg}</span>
-            ${badge}
-          </div>
+function buildChatItem(c) {
+  const info    = c.info;
+  const unread  = App.unread.get(info.id) || 0;
+  const active  = App.currentChat === info.id;
+  const av      = info.avatar
+    ? `<img class="avatar-img" src="${escHtml(info.avatar)}" alt="">`
+    : getInitialsEmoji(info.name);
+  const lastMsg = escHtml((info.last_msg || '').slice(0, 40));
+  const time    = info.last_msg_at ? formatTime(info.last_msg_at) : '';
+
+  return `
+    <div class="chat-item${active ? ' active' : ''}"
+         onclick="openChat(${info.id})">
+      <div class="ci-avatar">${av}</div>
+      <div class="ci-body">
+        <div class="ci-top">
+          <span class="ci-name">${escHtml(info.name || '')}</span>
+          <span class="ci-time">${time}</span>
         </div>
-      </div>`;
-  }).join('');
-
-  updateDocTitle();
+        <div class="ci-bottom">
+          <span class="ci-last">${lastMsg}</span>
+          ${unread ? `<span class="unread-badge">${unread}</span>` : ''}
+        </div>
+      </div>
+    </div>`;
 }
 
 /* ══════════════════════════════════════════════
    ОТКРЫТИЕ ЧАТА
 ══════════════════════════════════════════════ */
-function openChat(chatId) {
-  chatId = +chatId;
-  if (App.currentChat === chatId) return;
+async function openChat(chatId) {
   App.currentChat = chatId;
   App.unread.set(chatId, 0);
 
-  if (window.innerWidth <= 700) {
-    $('sidebar').classList.add('hidden-mobile');
-    DOM.backBtn.classList.remove('hidden');
-  }
-
-  DOM.chatPlaceholder.classList.add('hidden');
-  DOM.chatWrap.classList.remove('hidden');
-
-  renderChatHeader();
-  renderChatList();
-  clearReplyBar();
-  clearEditBar();
-  DOM.msgInput.value = '';
-  autoResizeInput();
-
-  App.socket.emit('chat:join', { chatId });
-
   const chat = App.chats.get(chatId);
-  if (chat && chat.messages.length === 0) {
-    loadMessages(chatId);
-  } else {
-    renderMessages();
+  if (!chat) return;
+
+  renderChatList();
+  renderChatHeader();
+
+  if (!chat.messages.length) {
+    await loadMessages(chatId);
   }
+
+  renderMessages();
+  showChatPanel();
+
+  App.socket.emit('msg:read', { chatId });
+  App.socket.emit('chat:join', { chatId });
 }
 
 async function loadMessages(chatId) {
   const token = sessionStorage.getItem('chat_token');
   try {
-    const res  = await fetch(
-      `/api/chats/${chatId}/messages?limit=50`,
-      { headers: { 'Authorization': 'Bearer ' + token } }
-    );
+    const res  = await fetch(`/api/chats/${chatId}/messages`, {
+      headers: { 'Authorization': 'Bearer ' + token },
+    });
     const data = await res.json();
-    if (!data.ok) return;
-    const chat = App.chats.get(chatId);
-    if (!chat) return;
-    chat.messages = data.messages || [];
-    if (App.currentChat === chatId) renderMessages();
+    if (data.ok && data.messages) {
+      const chat = App.chats.get(chatId);
+      if (chat) chat.messages = data.messages;
+    }
   } catch(e) {
     console.error('loadMessages:', e);
   }
 }
 
+function showChatPanel() {
+  if (window.innerWidth <= 700) {
+    DOM.sidebarPanel?.classList.add('hidden');
+    DOM.chatPanel?.classList.remove('hidden');
+  }
+}
+
 function showChatPlaceholder() {
-  DOM.chatWrap.classList.add('hidden');
-  DOM.chatPlaceholder.classList.remove('hidden');
-  DOM.backBtn.classList.add('hidden');
+  if (DOM.chatPanel) {
+    DOM.chatPanel.classList.add('hidden');
+  }
+  if (window.innerWidth <= 700) {
+    DOM.sidebarPanel?.classList.remove('hidden');
+  }
+}
+
+function goBack() {
+  App.currentChat = null;
+  DOM.sidebarPanel?.classList.remove('hidden');
+  DOM.chatPanel?.classList.add('hidden');
 }
 
 /* ══════════════════════════════════════════════
@@ -641,93 +589,91 @@ function renderChatHeader() {
   if (!chat) return;
   const info = chat.info;
 
-  DOM.chAvatar.innerHTML = info.avatar
-    ? `<img class="avatar-img" src="${escHtml(info.avatar)}" alt="">`
-    : getInitialsEmoji(info.name);
-  DOM.chName.textContent = info.name;
+  const nameEl   = $('chat-header-name');
+  const statusEl = $('chat-header-status');
+  const avatarEl = $('chat-header-avatar');
 
-  if (info.type === 'group') {
-    DOM.chStatus.textContent = `${info.member_count || 0} участников`;
-    DOM.chStatus.className   = 'ch-status';
-  } else {
-    DOM.chStatus.textContent = info.online ? 'В сети' : 'Не в сети';
-    DOM.chStatus.className   = `ch-status${info.online ? ' online' : ''}`;
+  if (nameEl)   nameEl.textContent   = info.name || '';
+  if (statusEl) statusEl.textContent = info.online ? 'В сети' : '';
+  if (avatarEl) {
+    avatarEl.innerHTML = info.avatar
+      ? `<img class="avatar-img" src="${escHtml(info.avatar)}" alt="">`
+      : getInitialsEmoji(info.name);
   }
 }
 
 /* ══════════════════════════════════════════════
-   ОНЛАЙН / ОФЛАЙН
+   ПОИСК
 ══════════════════════════════════════════════ */
-function onUserOnline(data) {
-  App.chats.forEach((chat, id) => {
-    if (chat.info.type === 'private') {
-      chat.info.online = data.online;
-      if (App.currentChat === id) renderChatHeader();
-    }
-  });
-  renderChatList();
-}
-
-/* ══════════════════════════════════════════════
-   ПЕЧАТАЕТ…
-══════════════════════════════════════════════ */
-function onChatTyping(data) {
-  if (data.chatId !== App.currentChat || data.userId === App.currentUser?.id) return;
-  const prev  = DOM.chStatus.textContent;
-  const prevC = DOM.chStatus.className;
-  DOM.chStatus.textContent = 'печатает…';
-  DOM.chStatus.className   = 'ch-status';
-  clearTimeout(App.typingTimers.get(App.currentChat));
-  App.typingTimers.set(App.currentChat, setTimeout(() => {
-    DOM.chStatus.textContent = prev;
-    DOM.chStatus.className   = prevC;
-  }, 3000));
-}
-
-/* ══════════════════════════════════════════════
-   ТАБЫ САЙДБАРА
-══════════════════════════════════════════════ */
-function switchTab(tab) {
-  App.activeTab = tab;
-  document.querySelectorAll('.stab').forEach(t => t.classList.remove('active'));
-  $(`stab-${tab}`)?.classList.add('active');
-
-  DOM.chatList.classList.toggle('hidden',      tab !== 'chats');
-  DOM.contactsPanel.classList.toggle('hidden', tab !== 'contacts');
-  DOM.explorePanel.classList.toggle('hidden',  tab !== 'explore');
-
-  if (tab === 'contacts') {
-    loadContacts().then(() => renderContactsPanel());
-  }
-
-  if (tab === 'explore') {
-    App.socket.emit('groups:explore', { query: '' });
-  }
-}
-
-/* ══════════════════════════════════════════════
-   ПРОЧИЕ ОБРАБОТЧИКИ САЙДБАРА
-══════════════════════════════════════════════ */
-function goBack() {
-  $('sidebar')?.classList.remove('hidden-mobile');
-  DOM.backBtn.classList.add('hidden');
-  App.currentChat = null;
-  showChatPlaceholder();
-  renderChatList();
-}
-
 function onSearchInput() {
-  App.searchQuery = DOM.searchInput.value.trim();
-  DOM.searchClear.classList.toggle('hidden', !App.searchQuery);
+  const q = DOM.searchInput?.value || '';
+  if (DOM.searchClear) {
+    DOM.searchClear.classList.toggle('hidden', !q);
+  }
   renderChatList();
 }
 
 function clearSearch() {
-  DOM.searchInput.value = '';
-  App.searchQuery = '';
-  DOM.searchClear.classList.add('hidden');
+  if (DOM.searchInput) DOM.searchInput.value = '';
+  if (DOM.searchClear) DOM.searchClear.classList.add('hidden');
   renderChatList();
 }
+
+/* ══════════════════════════════════════════════
+   TYPING
+══════════════════════════════════════════════ */
+const _typingUsers = new Map();
+
+function onTyping(data) {
+  if (data.chatId !== App.currentChat) return;
+  if (data.isTyping) {
+    _typingUsers.set(data.userId, data.username);
+  } else {
+    _typingUsers.delete(data.userId);
+  }
+  renderTyping();
+}
+
+function renderTyping() {
+  if (!DOM.typingIndicator) return;
+  if (!_typingUsers.size) {
+    DOM.typingIndicator.classList.add('hidden');
+    return;
+  }
+  const names = [..._typingUsers.values()].join(', ');
+  DOM.typingIndicator.textContent = `${names} печатает...`;
+  DOM.typingIndicator.classList.remove('hidden');
+}
+
+/* ══════════════════════════════════════════════
+   ОНЛАЙН-СТАТУС
+══════════════════════════════════════════════ */
+function onUserOnline(data) {
+  App.chats.forEach(c => {
+    if (c.info.type === 'private' && c.info.userId === data.userId) {
+      c.info.online = true;
+    }
+  });
+  App.contacts.forEach(c => {
+    if (c.id === data.userId) c.online = true;
+  });
+  if (App.currentChat) renderChatHeader();
+  if (App.activeTab === 'contacts') renderContactsList();
+}
+
+function onUserOffline(data) {
+  App.chats.forEach(c => {
+    if (c.info.type === 'private' && c.info.userId === data.userId) {
+      c.info.online = false;
+    }
+  });
+  App.contacts.forEach(c => {
+    if (c.id === data.userId) c.online = false;
+  });
+  if (App.currentChat) renderChatHeader();
+  if (App.activeTab === 'contacts') renderContactsList();
+}
+
 /* ══════════════════════════════════════════════
    SOCKET — СОБЫТИЯ СООБЩЕНИЙ
 ══════════════════════════════════════════════ */
@@ -763,12 +709,8 @@ function onMsgNew(msg) {
 function onMsgEdited(data) {
   App.chats.forEach(chat => {
     const msg = chat.messages.find(m => m.msg_id === data.msgId);
-    if (msg) {
-      msg.content   = data.content;
-      msg.edited_at = data.editedAt;
-    }
+    if (msg) { msg.content = data.content; msg.edited_at = data.editedAt; }
   });
-
   if (App.currentChat) {
     const el = document.querySelector(`[data-msg-id="${data.msgId}"]`);
     if (el) {
@@ -790,19 +732,17 @@ function onMsgDeleted(data) {
   });
   const el = document.querySelector(`[data-msg-id="${data.msgId}"]`);
   if (el) {
-    el.style.opacity = '0';
+    el.style.opacity    = '0';
     el.style.transition = 'opacity .25s';
     setTimeout(() => el.remove(), 250);
   }
 }
 
 function onMsgReaction(data) {
-  // Обновляем реакции в массиве сообщений
   App.chats.forEach(chat => {
     const msg = chat.messages.find(m => m.msg_id === data.msgId);
     if (msg) msg.reactions = data.reactions;
   });
-
   const el = document.querySelector(`[data-msg-id="${data.msgId}"]`);
   if (el) {
     const r = el.querySelector('.msg-reactions');
@@ -837,12 +777,11 @@ function renderMessages() {
 function appendMessage(msg) {
   const chat = App.chats.get(App.currentChat);
   if (!chat) return;
-  const msgs    = chat.messages;
-  const prev    = msgs[msgs.length - 2];
+  const msgs     = chat.messages;
+  const prev     = msgs[msgs.length - 2];
   const prevDate = prev
-    ? new Date(prev.created_at || prev.ts).toDateString()
-    : null;
-  const newDate = new Date(msg.created_at || msg.ts).toDateString();
+    ? new Date(prev.created_at || prev.ts).toDateString() : null;
+  const newDate  = new Date(msg.created_at || msg.ts).toDateString();
 
   if (prevDate !== newDate) {
     const sep = document.createElement('div');
@@ -870,18 +809,18 @@ function buildMsgEl(msg) {
   wrap.addEventListener('touchstart', () => {
     lpt = setTimeout(() => showCtxMenu(null, msg, isMine), 500);
   });
-  wrap.addEventListener('touchend',   () => clearTimeout(lpt));
-  wrap.addEventListener('touchmove',  () => clearTimeout(lpt));
+  wrap.addEventListener('touchend',  () => clearTimeout(lpt));
+  wrap.addEventListener('touchmove', () => clearTimeout(lpt));
 
   return wrap;
 }
 
 function buildMsgInner(msg, isMine) {
-  const username  = msg.username    || msg.senderName   || '';
-  const avatar    = msg.avatar      || msg.senderAvatar || '';
-  const content   = msg.content     || msg.text         || '';
-  const ts        = msg.created_at  || msg.ts;
-  const reactions = msg.reactions   || [];
+  const username  = msg.username   || msg.senderName   || '';
+  const avatar    = msg.avatar     || msg.senderAvatar || '';
+  const content   = msg.content    || msg.text         || '';
+  const ts        = msg.created_at || msg.ts;
+  const reactions = msg.reactions  || [];
   const replyTo   = msg.reply_to;
 
   const avatarHtml = !isMine
@@ -927,7 +866,6 @@ function buildMsgContent(msg, content) {
               Сообщение удалено
             </div>`;
   }
-
   if (msg.type === 'image' ||
       (msg.mime_type && msg.mime_type.startsWith('image/'))) {
     const url = msg.file_url || content;
@@ -936,15 +874,12 @@ function buildMsgContent(msg, content) {
                  alt="${escHtml(msg.file_name || '')}"
                  onclick="openImageModal('${escHtml(url)}')">`;
   }
-
   if (msg.type === 'file' || msg.file_name) {
     const url  = msg.file_url || content;
     const name = msg.file_name || 'файл';
     const size = msg.file_size ? formatSize(msg.file_size) : '';
-    return `<a class="msg-file"
-               href="${escHtml(url)}"
-               target="_blank"
-               download>
+    return `<a class="msg-file" href="${escHtml(url)}"
+               target="_blank" download>
               <span class="msg-file-icon">📎</span>
               <div class="msg-file-info">
                 <span class="msg-file-name">${escHtml(name)}</span>
@@ -952,11 +887,9 @@ function buildMsgContent(msg, content) {
               </div>
             </a>`;
   }
-
   if (content) {
     return `<div class="msg-text">${formatMsgText(content)}</div>`;
   }
-
   return '';
 }
 
@@ -997,7 +930,7 @@ function buildReactionsHtml(reactions) {
 }
 
 function scrollToBottom(smooth = true) {
-  DOM.messagesArea.scrollTo({
+  DOM.messagesArea?.scrollTo({
     top:      DOM.messagesArea.scrollHeight,
     behavior: smooth ? 'smooth' : 'instant',
   });
@@ -1012,10 +945,7 @@ async function sendMessage() {
 
   if (App.editMsg) {
     if (!text) return;
-    App.socket.emit('msg:edit', {
-      msgId:   App.editMsg.msgId,
-      content: text,
-    });
+    App.socket.emit('msg:edit', { msgId: App.editMsg.msgId, content: text });
     clearEditBar();
     DOM.msgInput.value = '';
     autoResizeInput();
@@ -1025,7 +955,6 @@ async function sendMessage() {
   if (!text) return;
 
   const msgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-
   App.socket.emit('msg:send', {
     msgId,
     chatId:  App.currentChat,
@@ -1050,15 +979,9 @@ let _typingTimer;
 function sendTyping() {
   if (!App.currentChat) return;
   clearTimeout(_typingTimer);
-  App.socket.emit('chat:typing', {
-    chatId:   App.currentChat,
-    isTyping: true,
-  });
+  App.socket.emit('chat:typing', { chatId: App.currentChat, isTyping: true });
   _typingTimer = setTimeout(() => {
-    App.socket.emit('chat:typing', {
-      chatId:   App.currentChat,
-      isTyping: false,
-    });
+    App.socket.emit('chat:typing', { chatId: App.currentChat, isTyping: false });
   }, 2500);
 }
 
@@ -1083,7 +1006,6 @@ async function onFileSelected() {
       body:    formData,
     });
     const data = await res.json();
-
     if (data.ok) {
       const msgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2);
       App.socket.emit('msg:send', {
@@ -1159,8 +1081,7 @@ function showCtxMenu(e, msg, isMine) {
   $('ctx-del-btn').style.display  = isMine ? '' : 'none';
 
   if (e) {
-    let x = e.clientX;
-    let y = e.clientY;
+    let x = e.clientX, y = e.clientY;
     const mw = 180, mh = 200;
     if (x + mw > window.innerWidth)  x = window.innerWidth  - mw - 8;
     if (y + mh > window.innerHeight) y = window.innerHeight - mh - 8;
@@ -1174,12 +1095,8 @@ function showCtxMenu(e, msg, isMine) {
   }
 }
 
-function ctxReply() {
-  closeOverlay();
-  if (_ctxMsg) openReplyBar(_ctxMsg);
-}
-
-function ctxCopy() {
+function ctxReply()  { closeOverlay(); if (_ctxMsg) openReplyBar(_ctxMsg); }
+function ctxCopy()   {
   closeOverlay();
   const text = _ctxMsg?.content || _ctxMsg?.text;
   if (text) {
@@ -1188,69 +1105,32 @@ function ctxCopy() {
       .catch(()  => showNotif('Не удалось скопировать', 'error'));
   }
 }
-
-function ctxEdit() {
-  closeOverlay();
-  if (_ctxMsg) openEditBar(_ctxMsg);
-}
-
-function ctxReact() {
+function ctxEdit()   { closeOverlay(); if (_ctxMsg) openEditBar(_ctxMsg); }
+function ctxReact()  {
   DOM.msgCtxMenu.classList.add('hidden');
   DOM.reactionPicker.classList.remove('hidden');
 }
-
 function ctxDelete() {
   closeOverlay();
   if (!_ctxMsg) return;
   if (!confirm('Удалить сообщение?')) return;
-  App.socket.emit('msg:delete', {
-    msgId: _ctxMsg.msg_id || _ctxMsg.id,
-  });
+  App.socket.emit('msg:delete', { msgId: _ctxMsg.msg_id || _ctxMsg.id });
 }
 
 function pickReaction(emoji) {
   DOM.reactionPicker.classList.add('hidden');
   DOM.overlay.classList.add('hidden');
   if (!_ctxMsg) return;
-  App.socket.emit('msg:react', {
-    msgId: _ctxMsg.msg_id || _ctxMsg.id,
-    emoji,
-  });
+  App.socket.emit('msg:react', { msgId: _ctxMsg.msg_id || _ctxMsg.id, emoji });
 }
 
 function sendReaction(emoji) {
   if (!_ctxMsg) return;
-  App.socket.emit('msg:react', {
-    msgId: _ctxMsg.msg_id || _ctxMsg.id,
-    emoji,
-  });
+  App.socket.emit('msg:react', { msgId: _ctxMsg.msg_id || _ctxMsg.id, emoji });
 }
 
 /* ══════════════════════════════════════════════
-   ВСПОМОГАТЕЛЬНЫЕ ОБРАБОТЧИКИ ВВОДА
-══════════════════════════════════════════════ */
-function onMsgInput()    { autoResizeInput(); sendTyping(); }
-function onMsgKeydown(e) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendMessage();
-  }
-}
-function cancelReply()      { clearReplyBar(); }
-function cancelEdit()       { clearEditBar(); }
-function onMessagesScroll() {}
-
-function toggleAttachMenu() {
-  DOM.attachMenu.classList.toggle('hidden');
-}
-
-function pickFile(accept) {
-  DOM.fileInput.accept = accept;
-  DOM.fileInput.click();
-  DOM.attachMenu.classList.add('hidden');
-}
-/* ══════════════════════════════════════════════
-   OVERLAY / ЗАКРЫТИЕ
+   OVERLAY
 ══════════════════════════════════════════════ */
 function closeOverlay() {
   DOM.overlay.classList.add('hidden');
@@ -1270,22 +1150,18 @@ function closeOverlay() {
 function openProfileModal() {
   if (!App.currentUser) return;
   const u = App.currentUser;
-
   DOM.profileAvatar.innerHTML = u.avatar
     ? `<img class="avatar-img" src="${escHtml(u.avatar)}" alt="">`
     : getInitialsEmoji(u.username);
-
   DOM.profileUsername.textContent = u.username;
   DOM.profileBio.value            = u.bio || '';
-
   DOM.modalProfile.classList.remove('hidden');
   DOM.overlay.classList.remove('hidden');
 }
 
 async function saveProfile() {
-  const bio    = DOM.profileBio.value.trim();
-  const token  = sessionStorage.getItem('chat_token');
-
+  const bio   = DOM.profileBio.value.trim();
+  const token = sessionStorage.getItem('chat_token');
   try {
     const res  = await fetch('/api/profile', {
       method:  'PUT',
@@ -1296,7 +1172,6 @@ async function saveProfile() {
       body: JSON.stringify({ bio }),
     });
     const data = await res.json();
-
     if (data.ok) {
       App.currentUser.bio = bio;
       showNotif('Профиль сохранён', 'success');
@@ -1310,9 +1185,9 @@ async function saveProfile() {
 }
 
 async function uploadAvatar() {
-  const input   = document.createElement('input');
-  input.type    = 'file';
-  input.accept  = 'image/*';
+  const input  = document.createElement('input');
+  input.type   = 'file';
+  input.accept = 'image/*';
   input.onchange = async () => {
     const file = input.files[0];
     if (!file) return;
@@ -1320,11 +1195,9 @@ async function uploadAvatar() {
       showNotif('Файл слишком большой (макс. 5 МБ)', 'error');
       return;
     }
-
     const token    = sessionStorage.getItem('chat_token');
     const formData = new FormData();
     formData.append('file', file);
-
     try {
       const res  = await fetch('/api/upload/avatar', {
         method:  'POST',
@@ -1332,7 +1205,6 @@ async function uploadAvatar() {
         body:    formData,
       });
       const data = await res.json();
-
       if (data.ok) {
         App.currentUser.avatar = data.url;
         DOM.profileAvatar.innerHTML =
@@ -1354,8 +1226,8 @@ async function uploadAvatar() {
    МОДАЛКА — НОВЫЙ ЧАТ
 ══════════════════════════════════════════════ */
 function openNewChatModal() {
-  DOM.ncUserSearch.value  = '';
-  DOM.ncGroupName.value   = '';
+  DOM.ncUserSearch.value   = '';
+  DOM.ncGroupName.value    = '';
   DOM.ncUserList.innerHTML = '';
   $('nc-group-section').classList.add('hidden');
   $('nc-mode-private').classList.add('active');
@@ -1376,7 +1248,6 @@ function renderNcContacts(query) {
   const contacts = [...App.contacts.values()].filter(c =>
     !q || c.username.toLowerCase().includes(q)
   );
-
   if (!contacts.length) {
     DOM.ncUserList.innerHTML =
       `<div style="text-align:center;padding:24px;color:var(--text2)">
@@ -1384,7 +1255,6 @@ function renderNcContacts(query) {
        </div>`;
     return;
   }
-
   DOM.ncUserList.innerHTML = contacts.map(c => {
     const av = c.avatar
       ? `<img class="avatar-img" src="${escHtml(c.avatar)}" alt="">`
@@ -1395,27 +1265,20 @@ function renderNcContacts(query) {
         <div class="ci-body">
           <span class="ci-name">${escHtml(c.username)}</span>
         </div>
-        <button class="btn-sm" onclick="ncSelectUser(${c.id})">
-          Выбрать
-        </button>
+        <button class="btn-sm" onclick="ncSelectUser(${c.id})">Выбрать</button>
       </div>`;
   }).join('');
 }
 
-function ncSearchInput() {
-  renderNcContacts(DOM.ncUserSearch.value.trim());
-}
+function ncSearchInput() { renderNcContacts(DOM.ncUserSearch.value.trim()); }
 
 async function ncSelectUser(userId) {
   const mode = $('nc-mode-group').classList.contains('active') ? 'group' : 'private';
-
   if (mode === 'group') {
     const item = DOM.ncUserList.querySelector(`[data-id="${userId}"]`);
     if (item) item.classList.toggle('selected');
     return;
   }
-
-  // Приватный чат
   closeOverlay();
   await createPrivateChat(userId);
 }
@@ -1432,7 +1295,6 @@ async function createPrivateChat(userId) {
       body: JSON.stringify({ userId }),
     });
     const data = await res.json();
-
     if (data.ok && data.chat) {
       App.chats.set(data.chat.id, { info: data.chat, messages: [] });
       renderChatList();
@@ -1449,15 +1311,8 @@ async function createGroupChat() {
   const name     = DOM.ncGroupName.value.trim();
   const selected = [...DOM.ncUserList.querySelectorAll('.contact-item.selected')]
     .map(el => +el.dataset.id);
-
-  if (!name) {
-    showNotif('Введите название группы', 'error');
-    return;
-  }
-  if (selected.length < 1) {
-    showNotif('Выберите хотя бы одного участника', 'error');
-    return;
-  }
+  if (!name) { showNotif('Введите название группы', 'error'); return; }
+  if (selected.length < 1) { showNotif('Выберите хотя бы одного участника', 'error'); return; }
 
   const token = sessionStorage.getItem('chat_token');
   try {
@@ -1470,7 +1325,6 @@ async function createGroupChat() {
       body: JSON.stringify({ name, members: selected }),
     });
     const data = await res.json();
-
     if (data.ok && data.chat) {
       App.chats.set(data.chat.id, { info: data.chat, messages: [] });
       renderChatList();
@@ -1495,28 +1349,24 @@ async function openChatInfo() {
   DOM.chatInfoAvatar.innerHTML = info.avatar
     ? `<img class="avatar-img" src="${escHtml(info.avatar)}" alt="">`
     : getInitialsEmoji(info.name);
-
   DOM.chatInfoName.textContent = info.name;
 
   if (info.type === 'group') {
-    DOM.chatInfoTitle.textContent    = 'Информация о группе';
-    DOM.chatInfoMeta.textContent     = `${info.member_count || 0} участников`;
+    DOM.chatInfoTitle.textContent = 'Информация о группе';
+    DOM.chatInfoMeta.textContent  = `${info.member_count || 0} участников`;
     DOM.chatInfoLeave.classList.remove('hidden');
     DOM.chatInfoAvatarBtn.classList.remove('hidden');
   } else {
-    DOM.chatInfoTitle.textContent    = 'Информация о пользователе';
-    DOM.chatInfoMeta.textContent     = info.online ? 'В сети' : 'Не в сети';
+    DOM.chatInfoTitle.textContent = 'Информация о пользователе';
+    DOM.chatInfoMeta.textContent  = info.online ? 'В сети' : 'Не в сети';
     DOM.chatInfoLeave.classList.add('hidden');
     DOM.chatInfoAvatarBtn.classList.add('hidden');
   }
 
-  // Загружаем участников группы
   const membersEl = $('chat-info-members');
   if (membersEl) {
     membersEl.innerHTML = '';
-    if (info.type === 'group') {
-      await loadGroupMembers(info.id, membersEl);
-    }
+    if (info.type === 'group') await loadGroupMembers(info.id, membersEl);
   }
 
   DOM.modalChatInfo.classList.remove('hidden');
@@ -1531,7 +1381,6 @@ async function loadGroupMembers(chatId, container) {
     });
     const data = await res.json();
     if (!data.ok) return;
-
     container.innerHTML = data.members.map(m => {
       const av = m.avatar
         ? `<img class="avatar-img" src="${escHtml(m.avatar)}" alt="">`
@@ -1554,10 +1403,9 @@ async function loadGroupMembers(chatId, container) {
 async function uploadGroupAvatar() {
   const chat = App.chats.get(App.currentChat);
   if (!chat || chat.info.type !== 'group') return;
-
-  const input   = document.createElement('input');
-  input.type    = 'file';
-  input.accept  = 'image/*';
+  const input  = document.createElement('input');
+  input.type   = 'file';
+  input.accept = 'image/*';
   input.onchange = async () => {
     const file = input.files[0];
     if (!file) return;
@@ -1565,22 +1413,16 @@ async function uploadGroupAvatar() {
       showNotif('Файл слишком большой (макс. 5 МБ)', 'error');
       return;
     }
-
     const token    = sessionStorage.getItem('chat_token');
     const formData = new FormData();
     formData.append('file', file);
-
     try {
-      const res  = await fetch(
-        `/api/chats/${App.currentChat}/avatar`,
-        {
-          method:  'POST',
-          headers: { 'Authorization': 'Bearer ' + token },
-          body:    formData,
-        }
-      );
+      const res  = await fetch(`/api/chats/${App.currentChat}/avatar`, {
+        method:  'POST',
+        headers: { 'Authorization': 'Bearer ' + token },
+        body:    formData,
+      });
       const data = await res.json();
-
       if (data.ok) {
         chat.info.avatar = data.url;
         DOM.chatInfoAvatar.innerHTML =
@@ -1601,7 +1443,6 @@ async function uploadGroupAvatar() {
 async function leaveGroupChat() {
   if (!App.currentChat) return;
   if (!confirm('Покинуть группу?')) return;
-
   const token = sessionStorage.getItem('chat_token');
   try {
     const res  = await fetch(`/api/chats/${App.currentChat}/leave`, {
@@ -1609,7 +1450,6 @@ async function leaveGroupChat() {
       headers: { 'Authorization': 'Bearer ' + token },
     });
     const data = await res.json();
-
     if (data.ok) {
       closeOverlay();
       App.chats.delete(App.currentChat);
@@ -1626,7 +1466,7 @@ async function leaveGroupChat() {
 }
 
 /* ══════════════════════════════════════════════
-   МОДАЛКА — ПРОСМОТР ИЗОБРАЖЕНИЯ
+   МОДАЛКА — ИЗОБРАЖЕНИЕ
 ══════════════════════════════════════════════ */
 function openImageModal(url) {
   DOM.modalImageEl.src = url;
@@ -1635,7 +1475,7 @@ function openImageModal(url) {
 }
 
 /* ══════════════════════════════════════════════
-   КОНТАКТЫ — РЕНДЕР ПАНЕЛИ
+   КОНТАКТЫ
 ══════════════════════════════════════════════ */
 function renderContactsPanel() {
   renderContactsList();
@@ -1644,7 +1484,6 @@ function renderContactsPanel() {
 
 function renderContactsList() {
   const contacts = [...App.contacts.values()];
-
   if (!contacts.length) {
     DOM.contactsList.innerHTML =
       `<div style="text-align:center;padding:24px;color:var(--text2)">
@@ -1653,7 +1492,6 @@ function renderContactsList() {
        </div>`;
     return;
   }
-
   DOM.contactsList.innerHTML = contacts.map(c => {
     const av = c.avatar
       ? `<img class="avatar-img" src="${escHtml(c.avatar)}" alt="">`
@@ -1667,9 +1505,7 @@ function renderContactsList() {
             ${c.online ? 'В сети' : 'Не в сети'}
           </span>
         </div>
-        <button class="btn-sm" onclick="createPrivateChat(${c.id})">
-          Написать
-        </button>
+        <button class="btn-sm" onclick="createPrivateChat(${c.id})">Написать</button>
       </div>`;
   }).join('');
 }
@@ -1678,12 +1514,7 @@ function renderRequestsList() {
   const reqs = App._pendingRequests;
   const wrap = $('requests-wrap');
   if (wrap) wrap.classList.toggle('hidden', !reqs.length);
-
-  if (!reqs.length) {
-    DOM.requestsList.innerHTML = '';
-    return;
-  }
-
+  if (!reqs.length) { DOM.requestsList.innerHTML = ''; return; }
   DOM.requestsList.innerHTML = reqs.map(r => {
     const av = r.avatar
       ? `<img class="avatar-img" src="${escHtml(r.avatar)}" alt="">`
@@ -1703,9 +1534,7 @@ function renderRequestsList() {
 
 function onContactRequest(data) {
   App._pendingRequests.push({
-    fromId:   data.fromId,
-    username: data.username,
-    avatar:   data.avatar,
+    fromId: data.fromId, username: data.username, avatar: data.avatar,
   });
   showNotif(`${data.username} хочет добавить вас в контакты`);
   if (App.activeTab === 'contacts') renderContactsPanel();
@@ -1714,18 +1543,14 @@ function onContactRequest(data) {
 function onContactAccepted(data) {
   App.contacts.set(data.id, data);
   App._pendingRequests = App._pendingRequests.filter(r => r.fromId !== data.id);
-  showNotif(`${data.username} принял(а) запрос в контакты`, 'success');
+  showNotif(`${data.username} принял(а) запрос`, 'success');
   if (App.activeTab === 'contacts') renderContactsPanel();
 }
 
 async function sendContactRequest() {
   const input = $('contact-search-input');
   const query = input?.value.trim();
-  if (!query) {
-    showNotif('Введите имя пользователя', 'error');
-    return;
-  }
-
+  if (!query) { showNotif('Введите имя пользователя', 'error'); return; }
   const token = sessionStorage.getItem('chat_token');
   try {
     const res  = await fetch('/api/contacts/request', {
@@ -1737,16 +1562,15 @@ async function sendContactRequest() {
       body: JSON.stringify({ username: query }),
     });
     const data = await res.json();
-
     if (data.ok) {
       showNotif('Запрос отправлен', 'success');
       if (input) input.value = '';
     } else {
       const msgs = {
-        user_not_found:    'Пользователь не найден',
-        already_contact:   'Уже в контактах',
-        request_exists:    'Запрос уже отправлен',
-        cannot_add_self:   'Нельзя добавить себя',
+        user_not_found:  'Пользователь не найден',
+        already_contact: 'Уже в контактах',
+        request_exists:  'Запрос уже отправлен',
+        cannot_add_self: 'Нельзя добавить себя',
       };
       showNotif(msgs[data.error] || data.error || 'Ошибка', 'error');
     }
@@ -1767,7 +1591,6 @@ async function acceptContact(fromId) {
       body: JSON.stringify({ fromId }),
     });
     const data = await res.json();
-
     if (data.ok) {
       App._pendingRequests = App._pendingRequests.filter(r => r.fromId !== fromId);
       if (data.contact) App.contacts.set(data.contact.id, data.contact);
@@ -1793,7 +1616,6 @@ async function rejectContact(fromId) {
       body: JSON.stringify({ fromId }),
     });
     const data = await res.json();
-
     if (data.ok) {
       App._pendingRequests = App._pendingRequests.filter(r => r.fromId !== fromId);
       renderContactsPanel();
@@ -1806,11 +1628,10 @@ async function rejectContact(fromId) {
 }
 
 /* ══════════════════════════════════════════════
-   EXPLORE — ПУБЛИЧНЫЕ ГРУППЫ
+   EXPLORE
 ══════════════════════════════════════════════ */
 function onGroupsExplore(data) {
   const groups = data.groups || [];
-
   if (!groups.length) {
     DOM.exploreList.innerHTML =
       `<div style="text-align:center;padding:24px;color:var(--text2)">
@@ -1819,7 +1640,6 @@ function onGroupsExplore(data) {
        </div>`;
     return;
   }
-
   DOM.exploreList.innerHTML = groups.map(g => {
     const av = g.avatar
       ? `<img class="avatar-img" src="${escHtml(g.avatar)}" alt="">`
@@ -1853,7 +1673,6 @@ async function joinGroup(groupId) {
       headers: { 'Authorization': 'Bearer ' + token },
     });
     const data = await res.json();
-
     if (data.ok && data.chat) {
       App.chats.set(data.chat.id, { info: data.chat, messages: [] });
       renderChatList();
@@ -1867,107 +1686,25 @@ async function joinGroup(groupId) {
     showNotif('Ошибка сети', 'error');
   }
 }
-/* ══════════════════════════════════════════════
-   E2E — ECDH + AES-GCM
-══════════════════════════════════════════════ */
-const E2E = {
-  async generateKeyPair() {
-    return await crypto.subtle.generateKey(
-      { name: 'ECDH', namedCurve: 'P-256' },
-      true,
-      ['deriveKey', 'deriveBits']
-    );
-  },
-
-  async exportPublicKey(pubKey) {
-    const raw = await crypto.subtle.exportKey('spki', pubKey);
-    return btoa(String.fromCharCode(...new Uint8Array(raw)));
-  },
-
-  async importPublicKey(b64) {
-    const bin = atob(b64);
-    const buf = new Uint8Array(bin.length).map((_, i) => bin.charCodeAt(i));
-    return await crypto.subtle.importKey(
-      'spki',
-      buf.buffer,
-      { name: 'ECDH', namedCurve: 'P-256' },
-      true,
-      []
-    );
-  },
-
-  async deriveSharedKey(privKey, theirPubKey) {
-    return await crypto.subtle.deriveKey(
-      { name: 'ECDH', public: theirPubKey },
-      privKey,
-      { name: 'AES-GCM', length: 256 },
-      false,
-      ['encrypt', 'decrypt']
-    );
-  },
-
-  async encrypt(sharedKey, plaintext) {
-    const iv  = crypto.getRandomValues(new Uint8Array(12));
-    const enc = new TextEncoder();
-    const ct  = await crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv },
-      sharedKey,
-      enc.encode(plaintext)
-    );
-    const combined = new Uint8Array(iv.byteLength + ct.byteLength);
-    combined.set(iv, 0);
-    combined.set(new Uint8Array(ct), iv.byteLength);
-    return btoa(String.fromCharCode(...combined));
-  },
-
-  async decrypt(sharedKey, b64) {
-    const bin      = atob(b64);
-    const combined = new Uint8Array(bin.length).map((_, i) => bin.charCodeAt(i));
-    const iv       = combined.slice(0, 12);
-    const ct       = combined.slice(12);
-    const pt       = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv },
-      sharedKey,
-      ct
-    );
-    return new TextDecoder().decode(pt);
-  },
-};
 
 /* ══════════════════════════════════════════════
-   E2E — УПРАВЛЕНИЕ ИЗ UI
+   ВСПОМОГАТЕЛЬНЫЕ ОБРАБОТЧИКИ
 ══════════════════════════════════════════════ */
-async function toggleE2E() {
-  const btn = $('e2e-toggle-btn');
-
-  if (App.e2eEnabled) {
-    App.e2eEnabled = false;
-    App.keyPair    = null;
-    App.sharedKeys.clear();
-    if (btn) {
-      btn.textContent = '🔓 E2E выкл.';
-      btn.classList.remove('active');
-    }
-    showNotif('E2E-шифрование отключено');
-    return;
+function onMsgInput()    { autoResizeInput(); sendTyping(); }
+function onMsgKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
   }
-
-  try {
-    App.keyPair    = await E2E.generateKeyPair();
-    App.e2eEnabled = true;
-
-    const pubKey = await E2E.exportPublicKey(App.keyPair.publicKey);
-    App.socket.emit('e2e:pubkey', { pubKey });
-
-    if (btn) {
-      btn.textContent = '🔐 E2E вкл.';
-      btn.classList.add('active');
-    }
-    showNotif('E2E-шифрование включено', 'success');
-  } catch(e) {
-    console.error('E2E init:', e);
-    showNotif('Ошибка инициализации E2E', 'error');
-  }
+}
+function cancelReply()      { clearReplyBar(); }
+function cancelEdit()       { clearEditBar(); }
+function onMessagesScroll() {}
+function toggleAttachMenu() { DOM.attachMenu.classList.toggle('hidden'); }
+function pickFile(accept)   {
+  DOM.fileInput.accept = accept;
+  DOM.fileInput.click();
+  DOM.attachMenu.classList.add('hidden');
 }
 
 /* ══════════════════════════════════════════════
@@ -1979,47 +1716,25 @@ async function init() {
   registerSW();
   await PushNotif.request();
 
-  /* ─── Восстановление сессии ─── */
   const token   = sessionStorage.getItem('chat_token');
   const session = sessionStorage.getItem('chat_session');
-
   if (token && session) {
-    try {
-      App.currentUser = JSON.parse(session);
-    } catch {}
+    try { App.currentUser = JSON.parse(session); } catch {}
   }
 
   connectSocket();
+  if (!token) showAuth();
 
-  /* ─── Если нет токена — показываем экран авторизации ─── */
-  if (!token) {
-    showAuth();
-  }
-
-  /* ─── Кнопка «Назад» (мобильная) ─── */
   DOM.backBtn?.addEventListener('click', goBack);
-
-  /* ─── Поиск ─── */
   DOM.searchInput?.addEventListener('input', onSearchInput);
   DOM.searchClear?.addEventListener('click', clearSearch);
-
-  /* ─── Ввод сообщения ─── */
   DOM.msgInput?.addEventListener('input',   onMsgInput);
   DOM.msgInput?.addEventListener('keydown', onMsgKeydown);
-
-  /* ─── Прокрутка ─── */
   DOM.messagesArea?.addEventListener('scroll', onMessagesScroll);
-
-  /* ─── Отправка по кнопке ─── */
   DOM.sendBtn?.addEventListener('click', sendMessage);
-
-  /* ─── Файл ─── */
   DOM.fileInput?.addEventListener('change', onFileSelected);
-
-  /* ─── Overlay / закрытие ─── */
   DOM.overlay?.addEventListener('click', closeOverlay);
 
-  /* ─── Enter в авторизации ─── */
   $('login-password')?.addEventListener('keydown', e => {
     if (e.key === 'Enter') doLogin();
   });
@@ -2027,12 +1742,10 @@ async function init() {
     if (e.key === 'Enter') doRegister();
   });
 
-  /* ─── Клавиша Escape ─── */
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') closeOverlay();
   });
 
-  /* ─── Смена видимости вкладки (обновить unread) ─── */
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && App.currentChat) {
       App.unread.set(App.currentChat, 0);
@@ -2040,89 +1753,49 @@ async function init() {
     }
   });
 
-  /* ─── Touch-жест: закрытие чата свайпом вправо ─── */
   let _tx0 = 0;
   document.addEventListener('touchstart', e => {
     _tx0 = e.touches[0].clientX;
   }, { passive: true });
   document.addEventListener('touchend', e => {
     const dx = e.changedTouches[0].clientX - _tx0;
-    if (dx > 80 && window.innerWidth <= 700 && App.currentChat) {
-      goBack();
-    }
+    if (dx > 80 && window.innerWidth <= 700 && App.currentChat) goBack();
   }, { passive: true });
 
-  /* ─── PWA install prompt ─── */
   let _installPrompt;
   window.addEventListener('beforeinstallprompt', e => {
     e.preventDefault();
     _installPrompt = e;
-    const btn = $('install-btn');
-    if (btn) btn.classList.remove('hidden');
+    $('install-btn')?.classList.remove('hidden');
   });
   window.installApp = async function() {
     if (!_installPrompt) return;
     await _installPrompt.prompt();
     const result = await _installPrompt.userChoice;
-    if (result.outcome === 'accepted') {
-      $('install-btn')?.classList.add('hidden');
-    }
+    if (result.outcome === 'accepted') $('install-btn')?.classList.add('hidden');
     _installPrompt = null;
   };
 
-  /* ─── Глобальные хелперы для HTML onclick= ─── */
   Object.assign(window, {
-    openChat,
-    goBack,
-    switchTab,
-    onSearchInput,
-    clearSearch,
-    sendMessage,
-    cancelReply,
-    cancelEdit,
-    toggleAttachMenu,
-    pickFile,
-    onMsgInput,
-    onMsgKeydown,
-    onMessagesScroll,
-    openProfileModal,
-    saveProfile,
-    uploadAvatar,
-    openNewChatModal,
-    switchNcMode,
-    ncSearchInput,
-    ncSelectUser,
-    createGroupChat,
-    openChatInfo,
-    uploadGroupAvatar,
-    leaveGroupChat,
-    openImageModal,
-    closeOverlay,
-    ctxReply,
-    ctxCopy,
-    ctxEdit,
-    ctxReact,
-    ctxDelete,
-    pickReaction,
-    sendReaction,
-    sendContactRequest,
-    acceptContact,
-    rejectContact,
-    createPrivateChat,
-    exploreSearch,
-    joinGroup,
-    toggleE2E,
-    doLogin,
-    doLogout,
-    doRegister,
-    switchAuthTab,
-    Theme,
+    openChat, goBack, switchTab,
+    onSearchInput, clearSearch,
+    sendMessage, cancelReply, cancelEdit,
+    toggleAttachMenu, pickFile,
+    onMsgInput, onMsgKeydown, onMessagesScroll,
+    openProfileModal, saveProfile, uploadAvatar,
+    openNewChatModal, switchNcMode, ncSearchInput,
+    ncSelectUser, createGroupChat,
+    openChatInfo, uploadGroupAvatar, leaveGroupChat,
+    openImageModal, closeOverlay,
+    ctxReply, ctxCopy, ctxEdit, ctxReact, ctxDelete,
+    pickReaction, sendReaction,
+    sendContactRequest, acceptContact, rejectContact,
+    createPrivateChat, exploreSearch, joinGroup,
+    toggleE2E, doLogin, doLogout, doRegister,
+    switchAuthTab, Theme,
   });
 
-  console.log('✅ SecureChat инициализирован');
+  console.log('✅ SecureChat ready');
 }
 
-/* ══════════════════════════════════════════════
-   ТОЧКА ВХОДА
-══════════════════════════════════════════════ */
 document.addEventListener('DOMContentLoaded', init);
