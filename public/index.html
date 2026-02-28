@@ -230,7 +230,10 @@
          placeholder="Добавить участников..." oninput="searchGroupUsers()"/>
   <div id="nc-group-list" class="user-search-list"></div>
   <div id="nc-group-selected" style="margin-top:8px;color:var(--text2)">Выбрано: 0</div>
-
+<label style="display:flex;align-items:center;gap:8px;margin:10px 0;color:var(--text2);font-size:14px;">
+  <input type="checkbox" id="nc-group-solo">
+  Создать группу в одиночку
+</label>
   <button class="modal-btn" onclick="createGroup()">Создать группу</button>
 </div>
 
