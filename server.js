@@ -7,18 +7,6 @@ const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const cors = require('cors');
 
-// ── PostgreSQL ───────────────────────────────────────────
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5432/postgres',
-  ssl:
-    process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('localhost')
-      ? { rejectUnauthorized: false }
-      : false
-});
-
-const SESSION_TTL_DAYS = 30;
-const AVATAR_MAX_BYTES = 512 * 1024;
-
 async function initDB() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -94,16 +82,37 @@ async function initDB() {
     CREATE INDEX IF NOT EXISTS idx_messages_room ON messages(room_id, created_at DESC);
   `);
 
+  // ВАЖНО: миграция для уже существующей старой БД
   await pool.query(`
-    UPDATE sessions 
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT;
+
+    ALTER TABLE sessions ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP;
+
+    ALTER TABLE chat_rooms ADD COLUMN IF NOT EXISTS avatar TEXT;
+    ALTER TABLE chat_rooms ADD COLUMN IF NOT EXISTS is_group BOOLEAN DEFAULT false;
+    ALTER TABLE chat_rooms ADD COLUMN IF NOT EXISTS is_private BOOLEAN DEFAULT false;
+    ALTER TABLE chat_rooms ADD COLUMN IF NOT EXISTS pinned_msg_id TEXT;
+
+    ALTER TABLE room_members ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'member';
+
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS meta_enc TEXT;
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS meta_iv TEXT;
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS file_name TEXT;
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS file_size INTEGER;
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS mime_type TEXT;
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted BOOLEAN DEFAULT false;
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS edited_at TIMESTAMP;
+  `);
+
+  await pool.query(`
+    UPDATE sessions
     SET expires_at = NOW() + INTERVAL '${SESSION_TTL_DAYS} days'
     WHERE expires_at IS NULL
   `);
 
   console.log('✅ PostgreSQL таблицы успешно инициализированы');
 }
-initDB().catch(console.error);
-
 // ── Helpers ──────────────────────────────────────────────
 const PEPPER = 'salt_priv8';
 
