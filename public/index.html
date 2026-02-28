@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Voice MVP</title>
+  <style>
+    body { font-family: sans-serif; max-width: 560px; margin: 30px auto; padding: 0 12px; }
+    input, button { font-size: 16px; padding: 10px; margin: 6px 0; width: 100%; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    #log { background:#111; color:#0f0; padding:10px; min-height:120px; white-space:pre-wrap; }
+  </style>
+</head>
+<body>
+  <h2>Аудиозвонок + кнопка «Понял»</h2>
+
+  <input id="roomId" placeholder="Комната (например: myroom123)" />
+  <div class="row">
+    <button id="joinBtn">Подключиться</button>
+    <button id="callBtn">Позвонить</button>
+  </div>
+
+  <div class="row">
+    <button id="ackBtn">Понял ✅</button>
+    <button id="hangBtn">Завершить</button>
+  </div>
+
+  <audio id="remoteAudio" autoplay playsinline></audio>
+  <pre id="log"></pre>
+
+  <script src="./app.js"></script>
+</body>
+</html>
