@@ -173,52 +173,17 @@ function connectSocket() {
    АВТОРИЗАЦИЯ — СОБЫТИЯ DOM
 ══════════════════════════════════════════════ */
 function bindAuthEvents() {
-  /* Переключение табов */
+  // Переключение табов — только визуальное,
+  // логика входа/регистрации через doLogin() / doRegister()
   DOM.authTabs.forEach(tab => {
     tab.addEventListener('click', () => {
+      const tabName = tab.getAttribute('onclick')?.match(/'(\w+)'/)?.[1];
+      if (!tabName) return;
       DOM.authTabs.forEach(t => t.classList.remove('active'));
       DOM.authForms.forEach(f => f.classList.add('hidden'));
       tab.classList.add('active');
-      $(`${tab.dataset.tab}-form`).classList.remove('hidden');
+      document.getElementById(`tab-${tabName}`)?.classList.remove('hidden');
     });
-  });
-
-  /* Логин */
-  DOM.regForm.addEventListener('submit', async e => {
-  e.preventDefault();
-    DOM.loginErr.textContent = '';
-    const username = DOM.loginUsername.value.trim();
-    const password = DOM.loginPassword.value;
-    if (!username || !password) {
-      DOM.loginErr.textContent = 'Заполните все поля';
-      return;
-    }
-    const { hash, salt } = await E2E.hashPassword(password);
-    App.socket.emit('auth:login', { username, passwordHash: hash, salt });
-  });
-
-  /* Регистрация */
-  DOM.regForm.addEventListener('submit', async e => {
-    e.preventDefault();
-    DOM.regErr.textContent = '';
-    const username  = DOM.regUsername.value.trim();
-    const password  = DOM.regPassword.value;
-    const password2 = DOM.regPassword2.value;
-
-    if (!username || !password) {
-      DOM.regErr.textContent = 'Заполните все поля';
-      return;
-    }
-    if (password !== password2) {
-      DOM.regErr.textContent = 'Пароли не совпадают';
-      return;
-    }
-    if (password.length < 6) {
-      DOM.regErr.textContent = 'Минимум 6 символов';
-      return;
-    }
-    const { hash, salt } = await E2E.hashPassword(password);
-    App.socket.emit('auth:register', { username, passwordHash: hash, salt });
   });
 }
 
