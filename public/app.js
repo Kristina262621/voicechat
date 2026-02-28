@@ -647,6 +647,10 @@ function showEmpty() {
 function showChat(room, data) {
   $('chat-empty').classList.add('hidden');
 
+  /* ← НОВОЕ: закрываем сайдбар на мобильном */
+  $('sidebar').classList.remove('open');
+  $('sidebar-overlay').classList.remove('visible');
+
   const cv = $('chat-view');
   cv.style.display       = 'flex';
   cv.style.flexDirection = 'column';
