@@ -220,15 +220,18 @@
       </div>
 
       <!-- Группа -->
-      <div id="nctab-group" class="hidden">
-        <input id="nc-group-name" class="auth-input" type="text"
-               placeholder="Название группы"/>
-        <input id="nc-group-pass" class="auth-input" type="password"
-               placeholder="Пароль (необязательно)"/>
-        <button class="modal-btn" onclick="createGroup()">Создать группу</button>
-      </div>
-    </div>
-  </div>
+<div id="nctab-group" class="hidden">
+  <input id="nc-group-name" class="auth-input" type="text"
+         placeholder="Название группы"/>
+  <input id="nc-group-pass" class="auth-input" type="password"
+         placeholder="Пароль (необязательно)"/>
+
+  <input id="nc-group-search" class="auth-input" type="text"
+         placeholder="Добавить участников..." oninput="searchGroupUsers()"/>
+  <div id="nc-group-list" class="user-search-list"></div>
+  <div id="nc-group-selected" style="margin-top:8px;color:var(--text2)">Выбрано: 0</div>
+
+  <button class="modal-btn" onclick="createGroup()">Создать группу</button>
 </div>
 
 <!-- Информация о чате -->
