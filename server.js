@@ -7,6 +7,18 @@ const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const cors = require('cors');
 
+// ── PostgreSQL ───────────────────────────────────────────
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5432/postgres',
+  ssl:
+    process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('localhost')
+      ? { rejectUnauthorized: false }
+      : false
+});
+
+const SESSION_TTL_DAYS = 30;
+const AVATAR_MAX_BYTES = 512 * 1024;
+
 async function initDB() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -82,7 +94,7 @@ async function initDB() {
     CREATE INDEX IF NOT EXISTS idx_messages_room ON messages(room_id, created_at DESC);
   `);
 
-  // ВАЖНО: миграция для уже существующей старой БД
+  // Миграции для старой БД
   await pool.query(`
     ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT;
@@ -113,6 +125,7 @@ async function initDB() {
 
   console.log('✅ PostgreSQL таблицы успешно инициализированы');
 }
+
 // ── Helpers ──────────────────────────────────────────────
 const PEPPER = 'salt_priv8';
 
@@ -131,7 +144,7 @@ function generateToken() {
 async function createSession(userId) {
   const token = generateToken();
   await pool.query(
-    "INSERT INTO sessions (token, user_id, expires_at) VALUES ($1, $2, NOW() + INTERVAL '30 days')",
+    `INSERT INTO sessions (token, user_id, expires_at) VALUES ($1, $2, NOW() + INTERVAL '${SESSION_TTL_DAYS} days')`,
     [token, userId]
   );
   return token;
@@ -167,7 +180,7 @@ async function getUserByToken(token) {
 
 // ── CORS helper (WebView + browser + Railway) ───────────
 function allowOrigin(origin, cb) {
-  if (!origin) return cb(null, true); // Android WebView/file:// часто без origin
+  if (!origin) return cb(null, true);
 
   const allowed = [
     'http://localhost',
@@ -697,7 +710,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('join', () => {
-    // no-op (клиент шлёт join при старте голоса)
+    // no-op
   });
 
   socket.on('offer', ({ to, offer }) => {
@@ -883,6 +896,11 @@ io.on('connection', (socket) => {
       socketMeta.delete(s.id);
     }
   }
+});
+
+// Инициализируем БД при старте
+initDB().catch((e) => {
+  console.error('❌ DB init failed:', e);
 });
 
 const PORT = process.env.PORT || 3000;
