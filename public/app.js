@@ -47,7 +47,6 @@ function initDOM() {
     messagesArea:    $('messages-area'),
     replyBar:        $('reply-bar'),
     replyText:       $('reply-bar-text'),
-    replyClose:      null,
     editBar:         $('edit-bar'),
     editText:        $('edit-bar-text'),
     fileInput:       $('file-input'),
@@ -58,7 +57,6 @@ function initDOM() {
     overlay:         $('overlay'),
     msgCtxMenu:      $('msg-ctx-menu'),
     reactionPicker:  $('reaction-picker'),
-    // Модалки
     modalProfile:    $('modal-profile'),
     profileAvatar:   $('profile-avatar-el'),
     profileUsername: $('profile-username-el'),
@@ -134,14 +132,22 @@ function updateDocTitle() {
 function connectSocket() {
   App.socket = io({ transports: ['websocket'] });
 
-  App.socket.on('connect', () => console.log('Socket connected:', App.socket.id));
+  App.socket.on('connect', () => {
+    console.log('Socket connected:', App.socket.id);
+    // Восстановление сессии по токену из sessionStorage
+    const token = sessionStorage.getItem('chat_token');
+    if (token) {
+      App.socket.emit('auth', { token });
+    }
+  });
+
   App.socket.on('disconnect', () => showNotif('Соединение потеряно…', 'error'));
   App.socket.on('connect_error', () => showNotif('Ошибка подключения', 'error'));
 
   App.socket.on('auth:ok',          onAuthOk);
-  App.socket.on('auth:err',         onAuthErr);
+  App.socket.on('auth:error',       onAuthErr);
   App.socket.on('chats:list',       onChatsList);
-  App.socket.on('chat:created',     onChatCreated);
+  App.socket.on('chat:new',         onChatNew);
   App.socket.on('chat:updated',     onChatUpdated);
   App.socket.on('chat:joined',      onChatJoined);
   App.socket.on('chat:left',        onChatLeft);
@@ -154,17 +160,15 @@ function connectSocket() {
   App.socket.on('contact:request',  onContactRequest);
   App.socket.on('contact:accepted', onContactAccepted);
   App.socket.on('users:search',     onUsersSearch);
-  App.socket.on('groups:explore',   onGroupsExplore);
+  App.socket.on('groups:list',      onGroupsExplore);
   App.socket.on('user:online',      onUserOnline);
-  App.socket.on('user:offline',     onUserOffline);
   App.socket.on('chat:typing',      onChatTyping);
   App.socket.on('e2e:pubkey',       onE2EPubkey);
 }
 
 /* ══════════════════════════════════════════════
-   АВТОРИЗАЦИЯ
+   АВТОРИЗАЦИЯ — fetch на REST API
 ══════════════════════════════════════════════ */
-
 window.switchAuthTab = function(tab) {
   document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.auth-form').forEach(f => f.classList.add('hidden'));
@@ -181,13 +185,34 @@ window.doLogin = async function() {
   const username = $('login-username').value.trim();
   const password = $('login-password').value;
   $('login-err').textContent = '';
+
   if (!username || !password) {
     $('login-err').textContent = 'Заполните все поля';
     return;
   }
+
   try {
-    const { hash, salt } = await E2E.hashPassword(password);
-    App.socket.emit('auth:login', { username, passwordHash: hash, salt });
+    const res  = await fetch('/api/login', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ username, password }),
+    });
+    const data = await res.json();
+
+    if (!data.ok) {
+      const msgs = {
+        wrong_credentials: 'Неверный логин или пароль',
+        rate_limited:      'Слишком много попыток, подождите',
+        missing_fields:    'Заполните все поля',
+        server_error:      'Ошибка сервера',
+      };
+      $('login-err').textContent = msgs[data.error] || data.error;
+      return;
+    }
+
+    sessionStorage.setItem('chat_token', data.token);
+    App.socket.emit('auth', { token: data.token });
+
   } catch(e) {
     $('login-err').textContent = 'Ошибка: ' + e.message;
     console.error(e);
@@ -199,6 +224,7 @@ window.doRegister = async function() {
   const password  = $('reg-password').value;
   const password2 = $('reg-password2').value;
   $('reg-err').textContent = '';
+
   if (!username || !password) {
     $('reg-err').textContent = 'Заполните все поля';
     return;
@@ -211,17 +237,47 @@ window.doRegister = async function() {
     $('reg-err').textContent = 'Минимум 6 символов';
     return;
   }
+
   try {
-    const { hash, salt } = await E2E.hashPassword(password);
-    App.socket.emit('auth:register', { username, passwordHash: hash, salt });
+    const res  = await fetch('/api/register', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ username, password }),
+    });
+    const data = await res.json();
+
+    if (!data.ok) {
+      const msgs = {
+        username_taken:  'Имя пользователя занято',
+        username_length: 'Имя: от 2 до 32 символов',
+        password_short:  'Минимум 4 символа',
+        rate_limited:    'Слишком много попыток',
+        server_error:    'Ошибка сервера',
+      };
+      $('reg-err').textContent = msgs[data.error] || data.error;
+      return;
+    }
+
+    sessionStorage.setItem('chat_token', data.token);
+    App.socket.emit('auth', { token: data.token });
+
   } catch(e) {
     $('reg-err').textContent = 'Ошибка: ' + e.message;
     console.error(e);
   }
 };
 
-window.doLogout = function() {
-  App.socket.emit('auth:logout');
+window.doLogout = async function() {
+  const token = sessionStorage.getItem('chat_token');
+  if (token) {
+    try {
+      await fetch('/api/logout', {
+        method:  'POST',
+        headers: { 'Authorization': 'Bearer ' + token },
+      });
+    } catch {}
+  }
+  sessionStorage.removeItem('chat_token');
   showAuth();
 };
 
@@ -240,7 +296,7 @@ async function onAuthOk(data) {
 }
 
 function onAuthErr(data) {
-  const err = data?.message || 'Ошибка авторизации';
+  const err = data?.error || data?.message || 'Ошибка авторизации';
   const loginForm = $('tab-login');
   if (loginForm && !loginForm.classList.contains('hidden')) {
     $('login-err').textContent = err;
@@ -271,7 +327,6 @@ function renderMyAvatar() {
     ? `<img class="avatar-img" src="${escHtml(u.avatar)}" alt="">`
     : getInitialsEmoji(u.username);
 }
-
 /* ══════════════════════════════════════════════
    САЙДБАР — список чатов
 ══════════════════════════════════════════════ */
@@ -281,11 +336,10 @@ function onChatsList(data) {
   renderChatList();
 }
 
-function onChatCreated(chat) {
+function onChatNew(data) {
+  const chat = data.chat || data;
   App.chats.set(chat.id, { info: chat, messages: [] });
   renderChatList();
-  closeModal('modal-new-chat');
-  openChat(chat.id);
 }
 
 function onChatUpdated(chat) {
@@ -297,7 +351,6 @@ function onChatUpdated(chat) {
 }
 
 function onChatJoined(data) {
-  showNotif(`Вы вступили в группу «${escHtml(data.chatName)}»`, 'success');
   App.socket.emit('chats:get');
 }
 
@@ -315,7 +368,11 @@ function renderChatList() {
   const q = App.searchQuery.toLowerCase();
   let chats = [...App.chats.values()];
   if (q) chats = chats.filter(c => c.info.name?.toLowerCase().includes(q));
-  chats.sort((a, b) => (b.info.lastMsgTime || 0) - (a.info.lastMsgTime || 0));
+  chats.sort((a, b) => {
+    const at = a.info.last_msg_at ? new Date(a.info.last_msg_at).getTime() : 0;
+    const bt = b.info.last_msg_at ? new Date(b.info.last_msg_at).getTime() : 0;
+    return bt - at;
+  });
 
   if (!chats.length) {
     DOM.chatList.innerHTML = `
@@ -334,16 +391,16 @@ function renderChatList() {
     const avatar = info.avatar
       ? `<img class="avatar-img" src="${escHtml(info.avatar)}" alt="">`
       : getInitialsEmoji(info.name);
-    const lastMsg = info.lastMsg
-      ? escHtml(info.lastMsg).slice(0, 42)
+    const lastMsg = info.last_msg
+      ? escHtml(info.last_msg).slice(0, 42)
       : '<span style="opacity:.5">Нет сообщений</span>';
-    const timeStr = info.lastMsgTime ? formatTime(info.lastMsgTime) : '';
+    const timeStr = info.last_msg_at ? formatTime(info.last_msg_at) : '';
     const badge   = unread > 0
-      ? `<span class="unread-badge">${unread > 99 ? '99+' : unread}</span>` : '';
+      ? `<span class="ci-badge">${unread > 99 ? '99+' : unread}</span>` : '';
 
     return `
       <div class="chat-item${active ? ' active' : ''}"
-           data-id="${escHtml(info.id)}" onclick="openChat('${escHtml(info.id)}')">
+           data-id="${info.id}" onclick="openChat(${info.id})">
         <div class="ci-avatar">${avatar}</div>
         <div class="ci-body">
           <div class="ci-top">
@@ -365,6 +422,7 @@ function renderChatList() {
    ОТКРЫТИЕ ЧАТА
 ══════════════════════════════════════════════ */
 function openChat(chatId) {
+  chatId = +chatId;
   if (App.currentChat === chatId) return;
   App.currentChat = chatId;
   App.unread.set(chatId, 0);
@@ -384,16 +442,31 @@ function openChat(chatId) {
   DOM.msgInput.value = '';
   autoResizeInput();
 
+  // Присоединяемся к комнате сокета
+  App.socket.emit('chat:join', { chatId });
+
   const chat = App.chats.get(chatId);
   if (chat && chat.messages.length === 0) {
-    App.socket.emit('msg:history', { chatId });
+    loadMessages(chatId);
   } else {
     renderMessages();
   }
+}
 
-  if (chat?.info.type === 'direct' && App.e2eEnabled) {
-    const otherId = chat.info.members?.find(m => m !== App.currentUser.id);
-    if (otherId) App.socket.emit('e2e:getkey', { userId: otherId });
+async function loadMessages(chatId) {
+  const token = sessionStorage.getItem('chat_token');
+  try {
+    const res  = await fetch(`/api/chats/${chatId}/messages?limit=50`, {
+      headers: { 'Authorization': 'Bearer ' + token },
+    });
+    const data = await res.json();
+    if (!data.ok) return;
+    const chat = App.chats.get(chatId);
+    if (!chat) return;
+    chat.messages = data.messages || [];
+    if (App.currentChat === chatId) renderMessages();
+  } catch(e) {
+    console.error('loadMessages:', e);
   }
 }
 
@@ -402,6 +475,7 @@ function showChatPlaceholder() {
   DOM.chatPlaceholder.classList.remove('hidden');
   DOM.backBtn.classList.add('hidden');
 }
+
 /* ══════════════════════════════════════════════
    ШАПКА ЧАТА
 ══════════════════════════════════════════════ */
@@ -416,7 +490,7 @@ function renderChatHeader() {
   DOM.chName.textContent = info.name;
 
   if (info.type === 'group') {
-    DOM.chStatus.textContent = `${info.memberCount || 0} участников`;
+    DOM.chStatus.textContent = `${info.member_count || 0} участников`;
     DOM.chStatus.className   = 'ch-status';
   } else {
     DOM.chStatus.textContent = info.online ? 'В сети' : 'Не в сети';
@@ -429,35 +503,25 @@ function renderChatHeader() {
 ══════════════════════════════════════════════ */
 function onUserOnline(data) {
   App.chats.forEach((chat, id) => {
-    if (chat.info.type === 'direct' && chat.info.members?.includes(data.userId)) {
+    if (chat.info.type === 'private') {
       chat.info.online = true;
       if (App.currentChat === id) renderChatHeader();
     }
   });
-}
-
-function onUserOffline(data) {
-  App.chats.forEach((chat, id) => {
-    if (chat.info.type === 'direct' && chat.info.members?.includes(data.userId)) {
-      chat.info.online   = false;
-      chat.info.lastSeen = data.lastSeen;
-      if (App.currentChat === id) renderChatHeader();
-    }
-  });
+  renderChatList();
 }
 
 /* ══════════════════════════════════════════════
    ПЕЧАТАЕТ…
 ══════════════════════════════════════════════ */
 function onChatTyping(data) {
-  if (data.chatId !== App.currentChat) return;
-  if (data.userId === App.currentUser?.id) return;
+  if (data.chatId !== App.currentChat && data.userId === App.currentUser?.id) return;
   const prev  = DOM.chStatus.textContent;
   const prevC = DOM.chStatus.className;
-  DOM.chStatus.textContent = `${data.username} печатает…`;
+  DOM.chStatus.textContent = 'печатает…';
   DOM.chStatus.className   = 'ch-status';
-  clearTimeout(App.typingTimers.get(data.chatId));
-  App.typingTimers.set(data.chatId, setTimeout(() => {
+  clearTimeout(App.typingTimers.get(App.currentChat));
+  App.typingTimers.set(App.currentChat, setTimeout(() => {
     DOM.chStatus.textContent = prev;
     DOM.chStatus.className   = prevC;
   }, 3000));
@@ -473,39 +537,45 @@ function onMsgHistory(data) {
   if (App.currentChat === data.chatId) renderMessages();
 }
 
-function onMsgNew(data) {
-  const chat = App.chats.get(data.chatId);
+function onMsgNew(msg) {
+  // Сервер присылает поля: msg_id, chat_id, user_id, username, content, type, created_at и т.д.
+  const chatId = msg.chat_id || msg.chatId;
+  const chat   = App.chats.get(chatId);
   if (!chat) return;
-  chat.messages.push(data);
-  chat.info.lastMsg     = data.text || (data.file ? '📎 Файл' : '');
-  chat.info.lastMsgTime = data.ts;
 
-  if (App.currentChat === data.chatId) {
-    appendMessage(data);
+  chat.messages.push(msg);
+  chat.info.last_msg    = msg.content || (msg.type !== 'text' ? '📎 Файл' : '');
+  chat.info.last_msg_at = msg.created_at;
+
+  if (App.currentChat === chatId) {
+    appendMessage(msg);
     scrollToBottom();
-    App.socket.emit('msg:read', { chatId: data.chatId, msgId: data.id });
+    App.socket.emit('msg:read', { chatId, msgId: msg.msg_id });
   } else {
-    App.unread.set(data.chatId, (App.unread.get(data.chatId) || 0) + 1);
-    showNotif(`${data.senderName}: ${(data.text || '📎').slice(0, 50)}`);
+    App.unread.set(chatId, (App.unread.get(chatId) || 0) + 1);
+    showNotif(`${msg.username}: ${(msg.content || '📎').slice(0, 50)}`);
   }
 
-  if (data.senderId !== App.currentUser?.id) {
+  if (msg.user_id !== App.currentUser?.id) {
     Sound.playBeep();
-    PushNotif.send(data.senderName || 'Новое сообщение', (data.text || '📎 Файл').slice(0, 80));
+    PushNotif.send(
+      msg.username || 'Новое сообщение',
+      (msg.content || '📎 Файл').slice(0, 80)
+    );
   }
   renderChatList();
 }
 
 function onMsgEdited(data) {
-  const chat = App.chats.get(data.chatId);
-  if (!chat) return;
-  const msg = chat.messages.find(m => m.id === data.msgId);
-  if (msg) { msg.text = data.text; msg.edited = true; }
-  if (App.currentChat === data.chatId) {
+  App.chats.forEach(chat => {
+    const msg = chat.messages.find(m => m.msg_id === data.msgId);
+    if (msg) { msg.content = data.content; msg.edited_at = data.editedAt; }
+  });
+  if (App.currentChat) {
     const el = document.querySelector(`[data-msg-id="${data.msgId}"]`);
     if (el) {
       const t = el.querySelector('.msg-text');
-      if (t) t.innerHTML = formatMsgText(data.text);
+      if (t) t.innerHTML = formatMsgText(data.content);
       if (!el.querySelector('.msg-edited')) {
         const s = document.createElement('span');
         s.className = 'msg-edited'; s.textContent = ' (изм.)';
@@ -516,29 +586,20 @@ function onMsgEdited(data) {
 }
 
 function onMsgDeleted(data) {
-  const chat = App.chats.get(data.chatId);
-  if (!chat) return;
-  chat.messages = chat.messages.filter(m => m.id !== data.msgId);
-  if (App.currentChat === data.chatId) {
-    const el = document.querySelector(`[data-msg-id="${data.msgId}"]`);
-    if (el) { el.style.opacity = '0'; setTimeout(() => el.remove(), 250); }
-  }
+  App.chats.forEach(chat => {
+    chat.messages = chat.messages.filter(m => m.msg_id !== data.msgId);
+  });
+  const el = document.querySelector(`[data-msg-id="${data.msgId}"]`);
+  if (el) { el.style.opacity = '0'; setTimeout(() => el.remove(), 250); }
 }
 
 function onMsgReaction(data) {
-  const chat = App.chats.get(data.chatId);
-  if (!chat) return;
-  const msg = chat.messages.find(m => m.id === data.msgId);
-  if (msg) msg.reactions = data.reactions;
-  if (App.currentChat === data.chatId) {
-    const el = document.querySelector(`[data-msg-id="${data.msgId}"]`);
-    if (el) {
-      const r = el.querySelector('.msg-reactions');
-      if (r) r.outerHTML = buildReactionsHtml(data.reactions);
-    }
+  const el = document.querySelector(`[data-msg-id="${data.msgId}"]`);
+  if (el) {
+    const r = el.querySelector('.msg-reactions');
+    if (r) r.outerHTML = buildReactionsHtml(data);
   }
 }
-
 /* ══════════════════════════════════════════════
    РЕНДЕР СООБЩЕНИЙ
 ══════════════════════════════════════════════ */
@@ -548,12 +609,12 @@ function renderMessages() {
   DOM.messagesList.innerHTML = '';
   let lastDate = null;
   chat.messages.forEach(msg => {
-    const d = new Date(msg.ts).toDateString();
+    const d = new Date(msg.created_at || msg.ts).toDateString();
     if (d !== lastDate) {
       lastDate = d;
       const sep = document.createElement('div');
-      sep.className   = 'date-separator';
-      sep.textContent = formatDate(msg.ts);
+      sep.className   = 'date-divider';
+      sep.textContent = formatDate(msg.created_at || msg.ts);
       DOM.messagesList.appendChild(sep);
     }
     DOM.messagesList.appendChild(buildMsgEl(msg));
@@ -564,24 +625,25 @@ function renderMessages() {
 function appendMessage(msg) {
   const chat = App.chats.get(App.currentChat);
   if (!chat) return;
-  const msgs    = chat.messages;
-  const prev    = msgs[msgs.length - 2];
-  const prevDate = prev ? new Date(prev.ts).toDateString() : null;
-  const newDate  = new Date(msg.ts).toDateString();
+  const msgs     = chat.messages;
+  const prev     = msgs[msgs.length - 2];
+  const prevDate = prev ? new Date(prev.created_at || prev.ts).toDateString() : null;
+  const newDate  = new Date(msg.created_at || msg.ts).toDateString();
   if (prevDate !== newDate) {
     const sep = document.createElement('div');
-    sep.className   = 'date-separator';
-    sep.textContent = formatDate(msg.ts);
+    sep.className   = 'date-divider';
+    sep.textContent = formatDate(msg.created_at || msg.ts);
     DOM.messagesList.appendChild(sep);
   }
   DOM.messagesList.appendChild(buildMsgEl(msg));
 }
 
 function buildMsgEl(msg) {
-  const isMine = msg.senderId === App.currentUser?.id;
+  const userId = msg.user_id || msg.senderId;
+  const isMine = userId === App.currentUser?.id;
   const wrap   = document.createElement('div');
-  wrap.className     = `msg-wrap${isMine ? ' mine' : ''}`;
-  wrap.dataset.msgId = msg.id;
+  wrap.className     = `msg-wrap ${isMine ? 'own' : 'other'}`;
+  wrap.dataset.msgId = msg.msg_id || msg.id;
   wrap.innerHTML     = buildMsgInner(msg, isMine);
 
   wrap.addEventListener('contextmenu', e => {
@@ -590,59 +652,90 @@ function buildMsgEl(msg) {
   });
 
   let lpt;
-  wrap.addEventListener('touchstart', () => { lpt = setTimeout(() => showCtxMenu(null, msg, isMine), 500); });
-  wrap.addEventListener('touchend',   () => clearTimeout(lpt));
+  wrap.addEventListener('touchstart', () => {
+    lpt = setTimeout(() => showCtxMenu(null, msg, isMine), 500);
+  });
+  wrap.addEventListener('touchend', () => clearTimeout(lpt));
   return wrap;
 }
 
 function buildMsgInner(msg, isMine) {
-  const avatar = !isMine
-    ? `<div class="msg-avatar">${msg.senderAvatar
-        ? `<img class="avatar-img" src="${escHtml(msg.senderAvatar)}" alt="">`
-        : getInitialsEmoji(msg.senderName)}</div>` : '';
+  const username  = msg.username   || msg.senderName   || '';
+  const avatar    = msg.avatar     || msg.senderAvatar  || '';
+  const content   = msg.content    || msg.text          || '';
+  const ts        = msg.created_at || msg.ts;
+  const reactions = msg.reactions  || [];
+  const replyTo   = msg.reply_to;
 
-  const reply = msg.replyTo
+  const avatarHtml = !isMine
+    ? `<div class="msg-avatar">${avatar
+        ? `<img class="avatar-img" src="${escHtml(avatar)}" alt="">`
+        : getInitialsEmoji(username)}</div>`
+    : '';
+
+  const replyHtml = replyTo
     ? `<div class="msg-reply">
-         <span class="msg-reply-name">${escHtml(msg.replyTo.senderName)}</span>
-         <span class="msg-reply-text">${escHtml((msg.replyTo.text || '📎').slice(0, 60))}</span>
-       </div>` : '';
+         <span class="msg-reply-name">Ответ</span>
+         <span>${escHtml(String(replyTo).slice(0, 60))}</span>
+       </div>`
+    : '';
 
-  const content  = buildMsgContent(msg);
-  const edited   = msg.edited ? '<span class="msg-edited"> (изм.)</span>' : '';
-  const reactions = buildReactionsHtml(msg.reactions);
+  const contentHtml = buildMsgContent(msg, content);
+  const edited      = msg.edited_at
+    ? '<span class="msg-edited"> (изм.)</span>' : '';
+  const reactHtml   = buildReactionsHtml(reactions);
 
   return `
-    ${avatar}
-    <div class="msg-bubble">
-      ${!isMine && msg.senderName ? `<div class="msg-sender">${escHtml(msg.senderName)}</div>` : ''}
-      ${reply}
-      ${content}
-      <div class="msg-meta">
-        <span class="msg-time">${formatTime(msg.ts)}</span>
-        ${edited}
-        ${isMine ? `<span class="msg-status">${msg.read ? '✓✓' : '✓'}</span>` : ''}
+    <div class="msg-row">
+      ${avatarHtml}
+      <div class="msg-bubble${msg.deleted ? ' deleted' : ''}">
+        ${!isMine && username
+          ? `<div class="msg-sender">${escHtml(username)}</div>` : ''}
+        ${replyHtml}
+        ${contentHtml}
+        <div class="msg-meta">
+          <span class="msg-time">${formatTime(ts)}</span>
+          ${edited}
+        </div>
       </div>
-      ${reactions}
-    </div>`;
+    </div>
+    ${reactHtml}`;
 }
 
-function buildMsgContent(msg) {
-  if (msg.file) {
-    const f = msg.file;
-    if (f.type?.startsWith('image/')) {
-      return `<img class="msg-image" src="${escHtml(f.url)}" alt="${escHtml(f.name)}"
-                   onclick="openImageModal('${escHtml(f.url)}')">`;
-    }
-    return `<div class="msg-file">
-              <span class="msg-file-icon">📎</span>
-              <div class="msg-file-info">
-                <a class="msg-file-name" href="${escHtml(f.url)}"
-                   target="_blank" download>${escHtml(f.name)}</a>
-                <span class="msg-file-size">${formatSize(f.size)}</span>
-              </div>
+function buildMsgContent(msg, content) {
+  if (msg.deleted) {
+    return `<div class="msg-text" style="opacity:.5;font-style:italic">
+              Сообщение удалено
             </div>`;
   }
-  if (msg.text) return `<div class="msg-text">${formatMsgText(msg.text)}</div>`;
+
+  if (msg.type === 'image' ||
+      (msg.mime_type && msg.mime_type.startsWith('image/'))) {
+    const url = msg.file_url || content;
+    return `<img class="msg-image"
+                 src="${escHtml(url)}"
+                 alt="${escHtml(msg.file_name || '')}"
+                 onclick="openImageModal('${escHtml(url)}')">`;
+  }
+
+  if (msg.type === 'file' || msg.file_name) {
+    const url  = msg.file_url || content;
+    const name = msg.file_name || 'файл';
+    const size = msg.file_size ? formatSize(msg.file_size) : '';
+    return `<a class="msg-file" href="${escHtml(url)}"
+               target="_blank" download>
+              <span class="msg-file-icon">📎</span>
+              <div class="msg-file-info">
+                <span class="msg-file-name">${escHtml(name)}</span>
+                <span class="msg-file-size">${size}</span>
+              </div>
+            </a>`;
+  }
+
+  if (content) {
+    return `<div class="msg-text">${formatMsgText(content)}</div>`;
+  }
+
   return '';
 }
 
@@ -658,15 +751,26 @@ function formatMsgText(text) {
 }
 
 function buildReactionsHtml(reactions) {
-  if (!reactions || !Object.keys(reactions).length)
+  if (!reactions || !reactions.length)
     return '<div class="msg-reactions"></div>';
-  const items = Object.entries(reactions)
-    .filter(([, u]) => u.length)
-    .map(([emoji, users]) =>
-      `<span class="msg-reaction${users.includes(App.currentUser?.id) ? ' mine' : ''}"
-             onclick="sendReaction('${escHtml(emoji)}')"
-             title="${escHtml(users.join(', '))}">${emoji} ${users.length}</span>`
-    ).join('');
+
+  // Группируем по emoji
+  const grouped = {};
+  reactions.forEach(r => {
+    if (!grouped[r.emoji]) grouped[r.emoji] = [];
+    grouped[r.emoji].push(r.userId || r.user_id);
+  });
+
+  const items = Object.entries(grouped).map(([emoji, users]) => {
+    const isMine = users.includes(App.currentUser?.id);
+    return `<span class="reaction-chip${isMine ? ' mine' : ''}"
+                  onclick="sendReaction('${escHtml(emoji)}')"
+                  title="${users.length} чел.">
+              ${emoji}
+              <span class="r-count">${users.length}</span>
+            </span>`;
+  }).join('');
+
   return `<div class="msg-reactions">${items}</div>`;
 }
 
@@ -687,9 +791,8 @@ async function sendMessage() {
   if (App.editMsg) {
     if (!text) return;
     App.socket.emit('msg:edit', {
-      chatId: App.currentChat,
-      msgId:  App.editMsg.msgId,
-      text,
+      msgId:   App.editMsg.msgId,
+      content: text,
     });
     clearEditBar();
     DOM.msgInput.value = '';
@@ -699,11 +802,13 @@ async function sendMessage() {
 
   if (!text) return;
 
+  const msgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+
   const payload = {
-    chatId:  App.currentChat,
-    text,
-    replyTo: App.replyTo || null,
-    tempId:  Math.random().toString(36).slice(2),
+    msgId,
+    type:    'text',
+    content: text,
+    replyTo: App.replyTo ? App.replyTo.msgId : null,
   };
 
   App.socket.emit('msg:send', payload);
@@ -723,7 +828,16 @@ let _typingTimer;
 function sendTyping() {
   if (!App.currentChat) return;
   clearTimeout(_typingTimer);
-  App.socket.emit('chat:typing', { chatId: App.currentChat });
+  App.socket.emit('chat:typing', {
+    chatId:   App.currentChat,
+    isTyping: true,
+  });
+  _typingTimer = setTimeout(() => {
+    App.socket.emit('chat:typing', {
+      chatId:   App.currentChat,
+      isTyping: false,
+    });
+  }, 2500);
 }
 
 async function onFileSelected() {
@@ -736,22 +850,28 @@ async function onFileSelected() {
     return;
   }
 
+  const token    = sessionStorage.getItem('chat_token');
   const formData = new FormData();
-  formData.append('file',   file);
-  formData.append('chatId', App.currentChat);
+  formData.append('file', file);
 
   try {
-    const res  = await fetch('/upload', {
+    const res  = await fetch('/api/upload', {
       method:  'POST',
-      headers: { 'x-user-id': App.currentUser.id, 'x-token': App.currentUser.token },
+      headers: { 'Authorization': 'Bearer ' + token },
       body:    formData,
     });
     const data = await res.json();
+
     if (data.ok) {
+      const msgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2);
       App.socket.emit('msg:send', {
-        chatId:  App.currentChat,
-        file:    data.file,
-        replyTo: App.replyTo || null,
+        msgId,
+        type:     file.type.startsWith('image/') ? 'image' : 'file',
+        content:  data.url,
+        fileName: data.fileName,
+        fileSize: data.fileSize,
+        mimeType: data.mimeType,
+        replyTo:  App.replyTo ? App.replyTo.msgId : null,
       });
       clearReplyBar();
     } else {
@@ -769,8 +889,10 @@ function clearReplyBar() {
 }
 
 function openReplyBar(msg) {
-  App.replyTo = { msgId: msg.id, text: msg.text || '📎', senderName: msg.senderName };
-  DOM.replyText.textContent = `${msg.senderName}: ${(msg.text || '📎').slice(0, 60)}`;
+  const content = msg.content || msg.text || '📎';
+  const name    = msg.username || msg.senderName || '';
+  App.replyTo   = { msgId: msg.msg_id || msg.id, text: content, senderName: name };
+  DOM.replyText.textContent = `${name}: ${content.slice(0, 60)}`;
   DOM.replyBar.classList.remove('hidden');
   DOM.msgInput.focus();
 }
@@ -784,10 +906,11 @@ function clearEditBar() {
 }
 
 function openEditBar(msg) {
-  App.editMsg = { msgId: msg.id, text: msg.text };
-  DOM.editText.textContent = (msg.text || '').slice(0, 60);
+  const content = msg.content || msg.text || '';
+  App.editMsg   = { msgId: msg.msg_id || msg.id, content };
+  DOM.editText.textContent = content.slice(0, 60);
   DOM.editBar.classList.remove('hidden');
-  DOM.msgInput.value = msg.text || '';
+  DOM.msgInput.value = content;
   DOM.msgInput.focus();
   autoResizeInput();
 }
@@ -811,65 +934,59 @@ function showCtxMenu(e, msg, isMine) {
 
   if (e) {
     let x = e.clientX, y = e.clientY;
-    const mw = menu.offsetWidth  || 180;
-    const mh = menu.offsetHeight || 160;
+    const mw = 180;
+    const mh = 200;
     if (x + mw > window.innerWidth)  x = window.innerWidth  - mw - 8;
     if (y + mh > window.innerHeight) y = window.innerHeight - mh - 8;
-    menu.style.left = x + 'px';
-    menu.style.top  = y + 'px';
-    menu.style.bottom = '';
+    menu.style.left      = x + 'px';
+    menu.style.top       = y + 'px';
+    menu.style.transform = '';
   } else {
-    menu.style.left   = '50%';
-    menu.style.top    = '50%';
+    menu.style.left      = '50%';
+    menu.style.top       = '50%';
     menu.style.transform = 'translate(-50%,-50%)';
   }
 }
 
-function ctxReply() {
+function ctxReply()  { closeOverlay(); if (_ctxMsg) openReplyBar(_ctxMsg); }
+function ctxCopy()   {
   closeOverlay();
-  if (_ctxMsg) openReplyBar(_ctxMsg);
-}
-
-function ctxCopy() {
-  closeOverlay();
-  if (_ctxMsg?.text) {
-    navigator.clipboard.writeText(_ctxMsg.text)
+  const text = _ctxMsg?.content || _ctxMsg?.text;
+  if (text) {
+    navigator.clipboard.writeText(text)
       .then(() => showNotif('Скопировано', 'success'))
       .catch(() => showNotif('Не удалось скопировать', 'error'));
   }
 }
-
-function ctxEdit() {
-  closeOverlay();
-  if (_ctxMsg) openEditBar(_ctxMsg);
+function ctxEdit()   { closeOverlay(); if (_ctxMsg) openEditBar(_ctxMsg); }
+function ctxReact()  {
+  DOM.msgCtxMenu.classList.add('hidden');
+  DOM.reactionPicker.classList.remove('hidden');
 }
-
-function ctxReact() {
-  closeOverlay();
-  const picker = DOM.reactionPicker;
-  picker.classList.remove('hidden');
-  DOM.overlay.classList.remove('hidden');
-}
-
 function ctxDelete() {
   closeOverlay();
   if (!_ctxMsg) return;
   if (!confirm('Удалить сообщение?')) return;
-  App.socket.emit('msg:delete', { chatId: App.currentChat, msgId: _ctxMsg.id });
+  App.socket.emit('msg:delete', { msgId: _ctxMsg.msg_id || _ctxMsg.id });
 }
 
 function pickReaction(emoji) {
   DOM.reactionPicker.classList.add('hidden');
   DOM.overlay.classList.add('hidden');
-  if (!_ctxMsg || !App.currentChat) return;
-  App.socket.emit('msg:react', { chatId: App.currentChat, msgId: _ctxMsg.id, emoji });
+  if (!_ctxMsg) return;
+  App.socket.emit('msg:react', {
+    msgId: _ctxMsg.msg_id || _ctxMsg.id,
+    emoji,
+  });
 }
 
 function sendReaction(emoji) {
-  if (!App.currentChat || !_ctxMsg) return;
-  App.socket.emit('msg:react', { chatId: App.currentChat, msgId: _ctxMsg.id, emoji });
+  if (!_ctxMsg) return;
+  App.socket.emit('msg:react', {
+    msgId: _ctxMsg.msg_id || _ctxMsg.id,
+    emoji,
+  });
 }
-
 /* ══════════════════════════════════════════════
    МОДАЛКИ
 ══════════════════════════════════════════════ */
@@ -905,18 +1022,28 @@ function openMyProfile() {
   DOM.overlay.classList.remove('hidden');
 }
 
-function saveProfile() {
-  const bio = DOM.profileBio.value.trim();
-  App.socket.emit('user:update', { bio, avatar: App.currentUser.avatar });
-  App.currentUser.bio = bio;
-  sessionStorage.setItem('chat_session', JSON.stringify(App.currentUser));
-  closeModal('modal-profile');
-  showNotif('Профиль сохранён', 'success');
+async function saveProfile() {
+  const bio   = DOM.profileBio.value.trim();
+  const token = sessionStorage.getItem('chat_token');
+  try {
+    await fetch('/api/me', {
+      method:  'PUT',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': 'Bearer ' + token,
+      },
+      body: JSON.stringify({ bio, avatar: App.currentUser.avatar }),
+    });
+    App.currentUser.bio = bio;
+    sessionStorage.setItem('chat_session', JSON.stringify(App.currentUser));
+    closeModal('modal-profile');
+    showNotif('Профиль сохранён', 'success');
+  } catch {
+    showNotif('Ошибка сохранения', 'error');
+  }
 }
 
-function changeAvatar() {
-  $('avatar-input').click();
-}
+function changeAvatar() { $('avatar-input').click(); }
 
 async function onAvatarSelected() {
   const file = $('avatar-input').files[0];
@@ -925,21 +1052,32 @@ async function onAvatarSelected() {
     showNotif('Фото слишком большое (макс. 5 МБ)', 'error');
     return;
   }
+  const token    = sessionStorage.getItem('chat_token');
   const formData = new FormData();
   formData.append('file', file);
-  formData.append('type', 'avatar');
   try {
-    const res  = await fetch('/upload', {
+    const res  = await fetch('/api/upload', {
       method:  'POST',
-      headers: { 'x-user-id': App.currentUser.id, 'x-token': App.currentUser.token },
+      headers: { 'Authorization': 'Bearer ' + token },
       body:    formData,
     });
     const data = await res.json();
     if (data.ok) {
-      App.currentUser.avatar = data.file.url;
+      App.currentUser.avatar = data.url;
       DOM.profileAvatar.innerHTML =
-        `<img class="avatar-img" src="${escHtml(data.file.url)}" alt="">`;
+        `<img class="avatar-img" src="${escHtml(data.url)}" alt="">`;
       renderMyAvatar();
+      await fetch('/api/me', {
+        method:  'PUT',
+        headers: {
+          'Content-Type':  'application/json',
+          'Authorization': 'Bearer ' + token,
+        },
+        body: JSON.stringify({
+          avatar: data.url,
+          bio:    App.currentUser.bio,
+        }),
+      });
       showNotif('Фото обновлено', 'success');
     }
   } catch { showNotif('Ошибка загрузки фото', 'error'); }
@@ -952,11 +1090,13 @@ function openNewChat() {
   DOM.modalNewChat.classList.remove('hidden');
   DOM.overlay.classList.remove('hidden');
   switchNewChatTab('private');
+  DOM.ncUserSearch.value   = '';
+  DOM.ncUserList.innerHTML = '';
 }
 
 function switchNewChatTab(tab) {
   document.querySelectorAll('.nctab').forEach(t => t.classList.remove('active'));
-  document.querySelector(`.nctab[onclick*="${tab}"]`)?.classList.add('active');
+  document.querySelector(`.nctab[onclick*="'${tab}'"]`)?.classList.add('active');
   $('nctab-private').classList.toggle('hidden', tab !== 'private');
   $('nctab-group').classList.toggle('hidden',   tab !== 'group');
 }
@@ -967,77 +1107,85 @@ function searchUsers() {
   DOM.ncUserList.innerHTML = '';
   if (q.length < 2) return;
   clearTimeout(_userSearchTimer);
-  _userSearchTimer = setTimeout(() => {
-    App.socket.emit('users:search', { query: q });
+  _userSearchTimer = setTimeout(async () => {
+    const token = sessionStorage.getItem('chat_token');
+    try {
+      const res  = await fetch(
+        `/api/users/search?q=${encodeURIComponent(q)}`,
+        { headers: { 'Authorization': 'Bearer ' + token } }
+      );
+      const data = await res.json();
+      onUsersSearch(data);
+    } catch {}
   }, 300);
 }
 
 function onUsersSearch(data) {
-  /* Если открыт модал нового чата */
-  if (!DOM.modalNewChat.classList.contains('hidden')) {
-    if (!data.users?.length) {
-      DOM.ncUserList.innerHTML =
-        '<div style="color:var(--text2);padding:8px">Не найдено</div>';
-      return;
-    }
-    DOM.ncUserList.innerHTML = data.users.map(u => `
-      <div class="contact-item" onclick="startDirectChat('${escHtml(u.id)}')">
-        <div class="ci-avatar">
-          ${u.avatar
-            ? `<img class="avatar-img" src="${escHtml(u.avatar)}" alt="">`
-            : getInitialsEmoji(u.username)}
-        </div>
-        <div class="ci-body">
-          <div class="ci-top">
-            <span class="ci-name">${escHtml(u.username)}</span>
-          </div>
-        </div>
-      </div>`).join('');
+  if (!data.users?.length) {
+    DOM.ncUserList.innerHTML =
+      '<div style="color:var(--text2);padding:8px">Не найдено</div>';
     return;
   }
+  DOM.ncUserList.innerHTML = data.users.map(u => `
+    <div class="user-search-item" onclick="startDirectChat(${u.id})">
+      <div class="user-search-avatar">
+        ${u.avatar
+          ? `<img class="avatar-img" src="${escHtml(u.avatar)}" alt="">`
+          : getInitialsEmoji(u.username)}
+      </div>
+      <span class="user-search-name">${escHtml(u.username)}</span>
+      <button class="user-search-action">Написать</button>
+    </div>`).join('');
+}
 
-  /* Если открыта панель контактов */
-  if (App.activeTab === 'contacts') {
-    const resultsEl = $('contacts-search-results');
-    if (!resultsEl) return;
-    if (!data.users?.length) {
-      resultsEl.innerHTML =
-        '<div style="color:var(--text2);padding:8px">Не найдено</div>';
-      return;
+async function startDirectChat(userId) {
+  closeModal('modal-new-chat');
+  const token = sessionStorage.getItem('chat_token');
+  try {
+    const res  = await fetch('/api/chats/private', {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': 'Bearer ' + token,
+      },
+      body: JSON.stringify({ userId }),
+    });
+    const data = await res.json();
+    if (data.ok && data.chat) {
+      if (!App.chats.has(data.chat.id)) {
+        App.chats.set(data.chat.id, { info: data.chat, messages: [] });
+        renderChatList();
+      }
+      openChat(data.chat.id);
     }
-    resultsEl.innerHTML = data.users.map(u => `
-      <div class="contact-item" onclick="openUserProfile('${escHtml(u.id)}')">
-        <div class="ci-avatar">
-          ${u.avatar
-            ? `<img class="avatar-img" src="${escHtml(u.avatar)}" alt="">`
-            : getInitialsEmoji(u.username)}
-        </div>
-        <div class="ci-body">
-          <div class="ci-top">
-            <span class="ci-name">${escHtml(u.username)}</span>
-            ${App.contacts.has(u.id)
-              ? '<span style="font-size:11px;color:var(--accent)">В контактах</span>' : ''}
-          </div>
-          <div class="ci-bottom">
-            <span style="font-size:12px;color:var(--text2)">${escHtml(u.bio || '')}</span>
-          </div>
-        </div>
-        ${!App.contacts.has(u.id) && u.id !== App.currentUser?.id
-          ? `<button onclick="addContact(event,'${escHtml(u.id)}')">➕</button>` : ''}
-      </div>`).join('');
-  }
+  } catch { showNotif('Ошибка создания чата', 'error'); }
 }
 
-function startDirectChat(userId) {
-  App.socket.emit('chat:create', { type: 'direct', userId });
-  closeModal('modal-new-chat');
-}
-
-function createGroup() {
-  const name = DOM.ncGroupName.value.trim();
+async function createGroup() {
+  const name     = DOM.ncGroupName.value.trim();
+  const password = $('nc-group-pass').value;
   if (!name) { showNotif('Введите название группы', 'error'); return; }
-  App.socket.emit('chat:create', { type: 'group', name });
-  closeModal('modal-new-chat');
+
+  const token = sessionStorage.getItem('chat_token');
+  try {
+    const res  = await fetch('/api/chats/group', {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': 'Bearer ' + token,
+      },
+      body: JSON.stringify({ name, password }),
+    });
+    const data = await res.json();
+    if (data.ok && data.chat) {
+      App.chats.set(data.chat.id, { info: data.chat, messages: [] });
+      renderChatList();
+      closeModal('modal-new-chat');
+      openChat(data.chat.id);
+    } else {
+      showNotif(data.error || 'Ошибка создания группы', 'error');
+    }
+  } catch { showNotif('Ошибка создания группы', 'error'); }
 }
 
 /* ══════════════════════════════════════════════
@@ -1049,33 +1197,39 @@ function openChatInfo() {
   if (!chat) return;
   const info = chat.info;
 
-  DOM.chatInfoTitle.textContent  = info.type === 'group' ? 'О группе' : 'О чате';
-  DOM.chatInfoName.textContent   = info.name;
-  DOM.chatInfoAvatar.innerHTML   = info.avatar
+  DOM.chatInfoTitle.textContent = info.type === 'group' ? 'О группе' : 'О чате';
+  DOM.chatInfoName.textContent  = info.name;
+  DOM.chatInfoAvatar.innerHTML  = info.avatar
     ? `<img class="avatar-img" src="${escHtml(info.avatar)}" alt="">`
     : getInitialsEmoji(info.name);
-  DOM.chatInfoMeta.innerHTML     = info.type === 'group'
-    ? `<p>Участников: <strong>${info.memberCount || 0}</strong></p>
-       ${info.description ? `<p>${escHtml(info.description)}</p>` : ''}`
-    : '';
-  DOM.chatInfoLeave.style.display = info.type === 'group' ? '' : 'none';
-  DOM.chatInfoAvatarBtn.style.display =
-    info.type === 'group' ? '' : 'none';
+  DOM.chatInfoMeta.innerHTML = info.type === 'group'
+    ? `<p>Участников: <strong>${info.member_count || 0}</strong></p>` : '';
+  DOM.chatInfoLeave.style.display     = info.type === 'group' ? '' : 'none';
+  DOM.chatInfoAvatarBtn.style.display = info.type === 'group' ? '' : 'none';
 
   DOM.modalChatInfo.classList.remove('hidden');
   DOM.overlay.classList.remove('hidden');
 }
 
-function leaveChat() {
+async function leaveChat() {
   if (!App.currentChat) return;
   closeModal('modal-chat-info');
   if (!confirm('Покинуть группу?')) return;
-  App.socket.emit('chat:leave', { chatId: App.currentChat });
+  const token = sessionStorage.getItem('chat_token');
+  try {
+    await fetch(`/api/chats/${App.currentChat}/leave`, {
+      method:  'DELETE',
+      headers: { 'Authorization': 'Bearer ' + token },
+    });
+    App.chats.delete(App.currentChat);
+    App.currentChat = null;
+    showChatPlaceholder();
+    renderChatList();
+    showNotif('Вы покинули чат');
+  } catch { showNotif('Ошибка', 'error'); }
 }
 
-function changeChatAvatar() {
-  /* TODO */
-}
+function changeChatAvatar() { /* TODO */ }
 
 /* ══════════════════════════════════════════════
    КОНТАКТЫ
@@ -1083,19 +1237,30 @@ function changeChatAvatar() {
 function onContactsList(data) {
   App.contacts.clear();
   (data.contacts || []).forEach(c => App.contacts.set(c.id, c));
-  renderContactsPanel();
+  if (App.activeTab === 'contacts') renderContactsPanel();
 }
 
 function onContactRequest(req) {
   App._pendingRequests.push(req);
-  showNotif(`📩 ${req.fromUsername} хочет добавить вас в контакты`);
+  showNotif(`📩 ${req.username} хочет добавить вас в контакты`);
   if (App.activeTab === 'contacts') renderContactsPanel();
 }
 
-function onContactAccepted(data) {
-  App.contacts.set(data.id, data);
-  showNotif(`✅ ${data.username} принял(а) запрос`, 'success');
-  if (App.activeTab === 'contacts') renderContactsPanel();
+function onContactAccepted() {
+  showNotif('✅ Запрос принят', 'success');
+  const token = sessionStorage.getItem('chat_token');
+  fetch('/api/contacts', {
+    headers: { 'Authorization': 'Bearer ' + token },
+  })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        App.contacts.clear();
+        d.contacts.forEach(c => App.contacts.set(c.id, c));
+        if (App.activeTab === 'contacts') renderContactsPanel();
+      }
+    })
+    .catch(() => {});
 }
 
 function renderContactsPanel() {
@@ -1103,20 +1268,20 @@ function renderContactsPanel() {
 
   DOM.requestsList.innerHTML = pending.length
     ? pending.map(r => `
-        <div class="contact-item" data-req-id="${escHtml(r.requestId)}">
-          <div class="ci-avatar">
-            ${r.fromAvatar
-              ? `<img class="avatar-img" src="${escHtml(r.fromAvatar)}" alt="">`
-              : getInitialsEmoji(r.fromUsername)}
+        <div class="contact-item">
+          <div class="contact-avatar">
+            ${r.avatar
+              ? `<img class="avatar-img" src="${escHtml(r.avatar)}" alt="">`
+              : getInitialsEmoji(r.username)}
           </div>
-          <div class="ci-body">
-            <div class="ci-top">
-              <span class="ci-name">${escHtml(r.fromUsername)}</span>
-            </div>
-            <div style="display:flex;gap:6px;margin-top:4px">
-              <button onclick="acceptContact('${escHtml(r.requestId)}')">✅ Принять</button>
-              <button onclick="declineContact('${escHtml(r.requestId)}')">❌ Отклонить</button>
-            </div>
+          <div class="contact-info">
+            <div class="contact-name">${escHtml(r.username)}</div>
+          </div>
+          <div class="contact-actions">
+            <button class="btn-accept"
+                    onclick="acceptContact(${r.fromId})">✅ Принять</button>
+            <button class="btn-decline"
+                    onclick="declineContact(${r.fromId})">❌</button>
           </div>
         </div>`).join('')
     : '<div style="color:var(--text2);padding:8px;font-size:13px">Нет запросов</div>';
@@ -1124,46 +1289,68 @@ function renderContactsPanel() {
   const contacts = [...App.contacts.values()];
   DOM.contactsList.innerHTML = contacts.length
     ? contacts.map(c => `
-        <div class="contact-item" onclick="openUserProfile('${escHtml(c.id)}')">
-          <div class="ci-avatar">
+        <div class="contact-item" onclick="openUserProfile(${c.id})">
+          <div class="contact-avatar">
             ${c.avatar
               ? `<img class="avatar-img" src="${escHtml(c.avatar)}" alt="">`
               : getInitialsEmoji(c.username)}
-            ${c.online ? '<span class="online-dot"></span>' : ''}
           </div>
-          <div class="ci-body">
-            <div class="ci-top">
-              <span class="ci-name">${escHtml(c.username)}</span>
-              ${c.online ? '<span style="font-size:11px;color:var(--accent)">В сети</span>' : ''}
-            </div>
-            <div class="ci-bottom">
-              <span style="font-size:12px;color:var(--text2)">${escHtml(c.bio || '')}</span>
+          <div class="contact-info">
+            <div class="contact-name">${escHtml(c.username)}</div>
+            <div class="contact-status${c.online ? ' online' : ''}">
+              ${c.online ? 'В сети' : 'Не в сети'}
             </div>
           </div>
         </div>`).join('')
     : '<div style="color:var(--text2);padding:8px;font-size:13px">Нет контактов</div>';
 }
 
-function acceptContact(reqId) {
-  App.socket.emit('contact:accept', { requestId: reqId });
-  App._pendingRequests = App._pendingRequests.filter(r => r.requestId !== reqId);
+async function acceptContact(fromId) {
+  const token = sessionStorage.getItem('chat_token');
+  await fetch('/api/contacts/respond', {
+    method:  'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': 'Bearer ' + token,
+    },
+    body: JSON.stringify({ fromId, accept: true }),
+  });
+  App._pendingRequests = App._pendingRequests.filter(r => r.fromId !== fromId);
+  onContactAccepted();
   renderContactsPanel();
 }
 
-function declineContact(reqId) {
-  App.socket.emit('contact:decline', { requestId: reqId });
-  App._pendingRequests = App._pendingRequests.filter(r => r.requestId !== reqId);
+async function declineContact(fromId) {
+  const token = sessionStorage.getItem('chat_token');
+  await fetch('/api/contacts/respond', {
+    method:  'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': 'Bearer ' + token,
+    },
+    body: JSON.stringify({ fromId, accept: false }),
+  });
+  App._pendingRequests = App._pendingRequests.filter(r => r.fromId !== fromId);
   renderContactsPanel();
 }
 
-function addContact(e, userId) {
+async function addContact(e, userId) {
   e.stopPropagation();
-  App.socket.emit('contact:request', { toUserId: userId });
+  const token = sessionStorage.getItem('chat_token');
+  await fetch('/api/contacts/send', {
+    method:  'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': 'Bearer ' + token,
+    },
+    body: JSON.stringify({ userId }),
+  });
   showNotif('Запрос отправлен', 'success');
 }
 
 function openUserProfile(userId) {
-  const u = App.contacts.get(userId) || { id: userId, username: userId };
+  userId = +userId;
+  const u      = App.contacts.get(userId) || { id: userId, username: String(userId) };
   const isSelf = userId === App.currentUser?.id;
 
   const modal = document.createElement('div');
@@ -1172,7 +1359,9 @@ function openUserProfile(userId) {
     <div class="modal-box">
       <div class="modal-header">
         <span>Профиль</span>
-        <button class="modal-close" onclick="this.closest('.modal').remove();DOM.overlay.classList.add('hidden')">✕</button>
+        <button class="modal-close"
+                onclick="this.closest('.modal').remove();
+                         document.getElementById('overlay').classList.add('hidden')">✕</button>
       </div>
       <div class="modal-body">
         <div class="profile-avatar-wrap">
@@ -1183,13 +1372,19 @@ function openUserProfile(userId) {
           </div>
           <div class="profile-username">${escHtml(u.username)}</div>
         </div>
-        ${u.bio ? `<p style="text-align:center;color:var(--text2)">${escHtml(u.bio)}</p>` : ''}
+        ${u.bio
+          ? `<p style="text-align:center;color:var(--text2)">${escHtml(u.bio)}</p>`
+          : ''}
         ${!isSelf ? `
-          <button class="modal-btn" onclick="startDirectChat('${escHtml(userId)}');this.closest('.modal').remove()">
+          <button class="modal-btn"
+                  onclick="startDirectChat(${userId});
+                           this.closest('.modal').remove()">
             💬 Написать
           </button>
           ${!App.contacts.has(userId) ? `
-            <button class="modal-btn" onclick="addContactById('${escHtml(userId)}');this.closest('.modal').remove()">
+            <button class="modal-btn"
+                    onclick="addContactById(${userId});
+                             this.closest('.modal').remove()">
               ➕ Добавить в контакты
             </button>` : ''}
         ` : ''}
@@ -1199,50 +1394,78 @@ function openUserProfile(userId) {
   DOM.overlay.classList.remove('hidden');
 }
 
-function addContactById(userId) {
-  App.socket.emit('contact:request', { toUserId: userId });
+async function addContactById(userId) {
+  const token = sessionStorage.getItem('chat_token');
+  await fetch('/api/contacts/send', {
+    method:  'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': 'Bearer ' + token,
+    },
+    body: JSON.stringify({ userId }),
+  });
   showNotif('Запрос отправлен', 'success');
 }
 
 /* ══════════════════════════════════════════════
-   EXPLORE
+   EXPLORE — обзор групп
 ══════════════════════════════════════════════ */
 function onGroupsExplore(data) {
-  const groups = data.groups || [];
-  if (!groups.length) {
+  const chats = data.chats || [];
+  if (!chats.length) {
     DOM.exploreList.innerHTML =
-      '<div style="color:var(--text2);padding:16px;text-align:center">Нет публичных групп</div>';
+      '<div style="color:var(--text2);padding:16px;text-align:center">Нет групп</div>';
     return;
   }
-  DOM.exploreList.innerHTML = groups.map(g => `
-    <div class="contact-item">
-      <div class="ci-avatar">
+  DOM.exploreList.innerHTML = chats.map(g => `
+    <div class="explore-item">
+      <div class="explore-avatar">
         ${g.avatar
           ? `<img class="avatar-img" src="${escHtml(g.avatar)}" alt="">`
           : getInitialsEmoji(g.name)}
       </div>
-      <div class="ci-body">
-        <div class="ci-top">
-          <span class="ci-name">${escHtml(g.name)}</span>
-          <span style="font-size:11px;color:var(--text2)">${g.memberCount || 0} уч.</span>
-        </div>
-        <div class="ci-bottom">
-          <span style="font-size:12px;color:var(--text2)">
-            ${escHtml((g.description || '').slice(0, 50))}
-          </span>
+      <div class="explore-info">
+        <div class="explore-name">${escHtml(g.name)}</div>
+        <div class="explore-meta">${g.member_count || 0} участников
+          ${g.has_password ? '🔒' : ''}
         </div>
       </div>
       ${!App.chats.has(g.id)
-        ? `<button class="modal-btn"
-                   style="padding:4px 10px;font-size:12px"
-                   onclick="joinGroup('${escHtml(g.id)}',this)">Вступить</button>`
+        ? `<button class="explore-join-btn"
+                   onclick="joinGroup(${g.id}, this)">Вступить</button>`
         : '<span style="font-size:11px;color:var(--accent)">✓ Вступил</span>'}
     </div>`).join('');
 }
 
-function joinGroup(chatId, btn) {
-  App.socket.emit('chat:join', { chatId });
+async function joinGroup(chatId, btn) {
   if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+  const token    = sessionStorage.getItem('chat_token');
+  const password = App.chats.get(chatId)?.info?.has_password
+    ? prompt('Введите пароль группы:') : null;
+  try {
+    const res  = await fetch(`/api/chats/${chatId}/join`, {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': 'Bearer ' + token,
+      },
+      body: JSON.stringify({ password }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      App.chats.set(data.chat.id, { info: data.chat, messages: [] });
+      renderChatList();
+      showNotif('Вы вступили в группу', 'success');
+      switchTab('chats');
+      openChat(data.chat.id);
+    } else {
+      showNotif(data.error || 'Ошибка', 'error');
+      if (btn) { btn.disabled = false; btn.textContent = 'Вступить'; }
+    }
+  } catch {
+    showNotif('Ошибка', 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Вступить'; }
+  }
 }
 
 function searchGroups() {
@@ -1259,7 +1482,7 @@ async function onE2EPubkey(data) {
     const theirPub  = await E2E.importPublicKey(data.pubKey);
     const sharedKey = await E2E.deriveSharedKey(App.keyPair.privateKey, theirPub);
     App.chats.forEach((chat, chatId) => {
-      if (chat.info.type === 'direct' && chat.info.members?.includes(data.userId)) {
+      if (chat.info.type === 'private') {
         App.sharedKeys.set(chatId, sharedKey);
       }
     });
@@ -1278,48 +1501,47 @@ function switchTab(tab) {
   DOM.contactsPanel.classList.toggle('hidden', tab !== 'contacts');
   DOM.explorePanel.classList.toggle('hidden',  tab !== 'explore');
 
-  if (tab === 'contacts') renderContactsPanel();
-  if (tab === 'explore')  App.socket.emit('groups:explore', {});
+  if (tab === 'contacts') {
+    renderContactsPanel();
+    // Загружаем актуальные контакты и запросы с сервера
+    const token = sessionStorage.getItem('chat_token');
+    fetch('/api/contacts', {
+      headers: { 'Authorization': 'Bearer ' + token },
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d.ok) {
+          App.contacts.clear();
+          d.contacts.forEach(c => App.contacts.set(c.id, c));
+          renderContactsPanel();
+        }
+      })
+      .catch(() => {});
+    fetch('/api/contacts/requests', {
+      headers: { 'Authorization': 'Bearer ' + token },
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d.ok) {
+          App._pendingRequests = d.requests.map(r => ({
+            fromId:   r.id,
+            username: r.username,
+            avatar:   r.avatar,
+          }));
+          renderContactsPanel();
+        }
+      })
+      .catch(() => {});
+  }
+
+  if (tab === 'explore') {
+    App.socket.emit('groups:explore', { query: '' });
+  }
 }
 
 /* ══════════════════════════════════════════════
-   ПРОЧИЕ ОБРАБОТЧИКИ HTML
+   ПРОЧИЕ ОБРАБОТЧИКИ
 ══════════════════════════════════════════════ */
-function switchAuthTab(tab) {
-  document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.auth-form').forEach(f => f.classList.add('hidden'));
-  document.querySelector(`.auth-tab[onclick*="'${tab}'"]`)?.classList.add('active');
-  $(`tab-${tab}`)?.classList.remove('hidden');
-}
-
-function doLogin() {
-  const username = $('login-username').value.trim();
-  const password = $('login-password').value;
-  $('login-err').textContent = '';
-  if (!username || !password) { $('login-err').textContent = 'Заполните все поля'; return; }
-  E2E.hashPassword(password).then(({ hash, salt }) => {
-    App.socket.emit('auth:login', { username, passwordHash: hash, salt });
-  });
-}
-
-function doRegister() {
-  const username  = $('reg-username').value.trim();
-  const password  = $('reg-password').value;
-  const password2 = $('reg-password2').value;
-  $('reg-err').textContent = '';
-  if (!username || !password) { $('reg-err').textContent = 'Заполните все поля'; return; }
-  if (password !== password2) { $('reg-err').textContent = 'Пароли не совпадают'; return; }
-  if (password.length < 6)   { $('reg-err').textContent = 'Минимум 6 символов'; return; }
-  E2E.hashPassword(password).then(({ hash, salt }) => {
-    App.socket.emit('auth:register', { username, passwordHash: hash, salt });
-  });
-}
-
-function doLogout() {
-  App.socket.emit('auth:logout');
-  showAuth();
-}
-
 function goBack() {
   $('sidebar')?.classList.remove('hidden-mobile');
   DOM.backBtn.classList.add('hidden');
@@ -1351,11 +1573,13 @@ function pickFile(accept) {
   DOM.attachMenu.classList.add('hidden');
 }
 
-function onMsgInput()      { autoResizeInput(); sendTyping(); }
-function onMsgKeydown(e)   { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }
+function onMsgInput()    { autoResizeInput(); sendTyping(); }
+function onMsgKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
 function cancelReply()     { clearReplyBar(); }
 function cancelEdit()      { clearEditBar(); }
-function onMessagesScroll(){}
+function onMessagesScroll() {}
 
 /* ══════════════════════════════════════════════
    ТЕМА
@@ -1363,7 +1587,8 @@ function onMessagesScroll(){}
 const Theme = {
   init() {
     const saved  = localStorage.getItem('chat_theme');
-    const prefer = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    const prefer = window.matchMedia('(prefers-color-scheme: dark)').matches
+      ? 'dark' : 'light';
     this.apply(saved || prefer);
   },
   apply(theme) {
@@ -1400,13 +1625,18 @@ const Sound = {
   playBeep() {
     if (localStorage.getItem('chat_sound') === 'off') return;
     try {
-      if (!this._ctx) this._ctx = new (window.AudioContext || window.webkitAudioContext)();
+      if (!this._ctx)
+        this._ctx = new (window.AudioContext || window.webkitAudioContext)();
       const osc  = this._ctx.createOscillator();
       const gain = this._ctx.createGain();
-      osc.connect(gain); gain.connect(this._ctx.destination);
-      osc.frequency.value = 880; osc.type = 'sine';
+      osc.connect(gain);
+      gain.connect(this._ctx.destination);
+      osc.frequency.value = 880;
+      osc.type = 'sine';
       gain.gain.setValueAtTime(0.15, this._ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.0001, this._ctx.currentTime + 0.35);
+      gain.gain.exponentialRampToValueAtTime(
+        0.0001, this._ctx.currentTime + 0.35
+      );
       osc.start(this._ctx.currentTime);
       osc.stop(this._ctx.currentTime + 0.35);
     } catch {}
@@ -1425,6 +1655,26 @@ function registerSW() {
 }
 
 /* ══════════════════════════════════════════════
+   ЗАГРУЗКА СПИСКА ЧАТОВ
+══════════════════════════════════════════════ */
+async function loadChats() {
+  const token = sessionStorage.getItem('chat_token');
+  try {
+    const res  = await fetch('/api/chats', {
+      headers: { 'Authorization': 'Bearer ' + token },
+    });
+    const data = await res.json();
+    if (data.ok) {
+      App.chats.clear();
+      data.chats.forEach(chat => {
+        App.chats.set(chat.id, { info: chat, messages: [] });
+      });
+      renderChatList();
+    }
+  } catch(e) { console.error('loadChats:', e); }
+}
+
+/* ══════════════════════════════════════════════
    ТОЧКА ВХОДА
 ══════════════════════════════════════════════ */
 document.addEventListener('DOMContentLoaded', async () => {
@@ -1437,15 +1687,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (e.key === 'Escape') closeOverlay();
   });
 
-  window.addEventListener('offline', () => showNotif('Нет интернета', 'error', 5000));
-  window.addEventListener('online',  () => showNotif('Соединение восстановлено', 'success'));
-
+  window.addEventListener('offline', () =>
+    showNotif('Нет интернета', 'error', 5000)
+  );
+  window.addEventListener('online', () =>
+    showNotif('Соединение восстановлено', 'success')
+  );
   window.addEventListener('resize', () => {
     if (window.innerWidth > 700)
       $('sidebar')?.classList.remove('hidden-mobile');
   });
 
-  /* E2E */
   try {
     App.keyPair    = await E2E.generateKeyPair();
     App.e2eEnabled = true;
@@ -1455,64 +1707,55 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   connectSocket();
 
-  /* Восстановление сессии */
-  const saved = sessionStorage.getItem('chat_session');
-  if (saved) {
-    try {
-      const user = JSON.parse(saved);
-      App.socket.once('connect', () => {
-        App.socket.emit('auth:restore', { userId: user.id, token: user.token });
-      });
-    } catch {}
-  }
-  /* ══════════════════════════════════════════════
-   ГЛОБАЛЬНЫЙ ЭКСПОРТ для onclick в HTML
-══════════════════════════════════════════════ */
-window.doLogin          = doLogin;
-window.doRegister       = doRegister;
-window.doLogout         = doLogout;
-window.switchAuthTab    = switchAuthTab;
-window.switchTab        = switchTab;
-window.goBack           = goBack;
-window.openChatInfo     = openChatInfo;
-window.openNewChat      = openNewChat;
-window.openMyProfile    = openMyProfile;
-window.cancelReply      = cancelReply;
-window.cancelEdit       = cancelEdit;
-window.closeOverlay     = closeOverlay;
-window.closeModal       = closeModal;
-window.toggleAttachMenu = toggleAttachMenu;
-window.pickFile         = pickFile;
-window.onMsgInput       = onMsgInput;
-window.onMsgKeydown     = onMsgKeydown;
-window.onSearchInput    = onSearchInput;
-window.clearSearch      = clearSearch;
-window.searchGroups     = searchGroups;
-window.searchUsers      = searchUsers;
-window.openImageModal   = openImageModal;
-window.ctxReply         = ctxReply;
-window.ctxCopy          = ctxCopy;
-window.ctxEdit          = ctxEdit;
-window.ctxReact         = ctxReact;
-window.ctxDelete        = ctxDelete;
-window.pickReaction     = pickReaction;
-window.sendReaction     = sendReaction;
-window.startDirectChat  = startDirectChat;
-window.createGroup      = createGroup;
-window.switchNewChatTab = switchNewChatTab;
-window.leaveChat        = leaveChat;
-window.changeChatAvatar = changeChatAvatar;
-window.changeAvatar     = changeAvatar;
-window.saveProfile      = saveProfile;
-window.onAvatarSelected = onAvatarSelected;
-window.onFileSelected   = onFileSelected;
-window.acceptContact    = acceptContact;
-window.declineContact   = declineContact;
-window.addContact       = addContact;
-window.addContactById   = addContactById;
-window.openUserProfile  = openUserProfile;
-window.joinGroup        = joinGroup;
-window.sendMessage      = sendMessage;
-window.openChat         = openChat;
-window.onMessagesScroll = onMessagesScroll;
+   /* ══════════════════════════════════════════════
+     ГЛОБАЛЬНЫЙ ЭКСПОРТ для onclick в HTML
+  ══════════════════════════════════════════════ */
+  window.doLogin          = doLogin;
+  window.doRegister       = doRegister;
+  window.doLogout         = doLogout;
+  window.switchAuthTab    = switchAuthTab;
+  window.switchTab        = switchTab;
+  window.goBack           = goBack;
+  window.openChatInfo     = openChatInfo;
+  window.openNewChat      = openNewChat;
+  window.openMyProfile    = openMyProfile;
+  window.cancelReply      = cancelReply;
+  window.cancelEdit       = cancelEdit;
+  window.closeOverlay     = closeOverlay;
+  window.closeModal       = closeModal;
+  window.toggleAttachMenu = toggleAttachMenu;
+  window.pickFile         = pickFile;
+  window.onMsgInput       = onMsgInput;
+  window.onMsgKeydown     = onMsgKeydown;
+  window.onSearchInput    = onSearchInput;
+  window.clearSearch      = clearSearch;
+  window.searchGroups     = searchGroups;
+  window.searchUsers      = searchUsers;
+  window.openImageModal   = openImageModal;
+  window.ctxReply         = ctxReply;
+  window.ctxCopy          = ctxCopy;
+  window.ctxEdit          = ctxEdit;
+  window.ctxReact         = ctxReact;
+  window.ctxDelete        = ctxDelete;
+  window.pickReaction     = pickReaction;
+  window.sendReaction     = sendReaction;
+  window.startDirectChat  = startDirectChat;
+  window.createGroup      = createGroup;
+  window.switchNewChatTab = switchNewChatTab;
+  window.leaveChat        = leaveChat;
+  window.changeChatAvatar = changeChatAvatar;
+  window.changeAvatar     = changeAvatar;
+  window.saveProfile      = saveProfile;
+  window.onAvatarSelected = onAvatarSelected;
+  window.onFileSelected   = onFileSelected;
+  window.acceptContact    = acceptContact;
+  window.declineContact   = declineContact;
+  window.addContact       = addContact;
+  window.addContactById   = addContactById;
+  window.openUserProfile  = openUserProfile;
+  window.joinGroup        = joinGroup;
+  window.sendMessage      = sendMessage;
+  window.openChat         = openChat;
+  window.onMessagesScroll = onMessagesScroll;
+  window.showCtxMenu      = showCtxMenu;
 });
