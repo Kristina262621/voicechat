@@ -1175,14 +1175,49 @@ html, body {
     max-width: 320px;
     min-width: unset;
     box-shadow: var(--shadow);
+    transition: transform 0.25s ease;
   }
 
-  .sidebar.open    { transform: translateX(0); }
-  .sidebar-overlay { display: block; }
-  .sidebar-overlay.visible { display: block; }
-  .sidebar-overlay:not(.visible) { display: none; }
+  .sidebar.open { transform: translateX(0); }
 
-  /* Правая панель — скрыта */
+  .sidebar-overlay { display: none; }
+  .sidebar-overlay.visible {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 199;
+  }
+
+  /* Чат — занимает весь экран */
+  .chat-area {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Экран "выберите комнату" — по центру, не мешает */
+  #chat-empty {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Когда чат активен — скрываем empty */
+  #chat-view {
+    position: fixed;
+    inset: 0;
+    z-index: 2;
+    flex-direction: column;
+  }
+
+  /* Правая панель участников — скрыта */
   .members-panel { display: none; }
   .members-panel.open {
     display: flex;
@@ -1190,33 +1225,47 @@ html, body {
     top: 0;
     right: 0;
     height: 100%;
+    width: 75%;
+    max-width: 260px;
     z-index: 200;
     box-shadow: var(--shadow);
   }
 
   /* Кнопка меню */
-  .mobile-menu-btn  { display: flex; }
+  .mobile-menu-btn { display: flex; }
 
   /* Хедер */
   .chat-header { padding: 0 10px; gap: 6px; }
 
+  /* Название комнаты — не вылезает */
+  #chat-room-name {
+    font-size: 15px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 40vw;
+  }
+
   /* Сообщения */
   .messages-wrap { padding: 10px 8px; }
 
-  /* Ввод */
+  /* Пузырьки — не на весь экран */
+  .msg-body { max-width: 72vw; }
+
+  /* Ввод — важно для iOS (без этого зум при фокусе) */
   .input-area { padding: 10px 8px; }
+  #msg-input  { font-size: 16px; }
 
   /* Auth */
   .auth-card { padding: 28px 20px; }
 
   /* Голос */
-  .voice-btn  { font-size: 11px; padding: 6px 4px; }
+  .voice-btn { font-size: 11px; padding: 6px 4px; }
 
   /* Скрываем текст в кнопках голоса */
   .voice-btn span,
   .voice-media-btn span { display: none; }
 }
-
 /* ═══════════════════════════════════════════════════════════
    УТИЛИТЫ
 ═══════════════════════════════════════════════════════════ */
