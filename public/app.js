@@ -1387,30 +1387,22 @@ async function createGroup() {
     return;
   }
 
-  // пробуем взять id текущего пользователя из разных мест
-  const myId =
-    App.me?.id ??
-    App.user?.id ??
-    +(sessionStorage.getItem('user_id') || 0) ||
-    null;
-
-  // если "в одиночку" — отправим хотя бы себя (частый req бэка: min 1)
-  const members = solo ? (myId ? [myId] : []) : selected;
-
-  if (!members.length) {
-    showNotif('Выберите участника (или не удалось определить ваш user_id для одиночной группы)', 'error');
+  if (!solo && selected.length === 0) {
+    showNotif('Выберите хотя бы одного участника', 'error');
     return;
   }
 
-  const token = sessionStorage.getItem('chat_token');
+  const myId = getMyId();
+  const members = solo ? (myId ? [myId] : []) : selected;
 
+  // важно: не блокируем тут, пусть сервер скажет точную причину
+  if (solo && !myId) {
+    console.warn('Solo group: user_id not found on client');
+  }
+
+  const token = sessionStorage.getItem('chat_token');
   try {
-    const payload = {
-      name,
-      members,          // основной вариант
-      memberIds: members,     // совместимость
-      participants: members,  // совместимость
-    };
+    const payload = { name, members };
     if (pass) payload.password = pass;
 
     const res = await fetch('/api/chats/group', {
@@ -1422,24 +1414,20 @@ async function createGroup() {
       body: JSON.stringify(payload),
     });
 
-    const raw = await res.text();
+    const text = await res.text();
     let data;
-    try { data = JSON.parse(raw); }
-    catch { data = { ok: false, error: raw || `HTTP ${res.status}` }; }
+    try { data = JSON.parse(text); } catch { data = { ok: false, error: text }; }
 
     if (res.ok && data.ok && data.chat) {
       App.chats.set(data.chat.id, { info: data.chat, messages: [] });
       renderChatList();
       openChat(data.chat.id);
       closeModal('modal-new-chat');
-      showNotif('Группа создана', 'success');
     } else {
-      console.error('createGroup failed:', res.status, data);
       showNotif(`[${res.status}] ${data.error || 'Ошибка создания группы'}`, 'error');
     }
-  } catch (e) {
-    console.error('createGroup exception:', e);
-    showNotif('Ошибка сети/клиента при создании группы', 'error');
+  } catch {
+    showNotif('Ошибка сети', 'error');
   }
 }
 /* ══════════════════════════════════════════════
