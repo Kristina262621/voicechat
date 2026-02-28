@@ -1215,6 +1215,7 @@ function openNewChat() {
   if (!App.ncGroupSelected) App.ncGroupSelected = new Set();
   App.ncGroupSelected.clear();
 
+  if ($('nc-group-solo')) $('nc-group-solo').checked = false;
   if (DOM.ncUserSearch) DOM.ncUserSearch.value = '';
   if (DOM.ncGroupName)  DOM.ncGroupName.value  = '';
   if ($('nc-group-pass'))   $('nc-group-pass').value   = '';
@@ -1378,21 +1379,26 @@ async function createPrivateChat(userId) {
 async function createGroup() {
   const name = DOM.ncGroupName?.value.trim();
   const pass = $('nc-group-pass')?.value.trim() || '';
+  const solo = !!$('nc-group-solo')?.checked;
   const selected = [...(App.ncGroupSelected || new Set())];
 
   if (!name) {
     showNotif('Введите название группы', 'error');
     return;
   }
-  if (!selected.length) {
-    showNotif('Выберите хотя бы одного участника', 'error');
+
+  if (!solo && !selected.length) {
+    showNotif('Выберите хотя бы одного участника или включите "Создать группу в одиночку"', 'error');
     return;
   }
 
   const token = sessionStorage.getItem('chat_token');
 
   try {
-    const payload = { name, members: selected };
+    const payload = {
+      name,
+      members: solo ? [] : selected
+    };
     if (pass) payload.password = pass;
 
     const res = await fetch('/api/chats/group', {
