@@ -4,18 +4,18 @@
    СОСТОЯНИЕ
 ══════════════════════════════════════════════ */
 const App = {
-  socket:       null,
-  currentUser:  null,
-  currentChat:  null,
-  chats:        new Map(),
-  contacts:     new Map(),
-  unread:       new Map(),
-  activeTab:    'chats',
-  replyTo:      null,
-  editMsg:      null,
-  keyPair:      null,
-  sharedKeys:   new Map(),
-  e2eEnabled:   false,
+  socket:           null,
+  currentUser:      null,
+  currentChat:      null,
+  chats:            new Map(),
+  contacts:         new Map(),
+  unread:           new Map(),
+  activeTab:        'chats',
+  replyTo:          null,
+  editMsg:          null,
+  keyPair:          null,
+  sharedKeys:       new Map(),
+  e2eEnabled:       false,
   _pendingRequests: [],
 };
 
@@ -27,8 +27,8 @@ const DOM = {};
 function $(id) { return document.getElementById(id); }
 
 function initDOM() {
-  DOM.authScreen      = $('auth-screen');
-  DOM.appScreen       = $('app-screen');
+  DOM.authScreen      = $('screen-auth');
+  DOM.appScreen       = $('screen-app');
   DOM.chatList        = $('chat-list');
   DOM.messagesList    = $('messages-list');
   DOM.messagesArea    = $('messages-area');
@@ -39,9 +39,9 @@ function initDOM() {
   DOM.searchClear     = $('search-clear');
   DOM.backBtn         = $('back-btn');
   DOM.replyBar        = $('reply-bar');
-  DOM.replyText       = $('reply-text');
+  DOM.replyText       = $('reply-bar-text');
   DOM.editBar         = $('edit-bar');
-  DOM.editText        = $('edit-text');
+  DOM.editText        = $('edit-bar-text');
   DOM.overlay         = $('overlay');
   DOM.msgCtxMenu      = $('msg-ctx-menu');
   DOM.reactionPicker  = $('reaction-picker');
@@ -50,14 +50,14 @@ function initDOM() {
   DOM.modalChatInfo   = $('modal-chat-info');
   DOM.modalImage      = $('modal-image');
   DOM.modalImageEl    = $('modal-image-el');
-  DOM.profileAvatar   = $('profile-avatar');
-  DOM.profileUsername = $('profile-username');
+  DOM.profileAvatar   = $('profile-avatar-el');
+  DOM.profileUsername = $('profile-username-el');
   DOM.profileBio      = $('profile-bio');
   DOM.chatInfoAvatar  = $('chat-info-avatar');
   DOM.chatInfoName    = $('chat-info-name');
   DOM.chatInfoTitle   = $('chat-info-title');
   DOM.chatInfoMeta    = $('chat-info-meta');
-  DOM.chatInfoLeave   = $('chat-info-leave');
+  DOM.chatInfoLeave   = $('chat-info-leave-btn');
   DOM.chatInfoAvatarBtn = $('chat-info-avatar-btn');
   DOM.ncUserSearch    = $('nc-user-search');
   DOM.ncGroupName     = $('nc-group-name');
@@ -66,9 +66,17 @@ function initDOM() {
   DOM.requestsList    = $('requests-list');
   DOM.exploreList     = $('explore-list');
   DOM.attachMenu      = $('attach-menu');
-  DOM.typingIndicator = $('typing-indicator');
-  DOM.sidebarPanel    = $('sidebar-panel');
-  DOM.chatPanel       = $('chat-panel');
+  DOM.sidebarPanel    = $('sidebar');
+  DOM.chatPanel       = $('chat-area');
+  DOM.chatWrap        = $('chat-wrap');
+  DOM.chatPlaceholder = $('chat-placeholder');
+  DOM.contactsPanel   = $('contacts-panel');
+  DOM.explorePanel    = $('explore-panel');
+  DOM.myAvatar        = $('my-avatar-el');
+  DOM.chatHeaderName  = $('ch-name');
+  DOM.chatHeaderStatus= $('ch-status');
+  DOM.chatHeaderAvatar= $('ch-avatar');
+  DOM.notifications   = $('notifications');
 }
 
 /* ══════════════════════════════════════════════
@@ -94,8 +102,7 @@ function formatDate(ts) {
   const d   = new Date(ts);
   const now = new Date();
   if (d.toDateString() === now.toDateString()) return 'Сегодня';
-  const y = d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
-  return y;
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
 }
 
 function formatSize(bytes) {
@@ -133,8 +140,6 @@ const Theme = {
   apply(t) {
     document.documentElement.setAttribute('data-theme', t);
     localStorage.setItem('theme', t);
-    const btn = $('theme-btn');
-    if (btn) btn.textContent = t === 'dark' ? '☀️' : '🌙';
   },
   toggle() {
     const cur = document.documentElement.getAttribute('data-theme') || 'light';
@@ -204,18 +209,18 @@ function connectSocket() {
   App.socket.on('disconnect',    onSocketDisconnect);
   App.socket.on('connect_error', onSocketError);
 
-  App.socket.on('init',              onInit);
-  App.socket.on('msg:new',           onMsgNew);
-  App.socket.on('msg:edited',        onMsgEdited);
-  App.socket.on('msg:deleted',       onMsgDeleted);
-  App.socket.on('msg:reaction',      onMsgReaction);
-  App.socket.on('chat:typing',       onTyping);
-  App.socket.on('user:online',       onUserOnline);
-  App.socket.on('user:offline',      onUserOffline);
-  App.socket.on('contact:request',   onContactRequest);
-  App.socket.on('contact:accepted',  onContactAccepted);
-  App.socket.on('groups:explore',    onGroupsExplore);
-  App.socket.on('e2e:pubkey',        onE2EPubkey);
+  App.socket.on('init',             onInit);
+  App.socket.on('msg:new',          onMsgNew);
+  App.socket.on('msg:edited',       onMsgEdited);
+  App.socket.on('msg:deleted',      onMsgDeleted);
+  App.socket.on('msg:reaction',     onMsgReaction);
+  App.socket.on('chat:typing',      onTyping);
+  App.socket.on('user:online',      onUserOnline);
+  App.socket.on('user:offline',     onUserOffline);
+  App.socket.on('contact:request',  onContactRequest);
+  App.socket.on('contact:accepted', onContactAccepted);
+  App.socket.on('groups:explore',   onGroupsExplore);
+  App.socket.on('e2e:pubkey',       onE2EPubkey);
 }
 
 function onSocketConnect() {
@@ -228,9 +233,7 @@ function onSocketDisconnect() {
 }
 
 function onSocketError(err) {
-  if (err.message === 'unauthorized') {
-    showAuth();
-  }
+  if (err.message === 'unauthorized') showAuth();
 }
 
 /* ══════════════════════════════════════════════
@@ -259,27 +262,30 @@ function onInit(data) {
    АВТОРИЗАЦИЯ
 ══════════════════════════════════════════════ */
 function showAuth() {
-  if (DOM.authScreen) DOM.authScreen.classList.remove('hidden');
-  if (DOM.appScreen)  DOM.appScreen.classList.add('hidden');
+  DOM.authScreen?.classList.remove('hidden');
+  DOM.appScreen?.classList.add('hidden');
 }
 
 function showApp() {
-  if (DOM.authScreen) DOM.authScreen.classList.add('hidden');
-  if (DOM.appScreen)  DOM.appScreen.classList.remove('hidden');
+  DOM.authScreen?.classList.add('hidden');
+  DOM.appScreen?.classList.remove('hidden');
 }
 
 function switchAuthTab(tab) {
-  $('tab-login')?.classList.toggle('active', tab === 'login');
-  $('tab-reg')?.classList.toggle('active',   tab === 'reg');
-  $('login-form')?.classList.toggle('hidden', tab !== 'login');
-  $('reg-form')?.classList.toggle('hidden',   tab !== 'reg');
+  // tab = 'login' | 'register'
+  document.querySelectorAll('.auth-tab').forEach((btn, i) => {
+    btn.classList.toggle('active', (i === 0 && tab === 'login') || (i === 1 && tab === 'register'));
+  });
+  $('tab-login')?.classList.toggle('hidden',    tab !== 'login');
+  $('tab-register')?.classList.toggle('hidden', tab !== 'register');
 }
 
 async function doLogin() {
   const username = $('login-username')?.value.trim();
   const password = $('login-password')?.value.trim();
+  const errEl    = $('login-err');
   if (!username || !password) {
-    showNotif('Заполните все поля', 'error');
+    if (errEl) errEl.textContent = 'Заполните все поля';
     return;
   }
   try {
@@ -291,13 +297,14 @@ async function doLogin() {
     const data = await res.json();
     if (data.ok) {
       sessionStorage.setItem('chat_token', data.token);
+      if (errEl) errEl.textContent = '';
       App.socket?.disconnect();
       connectSocket();
     } else {
-      showNotif(data.error || 'Ошибка входа', 'error');
+      if (errEl) errEl.textContent = data.error || 'Ошибка входа';
     }
   } catch {
-    showNotif('Ошибка сети', 'error');
+    if (errEl) errEl.textContent = 'Ошибка сети';
   }
 }
 
@@ -305,12 +312,13 @@ async function doRegister() {
   const username  = $('reg-username')?.value.trim();
   const password  = $('reg-password')?.value.trim();
   const password2 = $('reg-password2')?.value.trim();
+  const errEl     = $('reg-err');
   if (!username || !password || !password2) {
-    showNotif('Заполните все поля', 'error');
+    if (errEl) errEl.textContent = 'Заполните все поля';
     return;
   }
   if (password !== password2) {
-    showNotif('Пароли не совпадают', 'error');
+    if (errEl) errEl.textContent = 'Пароли не совпадают';
     return;
   }
   try {
@@ -322,13 +330,14 @@ async function doRegister() {
     const data = await res.json();
     if (data.ok) {
       sessionStorage.setItem('chat_token', data.token);
+      if (errEl) errEl.textContent = '';
       App.socket?.disconnect();
       connectSocket();
     } else {
-      showNotif(data.error || 'Ошибка регистрации', 'error');
+      if (errEl) errEl.textContent = data.error || 'Ошибка регистрации';
     }
   } catch {
-    showNotif('Ошибка сети', 'error');
+    if (errEl) errEl.textContent = 'Ошибка сети';
   }
 }
 
@@ -341,6 +350,7 @@ function doLogout() {
   App.chats.clear();
   App.contacts.clear();
   App.unread.clear();
+  closeModal('modal-profile');
   showAuth();
 }
 
@@ -403,34 +413,11 @@ const E2E = {
 async function onE2EPubkey(data) {
   if (!App.e2eEnabled || !App.keyPair) return;
   try {
-    const theirKey  = await E2E.importPublicKey(data.pubKey);
-    const shared    = await E2E.deriveSharedKey(App.keyPair.privateKey, theirKey);
+    const theirKey = await E2E.importPublicKey(data.pubKey);
+    const shared   = await E2E.deriveSharedKey(App.keyPair.privateKey, theirKey);
     App.sharedKeys.set(data.userId, shared);
   } catch(e) {
     console.error('E2E key exchange error:', e);
-  }
-}
-
-async function toggleE2E() {
-  const btn = $('e2e-toggle-btn');
-  if (App.e2eEnabled) {
-    App.e2eEnabled = false;
-    App.keyPair    = null;
-    App.sharedKeys.clear();
-    if (btn) { btn.textContent = '🔓 E2E выкл.'; btn.classList.remove('active'); }
-    showNotif('E2E-шифрование отключено');
-    return;
-  }
-  try {
-    App.keyPair    = await E2E.generateKeyPair();
-    App.e2eEnabled = true;
-    const pubKey   = await E2E.exportPublicKey(App.keyPair.publicKey);
-    App.socket.emit('e2e:pubkey', { pubKey });
-    if (btn) { btn.textContent = '🔐 E2E вкл.'; btn.classList.add('active'); }
-    showNotif('E2E-шифрование включено', 'success');
-  } catch(e) {
-    console.error('E2E init:', e);
-    showNotif('Ошибка инициализации E2E', 'error');
   }
 }
 
@@ -439,10 +426,16 @@ async function toggleE2E() {
 ══════════════════════════════════════════════ */
 function switchTab(tab) {
   App.activeTab = tab;
-  ['chats','contacts','explore'].forEach(t => {
-    $(`tab-${t}`)?.classList.toggle('active', t === tab);
-    $(`panel-${t}`)?.classList.toggle('hidden', t !== tab);
+
+  ['chats', 'contacts', 'explore'].forEach(t => {
+    $(`stab-${t}`)?.classList.toggle('active', t === tab);
   });
+
+  // Показываем нужную панель
+  DOM.chatList?.classList.toggle('hidden',        tab !== 'chats');
+  DOM.contactsPanel?.classList.toggle('hidden',   tab !== 'contacts');
+  DOM.explorePanel?.classList.toggle('hidden',    tab !== 'explore');
+
   if (tab === 'contacts') renderContactsPanel();
   if (tab === 'explore')  App.socket.emit('groups:explore', { query: '' });
 }
@@ -452,7 +445,7 @@ function switchTab(tab) {
 ══════════════════════════════════════════════ */
 function renderMyAvatar() {
   const u  = App.currentUser;
-  const el = $('my-avatar');
+  const el = DOM.myAvatar;
   if (!el || !u) return;
   el.innerHTML = u.avatar
     ? `<img class="avatar-img" src="${escHtml(u.avatar)}" alt="">`
@@ -467,7 +460,6 @@ function renderChatList() {
   const query = DOM.searchInput?.value.toLowerCase() || '';
 
   let chats = [...App.chats.values()];
-
   if (query) {
     chats = chats.filter(c =>
       (c.info.name || '').toLowerCase().includes(query)
@@ -493,10 +485,10 @@ function renderChatList() {
 }
 
 function buildChatItem(c) {
-  const info    = c.info;
-  const unread  = App.unread.get(info.id) || 0;
-  const active  = App.currentChat === info.id;
-  const av      = info.avatar
+  const info   = c.info;
+  const unread = App.unread.get(info.id) || 0;
+  const active = App.currentChat === info.id;
+  const av     = info.avatar
     ? `<img class="avatar-img" src="${escHtml(info.avatar)}" alt="">`
     : getInitialsEmoji(info.name);
   const lastMsg = escHtml((info.last_msg || '').slice(0, 40));
@@ -560,25 +552,28 @@ async function loadMessages(chatId) {
 }
 
 function showChatPanel() {
+  DOM.chatPlaceholder?.classList.add('hidden');
+  DOM.chatWrap?.classList.remove('hidden');
   if (window.innerWidth <= 700) {
     DOM.sidebarPanel?.classList.add('hidden');
-    DOM.chatPanel?.classList.remove('hidden');
+    DOM.backBtn?.classList.remove('hidden');
   }
 }
 
 function showChatPlaceholder() {
-  if (DOM.chatPanel) {
-    DOM.chatPanel.classList.add('hidden');
-  }
+  DOM.chatWrap?.classList.add('hidden');
+  DOM.chatPlaceholder?.classList.remove('hidden');
   if (window.innerWidth <= 700) {
     DOM.sidebarPanel?.classList.remove('hidden');
+    DOM.backBtn?.classList.add('hidden');
   }
 }
 
 function goBack() {
   App.currentChat = null;
   DOM.sidebarPanel?.classList.remove('hidden');
-  DOM.chatPanel?.classList.add('hidden');
+  DOM.backBtn?.classList.add('hidden');
+  showChatPlaceholder();
 }
 
 /* ══════════════════════════════════════════════
@@ -589,14 +584,10 @@ function renderChatHeader() {
   if (!chat) return;
   const info = chat.info;
 
-  const nameEl   = $('chat-header-name');
-  const statusEl = $('chat-header-status');
-  const avatarEl = $('chat-header-avatar');
-
-  if (nameEl)   nameEl.textContent   = info.name || '';
-  if (statusEl) statusEl.textContent = info.online ? 'В сети' : '';
-  if (avatarEl) {
-    avatarEl.innerHTML = info.avatar
+  if (DOM.chatHeaderName)   DOM.chatHeaderName.textContent   = info.name || '';
+  if (DOM.chatHeaderStatus) DOM.chatHeaderStatus.textContent = info.online ? 'В сети' : '';
+  if (DOM.chatHeaderAvatar) {
+    DOM.chatHeaderAvatar.innerHTML = info.avatar
       ? `<img class="avatar-img" src="${escHtml(info.avatar)}" alt="">`
       : getInitialsEmoji(info.name);
   }
@@ -607,15 +598,13 @@ function renderChatHeader() {
 ══════════════════════════════════════════════ */
 function onSearchInput() {
   const q = DOM.searchInput?.value || '';
-  if (DOM.searchClear) {
-    DOM.searchClear.classList.toggle('hidden', !q);
-  }
+  DOM.searchClear?.classList.toggle('hidden', !q);
   renderChatList();
 }
 
 function clearSearch() {
   if (DOM.searchInput) DOM.searchInput.value = '';
-  if (DOM.searchClear) DOM.searchClear.classList.add('hidden');
+  DOM.searchClear?.classList.add('hidden');
   renderChatList();
 }
 
@@ -635,14 +624,15 @@ function onTyping(data) {
 }
 
 function renderTyping() {
-  if (!DOM.typingIndicator) return;
-  if (!_typingUsers.size) {
-    DOM.typingIndicator.classList.add('hidden');
-    return;
+  const el = $('ch-status');
+  if (!el) return;
+  if (_typingUsers.size) {
+    const names = [..._typingUsers.values()].join(', ');
+    el.textContent = `${names} печатает...`;
+  } else {
+    const chat = App.chats.get(App.currentChat);
+    el.textContent = chat?.info.online ? 'В сети' : '';
   }
-  const names = [..._typingUsers.values()].join(', ');
-  DOM.typingIndicator.textContent = `${names} печатает...`;
-  DOM.typingIndicator.classList.remove('hidden');
 }
 
 /* ══════════════════════════════════════════════
@@ -650,26 +640,18 @@ function renderTyping() {
 ══════════════════════════════════════════════ */
 function onUserOnline(data) {
   App.chats.forEach(c => {
-    if (c.info.type === 'private' && c.info.userId === data.userId) {
-      c.info.online = true;
-    }
+    if (c.info.type === 'private' && c.info.userId === data.userId) c.info.online = true;
   });
-  App.contacts.forEach(c => {
-    if (c.id === data.userId) c.online = true;
-  });
+  App.contacts.forEach(c => { if (c.id === data.userId) c.online = true; });
   if (App.currentChat) renderChatHeader();
   if (App.activeTab === 'contacts') renderContactsList();
 }
 
 function onUserOffline(data) {
   App.chats.forEach(c => {
-    if (c.info.type === 'private' && c.info.userId === data.userId) {
-      c.info.online = false;
-    }
+    if (c.info.type === 'private' && c.info.userId === data.userId) c.info.online = false;
   });
-  App.contacts.forEach(c => {
-    if (c.id === data.userId) c.online = false;
-  });
+  App.contacts.forEach(c => { if (c.id === data.userId) c.online = false; });
   if (App.currentChat) renderChatHeader();
   if (App.activeTab === 'contacts') renderContactsList();
 }
@@ -711,17 +693,15 @@ function onMsgEdited(data) {
     const msg = chat.messages.find(m => m.msg_id === data.msgId);
     if (msg) { msg.content = data.content; msg.edited_at = data.editedAt; }
   });
-  if (App.currentChat) {
-    const el = document.querySelector(`[data-msg-id="${data.msgId}"]`);
-    if (el) {
-      const t = el.querySelector('.msg-text');
-      if (t) t.innerHTML = formatMsgText(data.content);
-      if (!el.querySelector('.msg-edited')) {
-        const s = document.createElement('span');
-        s.className   = 'msg-edited';
-        s.textContent = ' (изм.)';
-        el.querySelector('.msg-meta')?.appendChild(s);
-      }
+  const el = document.querySelector(`[data-msg-id="${data.msgId}"]`);
+  if (el) {
+    const t = el.querySelector('.msg-text');
+    if (t) t.innerHTML = formatMsgText(data.content);
+    if (!el.querySelector('.msg-edited')) {
+      const s = document.createElement('span');
+      s.className   = 'msg-edited';
+      s.textContent = ' (изм.)';
+      el.querySelector('.msg-meta')?.appendChild(s);
     }
   }
 }
@@ -754,6 +734,7 @@ function onMsgReaction(data) {
    РЕНДЕР СООБЩЕНИЙ
 ══════════════════════════════════════════════ */
 function renderMessages() {
+  if (!DOM.messagesList) return;
   const chat = App.chats.get(App.currentChat);
   if (!chat) return;
   DOM.messagesList.innerHTML = '';
@@ -775,10 +756,11 @@ function renderMessages() {
 }
 
 function appendMessage(msg) {
+  if (!DOM.messagesList) return;
   const chat = App.chats.get(App.currentChat);
   if (!chat) return;
-  const msgs     = chat.messages;
-  const prev     = msgs[msgs.length - 2];
+  const msgs    = chat.messages;
+  const prev    = msgs[msgs.length - 2];
   const prevDate = prev
     ? new Date(prev.created_at || prev.ts).toDateString() : null;
   const newDate  = new Date(msg.created_at || msg.ts).toDateString();
@@ -862,12 +844,9 @@ function buildMsgInner(msg, isMine) {
 
 function buildMsgContent(msg, content) {
   if (msg.deleted) {
-    return `<div class="msg-text" style="opacity:.5;font-style:italic">
-              Сообщение удалено
-            </div>`;
+    return `<div class="msg-text" style="opacity:.5;font-style:italic">Сообщение удалено</div>`;
   }
-  if (msg.type === 'image' ||
-      (msg.mime_type && msg.mime_type.startsWith('image/'))) {
+  if (msg.type === 'image' || (msg.mime_type && msg.mime_type.startsWith('image/'))) {
     const url = msg.file_url || content;
     return `<img class="msg-image"
                  src="${escHtml(url)}"
@@ -878,8 +857,7 @@ function buildMsgContent(msg, content) {
     const url  = msg.file_url || content;
     const name = msg.file_name || 'файл';
     const size = msg.file_size ? formatSize(msg.file_size) : '';
-    return `<a class="msg-file" href="${escHtml(url)}"
-               target="_blank" download>
+    return `<a class="msg-file" href="${escHtml(url)}" target="_blank" download>
               <span class="msg-file-icon">📎</span>
               <div class="msg-file-info">
                 <span class="msg-file-name">${escHtml(name)}</span>
@@ -895,10 +873,8 @@ function buildMsgContent(msg, content) {
 
 function formatMsgText(text) {
   let t = escHtml(text);
-  t = t.replace(
-    /(https?:\/\/[^\s<>"]+)/g,
-    '<a href="$1" target="_blank" rel="noopener" class="msg-link">$1</a>'
-  );
+  t = t.replace(/(https?:\/\/[^\s<>"]+)/g,
+    '<a href="$1" target="_blank" rel="noopener" class="msg-link">$1</a>');
   t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   t = t.replace(/_(.+?)_/g,       '<em>$1</em>');
   t = t.replace(/`(.+?)`/g,       '<code class="msg-code">$1</code>');
@@ -941,13 +917,13 @@ function scrollToBottom(smooth = true) {
 ══════════════════════════════════════════════ */
 async function sendMessage() {
   if (!App.currentChat) return;
-  const text = DOM.msgInput.value.trim();
+  const text = DOM.msgInput?.value.trim();
 
   if (App.editMsg) {
     if (!text) return;
     App.socket.emit('msg:edit', { msgId: App.editMsg.msgId, content: text });
     clearEditBar();
-    DOM.msgInput.value = '';
+    if (DOM.msgInput) DOM.msgInput.value = '';
     autoResizeInput();
     return;
   }
@@ -963,7 +939,7 @@ async function sendMessage() {
     replyTo: App.replyTo ? App.replyTo.msgId : null,
   });
 
-  DOM.msgInput.value = '';
+  if (DOM.msgInput) DOM.msgInput.value = '';
   autoResizeInput();
   clearReplyBar();
 }
@@ -986,9 +962,9 @@ function sendTyping() {
 }
 
 async function onFileSelected() {
-  const file = DOM.fileInput.files[0];
+  const file = DOM.fileInput?.files[0];
   if (!file || !App.currentChat) return;
-  DOM.fileInput.value = '';
+  if (DOM.fileInput) DOM.fileInput.value = '';
 
   if (file.size > 20 * 1024 * 1024) {
     showNotif('Файл слишком большой (макс. 20 МБ)', 'error');
@@ -1032,34 +1008,33 @@ async function onFileSelected() {
 ══════════════════════════════════════════════ */
 function clearReplyBar() {
   App.replyTo = null;
-  DOM.replyBar.classList.add('hidden');
-  DOM.replyText.textContent = '';
+  DOM.replyBar?.classList.add('hidden');
+  if (DOM.replyText) DOM.replyText.textContent = '';
 }
 
 function openReplyBar(msg) {
   const content = msg.content || msg.text || '📎';
   const name    = msg.username || msg.senderName || '';
   App.replyTo   = { msgId: msg.msg_id || msg.id, text: content, senderName: name };
-  DOM.replyText.textContent = `${name}: ${content.slice(0, 60)}`;
-  DOM.replyBar.classList.remove('hidden');
-  DOM.msgInput.focus();
+  if (DOM.replyText) DOM.replyText.textContent = `${name}: ${content.slice(0, 60)}`;
+  DOM.replyBar?.classList.remove('hidden');
+  DOM.msgInput?.focus();
 }
 
 function clearEditBar() {
   App.editMsg = null;
-  DOM.editBar.classList.add('hidden');
-  DOM.editText.textContent = '';
-  DOM.msgInput.value = '';
+  DOM.editBar?.classList.add('hidden');
+  if (DOM.editText) DOM.editText.textContent = '';
+  if (DOM.msgInput) DOM.msgInput.value = '';
   autoResizeInput();
 }
 
 function openEditBar(msg) {
   const content = msg.content || msg.text || '';
   App.editMsg   = { msgId: msg.msg_id || msg.id, content };
-  DOM.editText.textContent = content.slice(0, 60);
-  DOM.editBar.classList.remove('hidden');
-  DOM.msgInput.value = content;
-  DOM.msgInput.focus();
+  if (DOM.editText) DOM.editText.textContent = content.slice(0, 60);
+  DOM.editBar?.classList.remove('hidden');
+  if (DOM.msgInput) { DOM.msgInput.value = content; DOM.msgInput.focus(); }
   autoResizeInput();
 }
 
@@ -1074,8 +1049,9 @@ function showCtxMenu(e, msg, isMine) {
   _ctxMine = isMine;
 
   const menu = DOM.msgCtxMenu;
+  if (!menu) return;
   menu.classList.remove('hidden');
-  DOM.overlay.classList.remove('hidden');
+  DOM.overlay?.classList.remove('hidden');
 
   $('ctx-edit-btn').style.display = isMine ? '' : 'none';
   $('ctx-del-btn').style.display  = isMine ? '' : 'none';
@@ -1107,8 +1083,8 @@ function ctxCopy()   {
 }
 function ctxEdit()   { closeOverlay(); if (_ctxMsg) openEditBar(_ctxMsg); }
 function ctxReact()  {
-  DOM.msgCtxMenu.classList.add('hidden');
-  DOM.reactionPicker.classList.remove('hidden');
+  DOM.msgCtxMenu?.classList.add('hidden');
+  DOM.reactionPicker?.classList.remove('hidden');
 }
 function ctxDelete() {
   closeOverlay();
@@ -1118,8 +1094,8 @@ function ctxDelete() {
 }
 
 function pickReaction(emoji) {
-  DOM.reactionPicker.classList.add('hidden');
-  DOM.overlay.classList.add('hidden');
+  DOM.reactionPicker?.classList.add('hidden');
+  DOM.overlay?.classList.add('hidden');
   if (!_ctxMsg) return;
   App.socket.emit('msg:react', { msgId: _ctxMsg.msg_id || _ctxMsg.id, emoji });
 }
@@ -1130,37 +1106,44 @@ function sendReaction(emoji) {
 }
 
 /* ══════════════════════════════════════════════
-   OVERLAY
+   OVERLAY / МОДАЛКИ
 ══════════════════════════════════════════════ */
 function closeOverlay() {
-  DOM.overlay.classList.add('hidden');
-  DOM.msgCtxMenu.classList.add('hidden');
-  DOM.reactionPicker.classList.add('hidden');
-  DOM.modalProfile.classList.add('hidden');
-  DOM.modalNewChat.classList.add('hidden');
-  DOM.modalChatInfo.classList.add('hidden');
-  DOM.modalImage.classList.add('hidden');
+  DOM.overlay?.classList.add('hidden');
+  DOM.msgCtxMenu?.classList.add('hidden');
+  DOM.reactionPicker?.classList.add('hidden');
   _ctxMsg  = null;
   _ctxMine = false;
 }
 
+function closeModal(id) {
+  $(id)?.classList.add('hidden');
+  DOM.overlay?.classList.add('hidden');
+}
+
+function openModal(id) {
+  $(id)?.classList.remove('hidden');
+  DOM.overlay?.classList.remove('hidden');
+}
+
 /* ══════════════════════════════════════════════
-   МОДАЛКА — ПРОФИЛЬ
+   ПРОФИЛЬ
 ══════════════════════════════════════════════ */
-function openProfileModal() {
+function openMyProfile() {
   if (!App.currentUser) return;
   const u = App.currentUser;
-  DOM.profileAvatar.innerHTML = u.avatar
-    ? `<img class="avatar-img" src="${escHtml(u.avatar)}" alt="">`
-    : getInitialsEmoji(u.username);
-  DOM.profileUsername.textContent = u.username;
-  DOM.profileBio.value            = u.bio || '';
-  DOM.modalProfile.classList.remove('hidden');
-  DOM.overlay.classList.remove('hidden');
+  if (DOM.profileAvatar) {
+    DOM.profileAvatar.innerHTML = u.avatar
+      ? `<img class="avatar-img" src="${escHtml(u.avatar)}" alt="">`
+      : getInitialsEmoji(u.username);
+  }
+  if (DOM.profileUsername) DOM.profileUsername.textContent = u.username;
+  if (DOM.profileBio)      DOM.profileBio.value            = u.bio || '';
+  openModal('modal-profile');
 }
 
 async function saveProfile() {
-  const bio   = DOM.profileBio.value.trim();
+  const bio   = DOM.profileBio?.value.trim();
   const token = sessionStorage.getItem('chat_token');
   try {
     const res  = await fetch('/api/profile', {
@@ -1175,7 +1158,7 @@ async function saveProfile() {
     if (data.ok) {
       App.currentUser.bio = bio;
       showNotif('Профиль сохранён', 'success');
-      closeOverlay();
+      closeModal('modal-profile');
     } else {
       showNotif(data.error || 'Ошибка сохранения', 'error');
     }
@@ -1184,7 +1167,7 @@ async function saveProfile() {
   }
 }
 
-async function uploadAvatar() {
+async function changeAvatar() {
   const input  = document.createElement('input');
   input.type   = 'file';
   input.accept = 'image/*';
@@ -1207,8 +1190,10 @@ async function uploadAvatar() {
       const data = await res.json();
       if (data.ok) {
         App.currentUser.avatar = data.url;
-        DOM.profileAvatar.innerHTML =
-          `<img class="avatar-img" src="${escHtml(data.url)}" alt="">`;
+        if (DOM.profileAvatar) {
+          DOM.profileAvatar.innerHTML =
+            `<img class="avatar-img" src="${escHtml(data.url)}" alt="">`;
+        }
         renderMyAvatar();
         renderChatList();
         showNotif('Аватар обновлён', 'success');
@@ -1223,24 +1208,24 @@ async function uploadAvatar() {
 }
 
 /* ══════════════════════════════════════════════
-   МОДАЛКА — НОВЫЙ ЧАТ
+   НОВЫЙ ЧАТ
 ══════════════════════════════════════════════ */
-function openNewChatModal() {
-  DOM.ncUserSearch.value   = '';
-  DOM.ncGroupName.value    = '';
-  DOM.ncUserList.innerHTML = '';
-  $('nc-group-section').classList.add('hidden');
-  $('nc-mode-private').classList.add('active');
-  $('nc-mode-group').classList.remove('active');
-  DOM.modalNewChat.classList.remove('hidden');
-  DOM.overlay.classList.remove('hidden');
+function openNewChat() {
+  if (DOM.ncUserSearch) DOM.ncUserSearch.value   = '';
+  if (DOM.ncGroupName)  DOM.ncGroupName.value    = '';
+  if (DOM.ncUserList)   DOM.ncUserList.innerHTML = '';
+  switchNewChatTab('private');
+  openModal('modal-new-chat');
   renderNcContacts('');
 }
 
-function switchNcMode(mode) {
-  $('nc-mode-private').classList.toggle('active', mode === 'private');
-  $('nc-mode-group').classList.toggle('active',   mode === 'group');
-  $('nc-group-section').classList.toggle('hidden', mode !== 'group');
+function switchNewChatTab(mode) {
+  document.querySelectorAll('.nctab').forEach((btn, i) => {
+    btn.classList.toggle('active',
+      (i === 0 && mode === 'private') || (i === 1 && mode === 'group'));
+  });
+  $('nctab-private')?.classList.toggle('hidden', mode !== 'private');
+  $('nctab-group')?.classList.toggle('hidden',   mode !== 'group');
 }
 
 function renderNcContacts(query) {
@@ -1248,6 +1233,7 @@ function renderNcContacts(query) {
   const contacts = [...App.contacts.values()].filter(c =>
     !q || c.username.toLowerCase().includes(q)
   );
+  if (!DOM.ncUserList) return;
   if (!contacts.length) {
     DOM.ncUserList.innerHTML =
       `<div style="text-align:center;padding:24px;color:var(--text2)">
@@ -1270,16 +1256,18 @@ function renderNcContacts(query) {
   }).join('');
 }
 
-function ncSearchInput() { renderNcContacts(DOM.ncUserSearch.value.trim()); }
+function searchUsers() {
+  renderNcContacts(DOM.ncUserSearch?.value.trim() || '');
+}
 
 async function ncSelectUser(userId) {
-  const mode = $('nc-mode-group').classList.contains('active') ? 'group' : 'private';
-  if (mode === 'group') {
-    const item = DOM.ncUserList.querySelector(`[data-id="${userId}"]`);
+  const isGroup = !$('nctab-group')?.classList.contains('hidden');
+  if (isGroup) {
+    const item = DOM.ncUserList?.querySelector(`[data-id="${userId}"]`);
     if (item) item.classList.toggle('selected');
     return;
   }
-  closeOverlay();
+  closeModal('modal-new-chat');
   await createPrivateChat(userId);
 }
 
@@ -1307,12 +1295,12 @@ async function createPrivateChat(userId) {
   }
 }
 
-async function createGroupChat() {
-  const name     = DOM.ncGroupName.value.trim();
-  const selected = [...DOM.ncUserList.querySelectorAll('.contact-item.selected')]
+async function createGroup() {
+  const name     = DOM.ncGroupName?.value.trim();
+  const selected = [...(DOM.ncUserList?.querySelectorAll('.contact-item.selected') || [])]
     .map(el => +el.dataset.id);
   if (!name) { showNotif('Введите название группы', 'error'); return; }
-  if (selected.length < 1) { showNotif('Выберите хотя бы одного участника', 'error'); return; }
+  if (!selected.length) { showNotif('Выберите хотя бы одного участника', 'error'); return; }
 
   const token = sessionStorage.getItem('chat_token');
   try {
@@ -1329,7 +1317,7 @@ async function createGroupChat() {
       App.chats.set(data.chat.id, { info: data.chat, messages: [] });
       renderChatList();
       openChat(data.chat.id);
-      closeOverlay();
+      closeModal('modal-new-chat');
     } else {
       showNotif(data.error || 'Ошибка создания группы', 'error');
     }
@@ -1339,68 +1327,37 @@ async function createGroupChat() {
 }
 
 /* ══════════════════════════════════════════════
-   МОДАЛКА — ИНФОРМАЦИЯ О ЧАТЕ
+   ИНФОРМАЦИЯ О ЧАТЕ
 ══════════════════════════════════════════════ */
 async function openChatInfo() {
   const chat = App.chats.get(App.currentChat);
   if (!chat) return;
   const info = chat.info;
 
-  DOM.chatInfoAvatar.innerHTML = info.avatar
-    ? `<img class="avatar-img" src="${escHtml(info.avatar)}" alt="">`
-    : getInitialsEmoji(info.name);
-  DOM.chatInfoName.textContent = info.name;
+  if (DOM.chatInfoAvatar) {
+    DOM.chatInfoAvatar.innerHTML = info.avatar
+      ? `<img class="avatar-img" src="${escHtml(info.avatar)}" alt="">`
+      : getInitialsEmoji(info.name);
+  }
+  if (DOM.chatInfoName)  DOM.chatInfoName.textContent  = info.name;
+  if (DOM.chatInfoTitle) DOM.chatInfoTitle.textContent =
+    info.type === 'group' ? 'Информация о группе' : 'Информация о пользователе';
+  if (DOM.chatInfoMeta)  DOM.chatInfoMeta.textContent  =
+    info.type === 'group'
+      ? `${info.member_count || 0} участников`
+      : (info.online ? 'В сети' : 'Не в сети');
 
-  if (info.type === 'group') {
-    DOM.chatInfoTitle.textContent = 'Информация о группе';
-    DOM.chatInfoMeta.textContent  = `${info.member_count || 0} участников`;
-    DOM.chatInfoLeave.classList.remove('hidden');
-    DOM.chatInfoAvatarBtn.classList.remove('hidden');
-  } else {
-    DOM.chatInfoTitle.textContent = 'Информация о пользователе';
-    DOM.chatInfoMeta.textContent  = info.online ? 'В сети' : 'Не в сети';
-    DOM.chatInfoLeave.classList.add('hidden');
-    DOM.chatInfoAvatarBtn.classList.add('hidden');
+  if (DOM.chatInfoLeave) {
+    DOM.chatInfoLeave.style.display = info.type === 'group' ? '' : 'none';
+  }
+  if (DOM.chatInfoAvatarBtn) {
+    DOM.chatInfoAvatarBtn.style.display = info.type === 'group' ? '' : 'none';
   }
 
-  const membersEl = $('chat-info-members');
-  if (membersEl) {
-    membersEl.innerHTML = '';
-    if (info.type === 'group') await loadGroupMembers(info.id, membersEl);
-  }
-
-  DOM.modalChatInfo.classList.remove('hidden');
-  DOM.overlay.classList.remove('hidden');
+  openModal('modal-chat-info');
 }
 
-async function loadGroupMembers(chatId, container) {
-  const token = sessionStorage.getItem('chat_token');
-  try {
-    const res  = await fetch(`/api/chats/${chatId}/members`, {
-      headers: { 'Authorization': 'Bearer ' + token },
-    });
-    const data = await res.json();
-    if (!data.ok) return;
-    container.innerHTML = data.members.map(m => {
-      const av = m.avatar
-        ? `<img class="avatar-img" src="${escHtml(m.avatar)}" alt="">`
-        : getInitialsEmoji(m.username);
-      return `
-        <div class="contact-item">
-          <div class="ci-avatar">${av}</div>
-          <div class="ci-body">
-            <span class="ci-name">${escHtml(m.username)}</span>
-            <span class="ci-sub">${m.role === 'admin' ? '👑 Админ' : 'Участник'}</span>
-          </div>
-        </div>`;
-    }).join('');
-  } catch {
-    container.innerHTML =
-      '<div style="color:var(--text2);padding:12px">Ошибка загрузки</div>';
-  }
-}
-
-async function uploadGroupAvatar() {
+async function changeChatAvatar() {
   const chat = App.chats.get(App.currentChat);
   if (!chat || chat.info.type !== 'group') return;
   const input  = document.createElement('input');
@@ -1409,10 +1366,6 @@ async function uploadGroupAvatar() {
   input.onchange = async () => {
     const file = input.files[0];
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      showNotif('Файл слишком большой (макс. 5 МБ)', 'error');
-      return;
-    }
     const token    = sessionStorage.getItem('chat_token');
     const formData = new FormData();
     formData.append('file', file);
@@ -1425,8 +1378,10 @@ async function uploadGroupAvatar() {
       const data = await res.json();
       if (data.ok) {
         chat.info.avatar = data.url;
-        DOM.chatInfoAvatar.innerHTML =
-          `<img class="avatar-img" src="${escHtml(data.url)}" alt="">`;
+        if (DOM.chatInfoAvatar) {
+          DOM.chatInfoAvatar.innerHTML =
+            `<img class="avatar-img" src="${escHtml(data.url)}" alt="">`;
+        }
         renderChatHeader();
         renderChatList();
         showNotif('Аватар группы обновлён', 'success');
@@ -1440,7 +1395,7 @@ async function uploadGroupAvatar() {
   input.click();
 }
 
-async function leaveGroupChat() {
+async function leaveChat() {
   if (!App.currentChat) return;
   if (!confirm('Покинуть группу?')) return;
   const token = sessionStorage.getItem('chat_token');
@@ -1451,7 +1406,7 @@ async function leaveGroupChat() {
     });
     const data = await res.json();
     if (data.ok) {
-      closeOverlay();
+      closeModal('modal-chat-info');
       App.chats.delete(App.currentChat);
       App.currentChat = null;
       showChatPlaceholder();
@@ -1466,12 +1421,11 @@ async function leaveGroupChat() {
 }
 
 /* ══════════════════════════════════════════════
-   МОДАЛКА — ИЗОБРАЖЕНИЕ
+   ИЗОБРАЖЕНИЕ
 ══════════════════════════════════════════════ */
 function openImageModal(url) {
-  DOM.modalImageEl.src = url;
-  DOM.modalImage.classList.remove('hidden');
-  DOM.overlay.classList.remove('hidden');
+  if (DOM.modalImageEl) DOM.modalImageEl.src = url;
+  openModal('modal-image');
 }
 
 /* ══════════════════════════════════════════════
@@ -1483,6 +1437,7 @@ function renderContactsPanel() {
 }
 
 function renderContactsList() {
+  if (!DOM.contactsList) return;
   const contacts = [...App.contacts.values()];
   if (!contacts.length) {
     DOM.contactsList.innerHTML =
@@ -1511,9 +1466,8 @@ function renderContactsList() {
 }
 
 function renderRequestsList() {
+  if (!DOM.requestsList) return;
   const reqs = App._pendingRequests;
-  const wrap = $('requests-wrap');
-  if (wrap) wrap.classList.toggle('hidden', !reqs.length);
   if (!reqs.length) { DOM.requestsList.innerHTML = ''; return; }
   DOM.requestsList.innerHTML = reqs.map(r => {
     const av = r.avatar
@@ -1545,38 +1499,6 @@ function onContactAccepted(data) {
   App._pendingRequests = App._pendingRequests.filter(r => r.fromId !== data.id);
   showNotif(`${data.username} принял(а) запрос`, 'success');
   if (App.activeTab === 'contacts') renderContactsPanel();
-}
-
-async function sendContactRequest() {
-  const input = $('contact-search-input');
-  const query = input?.value.trim();
-  if (!query) { showNotif('Введите имя пользователя', 'error'); return; }
-  const token = sessionStorage.getItem('chat_token');
-  try {
-    const res  = await fetch('/api/contacts/request', {
-      method:  'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': 'Bearer ' + token,
-      },
-      body: JSON.stringify({ username: query }),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      showNotif('Запрос отправлен', 'success');
-      if (input) input.value = '';
-    } else {
-      const msgs = {
-        user_not_found:  'Пользователь не найден',
-        already_contact: 'Уже в контактах',
-        request_exists:  'Запрос уже отправлен',
-        cannot_add_self: 'Нельзя добавить себя',
-      };
-      showNotif(msgs[data.error] || data.error || 'Ошибка', 'error');
-    }
-  } catch {
-    showNotif('Ошибка сети', 'error');
-  }
 }
 
 async function acceptContact(fromId) {
@@ -1631,6 +1553,7 @@ async function rejectContact(fromId) {
    EXPLORE
 ══════════════════════════════════════════════ */
 function onGroupsExplore(data) {
+  if (!DOM.exploreList) return;
   const groups = data.groups || [];
   if (!groups.length) {
     DOM.exploreList.innerHTML =
@@ -1660,9 +1583,9 @@ function onGroupsExplore(data) {
   }).join('');
 }
 
-function exploreSearch() {
-  const q = $('explore-search')?.value.trim() || '';
-  App.socket.emit('groups:explore', { query: q });
+function searchGroups() {
+  const q = $('explore-input')?.value.trim() || '';
+  App.socket?.emit('groups:explore', { query: q });
 }
 
 async function joinGroup(groupId) {
@@ -1700,11 +1623,11 @@ function onMsgKeydown(e) {
 function cancelReply()      { clearReplyBar(); }
 function cancelEdit()       { clearEditBar(); }
 function onMessagesScroll() {}
-function toggleAttachMenu() { DOM.attachMenu.classList.toggle('hidden'); }
+function toggleAttachMenu() { DOM.attachMenu?.classList.toggle('hidden'); }
 function pickFile(accept)   {
-  DOM.fileInput.accept = accept;
-  DOM.fileInput.click();
-  DOM.attachMenu.classList.add('hidden');
+  if (DOM.fileInput) DOM.fileInput.accept = accept;
+  DOM.fileInput?.click();
+  DOM.attachMenu?.classList.add('hidden');
 }
 
 /* ══════════════════════════════════════════════
@@ -1725,20 +1648,20 @@ async function init() {
   connectSocket();
   if (!token) showAuth();
 
-  DOM.backBtn?.addEventListener('click', goBack);
-  DOM.searchInput?.addEventListener('input', onSearchInput);
-  DOM.searchClear?.addEventListener('click', clearSearch);
-  DOM.msgInput?.addEventListener('input',   onMsgInput);
-  DOM.msgInput?.addEventListener('keydown', onMsgKeydown);
-  DOM.messagesArea?.addEventListener('scroll', onMessagesScroll);
-  DOM.sendBtn?.addEventListener('click', sendMessage);
-  DOM.fileInput?.addEventListener('change', onFileSelected);
-  DOM.overlay?.addEventListener('click', closeOverlay);
+  DOM.backBtn      && DOM.backBtn.addEventListener('click', goBack);
+  DOM.searchInput  && DOM.searchInput.addEventListener('input', onSearchInput);
+  DOM.searchClear  && DOM.searchClear.addEventListener('click', clearSearch);
+  DOM.msgInput     && DOM.msgInput.addEventListener('input',   onMsgInput);
+  DOM.msgInput     && DOM.msgInput.addEventListener('keydown', onMsgKeydown);
+  DOM.messagesArea && DOM.messagesArea.addEventListener('scroll', onMessagesScroll);
+  DOM.sendBtn      && DOM.sendBtn.addEventListener('click', sendMessage);
+  DOM.fileInput    && DOM.fileInput.addEventListener('change', onFileSelected);
+  DOM.overlay      && DOM.overlay.addEventListener('click', closeOverlay);
 
-  $('login-password')?.addEventListener('keydown', e => {
+  $('login-password') && $('login-password').addEventListener('keydown', e => {
     if (e.key === 'Enter') doLogin();
   });
-  $('reg-password2')?.addEventListener('keydown', e => {
+  $('reg-password2') && $('reg-password2').addEventListener('keydown', e => {
     if (e.key === 'Enter') doRegister();
   });
 
@@ -1762,37 +1685,23 @@ async function init() {
     if (dx > 80 && window.innerWidth <= 700 && App.currentChat) goBack();
   }, { passive: true });
 
-  let _installPrompt;
-  window.addEventListener('beforeinstallprompt', e => {
-    e.preventDefault();
-    _installPrompt = e;
-    $('install-btn')?.classList.remove('hidden');
-  });
-  window.installApp = async function() {
-    if (!_installPrompt) return;
-    await _installPrompt.prompt();
-    const result = await _installPrompt.userChoice;
-    if (result.outcome === 'accepted') $('install-btn')?.classList.add('hidden');
-    _installPrompt = null;
-  };
-
   Object.assign(window, {
     openChat, goBack, switchTab,
     onSearchInput, clearSearch,
     sendMessage, cancelReply, cancelEdit,
     toggleAttachMenu, pickFile,
     onMsgInput, onMsgKeydown, onMessagesScroll,
-    openProfileModal, saveProfile, uploadAvatar,
-    openNewChatModal, switchNcMode, ncSearchInput,
-    ncSelectUser, createGroupChat,
-    openChatInfo, uploadGroupAvatar, leaveGroupChat,
-    openImageModal, closeOverlay,
+    openMyProfile, saveProfile, changeAvatar,
+    openNewChat, switchNewChatTab, searchUsers,
+    ncSelectUser, createGroup,
+    openChatInfo, changeChatAvatar, leaveChat,
+    openImageModal, closeOverlay, closeModal,
     ctxReply, ctxCopy, ctxEdit, ctxReact, ctxDelete,
     pickReaction, sendReaction,
-    sendContactRequest, acceptContact, rejectContact,
-    createPrivateChat, exploreSearch, joinGroup,
-    toggleE2E, doLogin, doLogout, doRegister,
-    switchAuthTab, Theme,
+    acceptContact, rejectContact,
+    createPrivateChat, searchGroups, joinGroup,
+    doLogin, doLogout, doRegister, switchAuthTab,
+    Theme,
   });
 
   console.log('✅ SecureChat ready');
