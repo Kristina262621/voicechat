@@ -1,297 +1,384 @@
 <!DOCTYPE html>
-<html lang="ru" data-theme="dark">
+<html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="VoiceChat — защищённый мессенджер с голосовым и видео чатом">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <meta name="theme-color" content="#0f1117" />
   <title>VoiceChat</title>
-  <link rel="stylesheet" href="/style.css">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎙️</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
-<!-- ═══════════════════════════════════════
+<!-- ═══════════════════════════════════════════════════════
      ЭКРАН АВТОРИЗАЦИИ
-════════════════════════════════════════ -->
+═══════════════════════════════════════════════════════════ -->
 <div id="auth-screen">
-
   <div class="auth-card">
-    <div class="auth-logo">🎙️</div>
-    <h1 class="auth-title">VoiceChat</h1>
-    <p class="auth-subtitle">Защищённый мессенджер</p>
+    <h1>💬 VoiceChat</h1>
+    <p class="subtitle">Войдите или создайте аккаунт</p>
 
-    <!-- Вход -->
-    <div id="auth-login">
-      <form id="form-login" autocomplete="on">
-        <div class="form-group">
-          <label for="login-username">Имя пользователя</label>
-          <input id="login-username" type="text" placeholder="Введите имя"
-                 autocomplete="username" required maxlength="24">
-        </div>
-        <div class="form-group">
-          <label for="login-password">Пароль</label>
-          <input id="login-password" type="password" placeholder="Введите пароль"
-                 autocomplete="current-password" required>
-        </div>
-        <button type="submit" class="btn-primary btn-full">Войти</button>
-      </form>
-      <p class="auth-switch">
-        Нет аккаунта?
-        <a href="#" id="link-to-register">Зарегистрироваться</a>
-      </p>
+    <div class="auth-tabs">
+      <button class="auth-tab active" data-tab="login">Войти</button>
+      <button class="auth-tab"        data-tab="register">Регистрация</button>
     </div>
 
-    <!-- Регистрация -->
-    <div id="auth-register" style="display:none">
-      <form id="form-register" autocomplete="on">
-        <div class="form-group">
-          <label for="reg-username">Имя пользователя</label>
-          <input id="reg-username" type="text" placeholder="От 2 до 24 символов"
-                 autocomplete="username" required minlength="2" maxlength="24">
-        </div>
-        <div class="form-group">
-          <label for="reg-password">Пароль</label>
-          <input id="reg-password" type="password" placeholder="Минимум 4 символа"
-                 autocomplete="new-password" required minlength="4">
-        </div>
-        <button type="submit" class="btn-primary btn-full">Зарегистрироваться</button>
-      </form>
-      <p class="auth-switch">
-        Уже есть аккаунт?
-        <a href="#" id="link-to-login">Войти</a>
-      </p>
-    </div>
-
-  </div>
-</div>
-
-<!-- ═══════════════════════════════════════
-     ГЛАВНЫЙ ЭКРАН ПРИЛОЖЕНИЯ
-════════════════════════════════════════ -->
-<div id="app-screen" style="display:none">
-
-  <!-- ── Левая панель (сайдбар) ─────────── -->
-  <aside class="sidebar">
-
-    <!-- Шапка профиля -->
-    <div class="sidebar-profile">
-      <div id="profile-avatar" class="sidebar-avatar"></div>
-      <div class="sidebar-profile-info">
-        <span id="profile-username" class="sidebar-username"></span>
-      </div>
-      <button id="btn-edit-profile" class="btn-icon" title="Редактировать профиль">⚙️</button>
-    </div>
-
-    <!-- Кнопки навигации -->
-    <div class="sidebar-nav">
-      <button id="btn-show-rooms"    class="btn-nav active" title="Комнаты">💬 Комнаты</button>
-      <button id="btn-show-contacts" class="btn-nav"        title="Контакты">
-        👥 Контакты
-        <span id="requests-badge" class="badge" style="display:none">0</span>
-      </button>
-    </div>
-
-    <!-- Панель комнат -->
-    <div id="rooms-panel" class="sidebar-panel">
-
-      <!-- Поиск комнат -->
-      <div class="search-wrap">
-        <input id="room-search" type="search" placeholder="🔍 Поиск комнат" class="input-search">
-      </div>
-
-      <!-- Список комнат -->
-      <div id="room-list" class="room-list"></div>
-
-      <!-- Создание комнаты -->
-      <button id="btn-create-room" class="btn-secondary btn-full">➕ Новая комната</button>
-      <div id="create-room-form" style="display:none">
-        <form id="form-create-room" class="create-room-form">
-          <input id="new-room-name" type="text"     placeholder="Название комнаты"
-                 maxlength="64" required class="input-text">
-          <input id="new-room-pass" type="password" placeholder="Пароль (необязательно)"
-                 class="input-text">
-          <label class="checkbox-label">
-            <input id="new-room-group" type="checkbox">
-            <span>Групповой чат</span>
-          </label>
-          <div class="form-row">
-            <button type="submit"             class="btn-primary">Создать</button>
-            <button type="button" id="btn-cancel-create" class="btn-ghost">Отмена</button>
-          </div>
-        </form>
-      </div>
-
-    </div>
-
-    <!-- Панель контактов -->
-    <div id="contacts-panel" class="sidebar-panel" style="display:none">
-
-      <!-- Заявки -->
-      <div class="contacts-section">
-        <div class="section-title">📨 Заявки</div>
-        <div id="contact-requests-list" class="contacts-list"></div>
-      </div>
-
-      <!-- Контакты -->
-      <div class="contacts-section">
-        <div class="section-title">👥 Мои контакты</div>
-        <div id="contacts-list" class="contacts-list"></div>
-      </div>
-
-    </div>
-
-    <!-- Нижние кнопки -->
-    <div class="sidebar-footer">
-      <button id="btn-theme"  class="btn-icon" title="Сменить тему">🌙</button>
-      <button id="btn-logout" class="btn-icon btn-danger" title="Выйти">🚪</button>
-    </div>
-
-  </aside>
-
-  <!-- ── Правая часть (чат) ─────────────── -->
-  <main class="chat-main">
-
-    <!-- Пустой экран -->
-    <div id="empty-screen" class="empty-screen">
-      <div class="empty-icon">💬</div>
-      <div class="empty-title">Выберите комнату</div>
-      <div class="empty-sub">чтобы начать общение</div>
-    </div>
-
-    <!-- Чат-область -->
-    <div id="chat-area" class="chat-area" style="display:none">
-
-      <!-- Шапка чата -->
-      <header class="chat-header">
-        <div class="chat-header-left">
-          <span id="current-room-name" class="chat-room-name"></span>
-          <span id="user-count" class="user-count">0 онлайн</span>
-        </div>
-        <div class="chat-header-right">
-          <input id="msg-search" type="search" placeholder="🔍 Поиск сообщений"
-                 class="input-search input-search-sm">
-        </div>
-      </header>
-
-      <!-- Закреплённое сообщение -->
-      <div id="pinned-banner" class="pinned-banner" style="display:none">
-        <span class="pinned-preview">📌 Закреплённое сообщение</span>
-        <button class="btn-unpin btn-icon" title="Открепить">✕</button>
-      </div>
-
-      <!-- Основная область -->
-      <div class="chat-body">
-
-        <!-- Список участников -->
-        <div class="users-sidebar">
-          <div class="users-title">Участники</div>
-          <div id="user-list" class="user-list"></div>
-
-          <!-- Голосовые кнопки -->
-          <div class="voice-controls">
-            <button id="btn-join-voice"  class="btn-voice">🎙️ Голос</button>
-            <button id="btn-leave-voice" class="btn-voice btn-danger" style="display:none">📴 Выйти</button>
-            <button id="btn-mute"        class="btn-voice btn-mute"   style="display:none">🎙️ Микрофон</button>
-            <button id="btn-start-video" class="btn-voice">📹 Видео</button>
-            <button id="btn-stop-video"  class="btn-voice btn-danger" style="display:none">📹 Стоп</button>
-          </div>
-
-          <!-- Видео область -->
-          <div id="video-area" class="video-area" style="display:none"></div>
-        </div>
-
-        <!-- Сообщения -->
-        <div class="messages-wrap">
-          <div id="message-list" class="message-list"></div>
-          <div id="typing-indicator" class="typing-indicator" style="display:none"></div>
-        </div>
-
-      </div>
-
-      <!-- Панель ввода -->
-      <footer class="chat-footer">
-
-        <!-- Reply bar -->
-        <div id="reply-bar" class="reply-bar" style="display:none">
-          <span class="reply-info"></span>
-          <button id="btn-cancel-reply" class="btn-icon">✕</button>
-        </div>
-
-        <!-- Edit bar -->
-        <div id="edit-bar" class="edit-bar" style="display:none">
-          <span class="edit-info"></span>
-          <button id="btn-cancel-edit" class="btn-icon">✕</button>
-        </div>
-
-        <!-- Ввод -->
-        <div id="chat-input-wrap" class="chat-input-wrap">
-          <button id="btn-emoji"       class="btn-icon" title="Эмодзи">😀</button>
-          <button id="btn-attach-file" class="btn-icon" title="Прикрепить файл">📎</button>
-          <input  id="file-input" type="file" style="display:none"
-                  accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.txt,.zip">
-          <textarea id="chat-input" class="chat-input"
-                    placeholder="Написать сообщение..."
-                    rows="1" maxlength="4000"></textarea>
-          <button id="btn-send" class="btn-send" title="Отправить">➤</button>
-        </div>
-
-      </footer>
-
-    </div>
-  </main>
-
-</div>
-
-<!-- ═══════════════════════════════════════
-     МОДАЛЬНОЕ ОКНО ПРОФИЛЯ
-════════════════════════════════════════ -->
-<div id="profile-modal" class="modal-overlay" style="display:none">
-  <div class="modal-card">
-
-    <div class="modal-header">
-      <h2 class="modal-title">✏️ Редактировать профиль</h2>
-      <button id="btn-close-profile" class="btn-icon">✕</button>
-    </div>
-
-    <form id="form-profile" class="modal-body">
-
-      <!-- Аватар -->
-      <div class="avatar-upload">
-        <div id="profile-avatar-preview" class="avatar-preview"></div>
-        <label class="btn-secondary btn-sm" for="profile-avatar-input">
-          📷 Сменить фото
-        </label>
-        <input id="profile-avatar-input" type="file"
-               accept="image/*" style="display:none">
-      </div>
-
-      <!-- Имя (readonly) -->
+    <!-- Форма входа -->
+    <form id="login-form">
       <div class="form-group">
         <label>Имя пользователя</label>
-        <input type="text" class="input-text"
-               value="" id="profile-username-display"
-               disabled style="opacity:.6">
+        <input type="text" id="login-username" placeholder="Ваш никнейм"
+               autocomplete="username" autocapitalize="none" spellcheck="false" />
       </div>
-
-      <!-- Биография -->
       <div class="form-group">
-        <label for="profile-bio-input">О себе</label>
-        <textarea id="profile-bio-input" class="input-text"
-                  placeholder="Расскажите о себе..."
-                  rows="3" maxlength="200"></textarea>
+        <label>Пароль</label>
+        <input type="password" id="login-password" placeholder="••••••••"
+               autocomplete="current-password" />
       </div>
+      <button type="submit" class="btn btn-primary">Войти</button>
+      <p class="error-msg" id="login-error"></p>
+    </form>
 
-      <button type="submit" class="btn-primary btn-full">💾 Сохранить</button>
-
+    <!-- Форма регистрации -->
+    <form id="register-form" class="hidden">
+      <div class="form-group">
+        <label>Имя пользователя</label>
+        <input type="text" id="reg-username" placeholder="Ваш никнейм"
+               autocomplete="username" autocapitalize="none" spellcheck="false" />
+      </div>
+      <div class="form-group">
+        <label>Пароль</label>
+        <input type="password" id="reg-password" placeholder="Минимум 4 символа"
+               autocomplete="new-password" />
+      </div>
+      <button type="submit" class="btn btn-primary">Создать аккаунт</button>
+      <p class="error-msg" id="reg-error"></p>
     </form>
   </div>
 </div>
 
-<!-- ═══════════════════════════════════════
-     СКРИПТЫ
-════════════════════════════════════════ -->
-<script src="/socket.io/socket.io.js"></script>
-<script src="/app.js"></script>
+<!-- ═══════════════════════════════════════════════════════
+     ГЛАВНОЕ ПРИЛОЖЕНИЕ
+═══════════════════════════════════════════════════════════ -->
+<div id="app-screen" class="hidden">
 
+  <!-- Оверлей мобильного сайдбара -->
+  <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+  <!-- ── ЛЕВАЯ ПАНЕЛЬ ──────────────────────────────────── -->
+  <aside class="sidebar" id="sidebar">
+
+    <!-- Профиль -->
+    <div class="sidebar-profile" id="profile-btn">
+      <div class="profile-avatar" id="sidebar-avatar">?</div>
+      <div class="profile-info">
+        <div class="profile-name" id="sidebar-username">...</div>
+        <div class="profile-status">Онлайн</div>
+      </div>
+      <button class="btn-icon" id="logout-btn" title="Выйти">🚪</button>
+    </div>
+
+    <!-- Табы -->
+    <div class="sidebar-tabs">
+      <button class="sidebar-tab active" data-panel="rooms">
+        💬 <span>Комнаты</span>
+      </button>
+      <button class="sidebar-tab" data-panel="contacts">
+        👥 <span>Контакты</span>
+      </button>
+    </div>
+
+    <!-- ── Панель: Комнаты ── -->
+    <div id="panel-rooms">
+      <div class="sidebar-search">
+        <div class="search-wrap">
+          <span class="icon">🔍</span>
+          <input type="text" id="room-search" placeholder="Поиск комнат..." />
+        </div>
+      </div>
+      <div class="sidebar-list" id="rooms-list">
+        <!-- room-item сюда -->
+      </div>
+    </div>
+
+    <!-- ── Панель: Контакты ── -->
+    <div id="panel-contacts" class="hidden">
+      <div class="sidebar-search">
+        <div class="search-wrap">
+          <span class="icon">🔍</span>
+          <input type="text" id="user-search" placeholder="Найти пользователя..." />
+        </div>
+      </div>
+      <div class="sidebar-list" id="contacts-list">
+        <!-- contacts сюда -->
+      </div>
+
+      <!-- Запросы в друзья -->
+      <div id="friend-requests-block" class="hidden" style="border-top:1px solid var(--border);padding:8px">
+        <div style="font-size:12px;color:var(--text-3);padding:4px 8px 6px;font-weight:600;text-transform:uppercase;letter-spacing:.05em">
+          Входящие запросы
+        </div>
+        <div id="requests-list"></div>
+      </div>
+    </div>
+
+    <!-- Кнопки внизу -->
+    <div class="sidebar-footer">
+      <button class="btn btn-ghost" id="create-room-btn">＋ Комната</button>
+      <button class="btn btn-ghost" id="add-contact-btn">＋ Контакт</button>
+    </div>
+  </aside>
+
+  <!-- ── ЦЕНТРАЛЬНАЯ ПАНЕЛЬ (чат) ──────────────────────── -->
+  <main class="chat-area" id="chat-area">
+
+    <!-- Пустое состояние -->
+    <div class="chat-empty" id="chat-empty">
+      <div class="chat-empty-icon">💬</div>
+      <h2>Выберите комнату</h2>
+      <p>чтобы начать общение</p>
+    </div>
+
+    <!-- Активный чат -->
+    <div id="chat-view" class="hidden" style="display:none;flex-direction:column;height:100%">
+
+      <!-- Хедер -->
+      <header class="chat-header">
+        <button class="mobile-menu-btn" id="mobile-menu-btn">☰</button>
+        <div style="flex:1;min-width:0">
+          <div class="chat-header-title" id="chat-room-name">—</div>
+          <div class="chat-header-sub" id="chat-room-sub"></div>
+        </div>
+        <div class="header-actions">
+          <button class="btn-icon" id="members-toggle-btn" title="Участники">👥</button>
+          <button class="btn-icon" id="search-msg-btn"    title="Поиск">🔍</button>
+          <button class="btn-icon" id="room-settings-btn" title="Настройки комнаты" class="hidden">⚙️</button>
+        </div>
+      </header>
+
+      <!-- Закреплённое -->
+      <div id="pinned-bar" class="pinned-bar hidden">
+        <span class="pin-icon">📌</span>
+        <span class="pinned-text" id="pinned-text"></span>
+        <button class="btn-icon" id="unpin-btn" title="Открепить" style="font-size:14px">✕</button>
+      </div>
+
+      <!-- Поиск по сообщениям -->
+      <div id="msg-search-bar" class="hidden" style="padding:8px 16px;background:var(--bg-1);border-bottom:1px solid var(--border)">
+        <div class="search-wrap">
+          <span class="icon">🔍</span>
+          <input type="text" id="msg-search-input" placeholder="Поиск по сообщениям..." />
+        </div>
+      </div>
+
+      <!-- Сообщения -->
+      <div class="messages-wrap" id="messages-wrap">
+        <!-- msg items -->
+      </div>
+
+      <!-- Индикатор печатает -->
+      <div class="typing-indicator" id="typing-indicator"></div>
+
+      <!-- Ввод -->
+      <div class="input-area">
+        <div id="reply-bar" class="reply-bar hidden">
+          <span>↩️ Ответ для <span class="reply-to-name" id="reply-to-name"></span></span>
+          <span class="reply-close" id="reply-close">✕</span>
+        </div>
+        <div class="input-row">
+          <div class="input-wrap">
+            <textarea
+              class="msg-input"
+              id="msg-input"
+              placeholder="Написать сообщение..."
+              rows="1"
+              maxlength="4000"
+            ></textarea>
+            <label class="input-attach" title="Прикрепить файл">
+              📎
+              <input type="file" id="file-input" style="display:none"
+                     accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.txt,.zip" />
+            </label>
+          </div>
+          <button class="send-btn" id="send-btn" title="Отправить">➤</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ── ПРАВАЯ ПАНЕЛЬ (участники) ────────────────────── -->
+  <aside class="members-panel" id="members-panel">
+    <div class="members-header">
+      <span>Участники</span>
+      <button class="btn-icon" id="members-close-btn" style="display:none">✕</button>
+    </div>
+    <div class="members-list" id="members-list">
+      <!-- member items -->
+    </div>
+    <div class="voice-panel">
+      <div class="voice-controls">
+        <button class="voice-btn" id="voice-btn">
+          🎙️ <span>Голос</span>
+        </button>
+        <button class="voice-btn" id="video-btn">
+          📹 <span>Видео</span>
+        </button>
+      </div>
+      <div class="voice-media-row">
+        <button class="voice-media-btn hidden" id="mic-btn">
+          🎤 <span>Микр.</span>
+        </button>
+        <button class="voice-media-btn hidden" id="cam-btn">
+          📷 <span>Камера</span>
+        </button>
+        <button class="voice-media-btn hidden" id="screen-btn">
+          🖥️ <span>Экран</span>
+        </button>
+        <button class="voice-media-btn danger hidden" id="hangup-btn">
+          📵 <span>Завершить</span>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+</div><!-- /app-screen -->
+
+<!-- ═══════════════════════════════════════════════════════
+     МОДАЛЬНЫЕ ОКНА
+═══════════════════════════════════════════════════════════ -->
+
+<!-- Создать комнату -->
+<div class="modal-overlay hidden" id="modal-create-room">
+  <div class="modal">
+    <h2>
+      Новая комната
+      <button class="modal-close" data-close="modal-create-room">✕</button>
+    </h2>
+    <div class="form-group">
+      <label>Название</label>
+      <input type="text" id="new-room-name" placeholder="Название комнаты" maxlength="64" />
+    </div>
+    <div class="form-group">
+      <label>Пароль <span class="text-muted text-sm">(необязательно)</span></label>
+      <input type="password" id="new-room-pass" placeholder="Оставьте пустым для открытой комнаты" />
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:14px;margin-bottom:12px;cursor:pointer">
+      <input type="checkbox" id="new-room-group" />
+      Групповая комната
+    </label>
+    <p class="error-msg" id="create-room-error"></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" data-close="modal-create-room">Отмена</button>
+      <button class="btn btn-primary" id="confirm-create-room">Создать</button>
+    </div>
+  </div>
+</div>
+
+<!-- Войти в комнату с паролем -->
+<div class="modal-overlay hidden" id="modal-room-pass">
+  <div class="modal">
+    <h2>
+      Введите пароль
+      <button class="modal-close" data-close="modal-room-pass">✕</button>
+    </h2>
+    <div class="form-group">
+      <label>Пароль комнаты</label>
+      <input type="password" id="room-pass-input" placeholder="••••••••" />
+    </div>
+    <p class="error-msg" id="room-pass-error"></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" data-close="modal-room-pass">Отмена</button>
+      <button class="btn btn-primary" id="confirm-room-pass">Войти</button>
+    </div>
+  </div>
+</div>
+
+<!-- Профиль -->
+<div class="modal-overlay hidden" id="modal-profile">
+  <div class="modal">
+    <h2>
+      Профиль
+      <button class="modal-close" data-close="modal-profile">✕</button>
+    </h2>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:12px;margin-bottom:20px">
+      <div class="profile-avatar" id="profile-modal-avatar"
+           style="width:72px;height:72px;font-size:28px;cursor:pointer"
+           title="Сменить фото">
+        ?
+      </div>
+      <label class="btn btn-ghost text-sm" style="cursor:pointer">
+        📷 Сменить фото
+        <input type="file" id="avatar-input" accept="image/*" style="display:none" />
+      </label>
+    </div>
+    <div class="form-group">
+      <label>Имя пользователя</label>
+      <input type="text" id="profile-username" disabled
+             style="opacity:.6;cursor:not-allowed" />
+    </div>
+    <div class="form-group">
+      <label>О себе <span class="text-muted text-sm">(до 200 симв.)</span></label>
+      <textarea id="profile-bio" rows="3" maxlength="200"
+                style="width:100%;background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius-xs);color:var(--text-1);padding:10px 14px;font-size:14px;resize:vertical;outline:none;font-family:var(--font)"
+                placeholder="Расскажите о себе..."></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" data-close="modal-profile">Закрыть</button>
+      <button class="btn btn-primary" id="save-profile-btn">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Добавить контакт -->
+<div class="modal-overlay hidden" id="modal-add-contact">
+  <div class="modal">
+    <h2>
+      Добавить контакт
+      <button class="modal-close" data-close="modal-add-contact">✕</button>
+    </h2>
+    <div class="form-group">
+      <label>Имя пользователя</label>
+      <input type="text" id="contact-username" placeholder="Введите никнейм"
+             autocapitalize="none" spellcheck="false" />
+    </div>
+    <div id="user-search-results" style="margin-bottom:10px"></div>
+    <p class="error-msg" id="add-contact-error"></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" data-close="modal-add-contact">Отмена</button>
+      <button class="btn btn-primary" id="confirm-add-contact">Отправить запрос</button>
+    </div>
+  </div>
+</div>
+
+<!-- Настройки комнаты -->
+<div class="modal-overlay hidden" id="modal-room-settings">
+  <div class="modal">
+    <h2>
+      Настройки комнаты
+      <button class="modal-close" data-close="modal-room-settings">✕</button>
+    </h2>
+    <p class="text-sm text-muted" style="margin-bottom:16px" id="room-settings-name"></p>
+    <div class="modal-actions" style="flex-direction:column;gap:8px">
+      <button class="btn btn-danger" id="delete-room-btn" style="width:100%">
+        🗑️ Удалить комнату
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Лайтбокс для изображений -->
+<div class="lightbox hidden" id="lightbox">
+  <img id="lightbox-img" src="" alt="" />
+</div>
+
+<!-- Видео-сетка (WebRTC) -->
+<div id="video-grid" class="hidden"
+     style="position:fixed;bottom:80px;right:16px;display:flex;flex-wrap:wrap;gap:8px;z-index:300;max-width:420px">
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
