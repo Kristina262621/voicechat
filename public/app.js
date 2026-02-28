@@ -65,7 +65,6 @@ function normalizeServerUrl(input) {
     const u = new URL(url);
     u.hash = '';
     u.search = '';
-    // Railway публичный домен — без :8080
     if (u.hostname.endsWith('.up.railway.app')) u.port = '';
     return u.origin;
   } catch {
@@ -105,7 +104,6 @@ function initSocket(token, roomId, username, serverUrl) {
 
   window._socket = socket;
 
-  // Диагностика менеджера socket.io
   if (socket.io) {
     socket.io.on('reconnect_attempt', (attempt) => console.warn('[socket] reconnect_attempt:', attempt));
     socket.io.on('reconnect_error', (err) => console.error('[socket] reconnect_error:', err?.message || err));
@@ -126,7 +124,7 @@ function initSocket(token, roomId, username, serverUrl) {
     console.error('[socket] error:', err);
   });
 
-  socket.on('auth-ok', ({ username: uname }) => { joined = false; });
+  socket.on('auth-ok', () => { joined = false; });
   socket.on('auth-fail', () => { showScreen('screen-rooms'); toast('❌ Ошибка авторизации'); });
 
   socket.on('disconnect', (reason) => {
@@ -149,7 +147,7 @@ function initSocket(token, roomId, username, serverUrl) {
       window._peerAvatars.set(socketId, u.avatar || null);
       window._peerIds.set(socketId, u.userId || null);
 
-      if (joined && localStream) {
+      if (joined && localStream && socketId !== socket.id && !peers[socketId]) {
         addParticipant(socketId, uname);
         peers[socketId] = createPeer(socketId, true);
       }
@@ -159,13 +157,11 @@ function initSocket(token, roomId, username, serverUrl) {
 
   socket.on('room-history', async ({ messages, pinned }) => {
     if (!Array.isArray(messages)) return;
-    for (const m of messages) {
-      await appendHistoryMessage(m);
-    }
+    for (const m of messages) await appendHistoryMessage(m);
     if (pinned) updatePinnedBanner(pinned);
   });
 
-  socket.on('user-joined', (data) => {
+  socket.on('user-joined', async (data) => {
     const socketId = data.socketId;
     const uname = data.username || 'Участник';
 
@@ -175,20 +171,27 @@ function initSocket(token, roomId, username, serverUrl) {
     window._peerIds.set(socketId, data.userId || null);
     playBeep('join');
 
-    if (joined) addParticipant(socketId, uname);
-    showToastJoin(uname);
+    if (joined) {
+      addParticipant(socketId, uname);
+      if (socketId !== socket.id && !peers[socketId] && localStream) {
+        peers[socketId] = createPeer(socketId, true);
+      }
+    }
 
+    showToastJoin(uname);
     if (window.onUserJoined) window.onUserJoined(socketId);
   });
 
   socket.on('user-left', (data) => {
     const socketId = typeof data === 'string' ? data : data.socketId;
-    const uname = window._peerNames.get(socketId) || socketId.slice(0,6);
+    const uname = window._peerNames.get(socketId) || socketId.slice(0, 6);
 
     window._roomPeers.delete(socketId);
     window._peerNames.delete(socketId);
     window._peerAvatars.delete(socketId);
     window._peerIds.delete(socketId);
+
+    delete pendingRemoteCandidates[socketId];
 
     playBeep('leave');
     removeParticipant(socketId);
@@ -209,16 +212,29 @@ function initSocket(token, roomId, username, serverUrl) {
 
   socket.on('answer', async ({ from, answer }) => {
     const peer = peers[from];
-    if (peer?.signalingState === 'have-local-offer') {
-      await peer.setRemoteDescription(new RTCSessionDescription(answer));
+    if (!peer) return;
+    try {
+      if (peer.signalingState === 'have-local-offer' || peer.signalingState === 'stable') {
+        await peer.setRemoteDescription(new RTCSessionDescription(answer));
+        await flushPendingCandidates(from);
+      }
+    } catch (e) {
+      console.error('[RTC] setRemoteDescription(answer) error', e);
     }
   });
 
   socket.on('ice-candidate', async ({ from, candidate }) => {
+    if (!candidate) return;
     const peer = peers[from];
-    if (peer && candidate) {
-      try { await peer.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e) {}
+    if (!peer) {
+      ensureCandidateQueue(from).push(candidate);
+      return;
     }
+    if (!peer.remoteDescription) {
+      ensureCandidateQueue(from).push(candidate);
+      return;
+    }
+    try { await peer.addIceCandidate(new RTCIceCandidate(candidate)); } catch (_) {}
   });
 
   socket.on('chat-message', async (data) => {
@@ -251,7 +267,7 @@ function initSocket(token, roomId, username, serverUrl) {
         const url  = URL.createObjectURL(blob);
         updateMessage(msgId, { localUrl: url, status: 'ok', replyTo: meta?.replyTo || null, editedAt: data.editedAt || null });
       }
-    } catch(e) {
+    } catch (_) {
       updateMessage(msgId, { status: 'error' });
     }
   });
@@ -286,7 +302,7 @@ function initSocket(token, roomId, username, serverUrl) {
 
   socket.on('understood', ({ from, username: uname }) => {
     playOkSound();
-    const name = uname || window._peerNames.get(from) || from?.slice(0,6);
+    const name = uname || window._peerNames.get(from) || from?.slice(0, 6);
     const banner = document.createElement('div');
     banner.className   = 'understood-banner';
     banner.textContent = '✅ Понял! (' + name + ')';
@@ -294,8 +310,8 @@ function initSocket(token, roomId, username, serverUrl) {
     setTimeout(() => banner.remove(), 3000);
   });
 
-  socket.on('video-start',  (data) => { if (window.onVideoStart) window.onVideoStart(typeof data==='string'?data:data.from); });
-  socket.on('video-stop',   (data) => { if (window.onVideoStop) window.onVideoStop(typeof data==='string'?data:data.from); });
+  socket.on('video-start',  (data) => { if (window.onVideoStart) window.onVideoStart(typeof data === 'string' ? data : data.from); });
+  socket.on('video-stop',   (data) => { if (window.onVideoStop) window.onVideoStop(typeof data === 'string' ? data : data.from); });
   socket.on('video-offer',  async (data) => { window._roomPeers.add(data.from); if (window.onVideoOffer) await window.onVideoOffer(data.from, data.offer); });
   socket.on('video-answer', async (data) => { if (window.onVideoAnswer) await window.onVideoAnswer(data.from, data.answer); });
   socket.on('video-ice',    async (data) => { if (window.onVideoIce) await window.onVideoIce(data.from, data.candidate); });
@@ -307,12 +323,12 @@ function socketLeave() {
   hangUp();
   joined = false;
   if (typeof resetVoiceUI === 'function') resetVoiceUI();
-  if (socket) {
-    socket.removeAllListeners();
-    socket.disconnect();
-    socket = null;
-    window._socket = null;
-  }
+
+  socket.removeAllListeners();
+  socket.disconnect();
+  socket = null;
+  window._socket = null;
+
   window._roomPeers.clear();
   window._peerNames.clear();
   window._peerAvatars.clear();
@@ -320,7 +336,7 @@ function socketLeave() {
 }
 
 // ═══════════════════════════════════════════════
-//  DOM ИНТЕРФЕЙС И УТИЛИТЫ ГЛОБАЛЬНОГО СОСТОЯНИЯ
+//  DOM + глобальное состояние
 // ═══════════════════════════════════════════════
 const btnJoin          = document.getElementById('btn-join');
 const btnLeave         = document.getElementById('btn-leave');
@@ -329,6 +345,7 @@ const hiddenAudios     = document.getElementById('hidden-audios');
 const participantsBox  = document.getElementById('participants');
 const participantsList = document.getElementById('participants-list');
 const keepAliveAudio   = document.getElementById('keep-alive-audio');
+const remoteMasterAudio = document.getElementById('remote-audio');
 const chatMessages     = document.getElementById('chat-messages');
 const chatInput        = document.getElementById('chat-input');
 const btnSend          = document.getElementById('btn-send');
@@ -355,9 +372,11 @@ let joined          = false;
 let audioCtx        = null;
 let wakeLock        = null;
 let msgCounter      = 0;
+let audioUnlocked   = false;
 
 const analysers     = {};
 const qualityTimers = {};
+const pendingRemoteCandidates = {}; // { peerId: [candidate, ...] }
 
 const messageStore  = new Map();
 let replyTarget     = null;
@@ -394,8 +413,48 @@ async function decryptMeta(metaEnc, metaIv) {
   }
 }
 
+function ensureCandidateQueue(peerId) {
+  if (!pendingRemoteCandidates[peerId]) pendingRemoteCandidates[peerId] = [];
+  return pendingRemoteCandidates[peerId];
+}
+
+async function flushPendingCandidates(peerId) {
+  const peer = peers[peerId];
+  if (!peer || !peer.remoteDescription) return;
+  const q = ensureCandidateQueue(peerId);
+  while (q.length) {
+    const c = q.shift();
+    try { await peer.addIceCandidate(new RTCIceCandidate(c)); } catch (_) {}
+  }
+}
+
+async function unlockAudioOnce() {
+  if (audioUnlocked || !remoteMasterAudio) return true;
+  try {
+    remoteMasterAudio.muted = true;
+    await remoteMasterAudio.play().catch(() => {});
+    remoteMasterAudio.pause();
+    remoteMasterAudio.currentTime = 0;
+    remoteMasterAudio.muted = false;
+    audioUnlocked = true;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function safePlay(el) {
+  if (!el) return false;
+  try { await el.play(); return true; } catch {}
+  for (let i = 0; i < 3; i++) {
+    await new Promise(r => setTimeout(r, 250));
+    try { await el.play(); return true; } catch {}
+  }
+  return false;
+}
+
 // ═══════════════════════════════════════════════
-//  ЧАТ — ОТПРАВКА И ФАЙЛЫ
+//  ЧАТ — отправка и файлы
 // ═══════════════════════════════════════════════
 chatInput?.addEventListener('input', () => {
   chatInput.style.height = 'auto';
@@ -460,7 +519,7 @@ async function sendTextMessage() {
     });
     chatInput.value = ''; chatInput.style.height = 'auto';
     setReplyTarget(null);
-  } catch(e) {}
+  } catch {}
   finally { btnSend.disabled = false; }
 }
 
@@ -515,7 +574,9 @@ async function sendMediaBlob(blob, mimeType, fileName, type) {
       replyTo: replyTarget || null
     });
     setReplyTarget(null);
-  } catch(e) { toast('❌ Ошибка отправки'); }
+  } catch {
+    toast('❌ Ошибка отправки');
+  }
 }
 
 async function appendHistoryMessage(data) {
@@ -587,7 +648,8 @@ async function appendHistoryMessage(data) {
 function appendMessage(msg) {
   const id = 'msg-' + (++msgCounter);
   const div = document.createElement('div');
-  div.id = id; div.className = 'msg ' + (msg.mine ? 'mine' : 'theirs');
+  div.id = id;
+  div.className = 'msg ' + (msg.mine ? 'mine' : 'theirs');
   div.dataset.type = msg.type || 'text';
   div.dataset.msgId = msg.msgId;
   div.innerHTML = buildMsgHTML(msg);
@@ -613,7 +675,10 @@ function updateMessage(id, updates) {
   const div = document.getElementById(id);
   if (!div) return;
   const content = div.querySelector('.msg-content');
-  if (content) { content.innerHTML = buildContentHTML({ type: div.dataset.type, ...updates }); bindMediaEvents(div); }
+  if (content) {
+    content.innerHTML = buildContentHTML({ type: div.dataset.type, ...updates });
+    bindMediaEvents(div);
+  }
 
   const statusEl = div.querySelector('.msg-decrypt-status');
   if (statusEl) {
@@ -622,7 +687,9 @@ function updateMessage(id, updates) {
   }
 
   const metaEl = div.querySelector('.msg-meta');
-  if (metaEl && updates.editedAt) metaEl.innerHTML = metaEl.innerHTML.replace(' (изменено)', '') + ' <span class="msg-edited">(изменено)</span>';
+  if (metaEl && updates.editedAt) {
+    metaEl.innerHTML = metaEl.innerHTML.replace(' (изменено)', '') + ' <span class="msg-edited">(изменено)</span>';
+  }
 
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
@@ -631,7 +698,8 @@ function markMessageDeleted(domId) {
   const div = document.getElementById(domId);
   if (!div) return;
   div.classList.add('deleted');
-  div.querySelector('.msg-content').innerHTML = '<i>Сообщение удалено</i>';
+  const c = div.querySelector('.msg-content');
+  if (c) c.innerHTML = '<i>Сообщение удалено</i>';
 }
 
 function buildMsgHTML(msg) {
@@ -725,8 +793,7 @@ function openMsgMenu(x, y, msgId) {
 
   msgMenu.querySelector('[data-action="delete"]').onclick = () => {
     socket?.emit('message-delete', { msgId });
-    const domId = msg.domId;
-    markMessageDeleted(domId);
+    markMessageDeleted(msg.domId);
     closeMsgMenu();
   };
 
@@ -770,11 +837,8 @@ function toggleReactionLocal(msgId, emoji, userId) {
     reactionBox.appendChild(chip);
   } else {
     let users = JSON.parse(chip.dataset.users || '[]');
-    if (users.includes(userId)) {
-      users = users.filter(u => u !== userId);
-    } else {
-      users.push(userId);
-    }
+    if (users.includes(userId)) users = users.filter(u => u !== userId);
+    else users.push(userId);
     chip.dataset.users = JSON.stringify(users);
     if (users.length === 0) chip.remove();
     else chip.textContent = `${emoji} ${users.length}`;
@@ -822,12 +886,14 @@ function updatePinnedBanner(msgId) {
 }
 
 function openLightbox(type, src) {
-  lightboxContent.innerHTML = type === 'img' ? `<img src="${src}" alt="">` : `<video src="${src}" controls autoplay playsinline style="max-width:95vw;max-height:85vh"></video>`;
+  lightboxContent.innerHTML = type === 'img'
+    ? `<img src="${src}" alt="">`
+    : `<video src="${src}" controls autoplay playsinline style="max-width:95vw;max-height:85vh"></video>`;
   lightbox.classList.add('open');
 }
 
 // ═══════════════════════════════════════════════
-//  ГОЛОСОВОЙ ЧАТ WEB-RTC
+//  WebRTC голос
 // ═══════════════════════════════════════════════
 const iceServers = {
   iceServers: [
@@ -856,7 +922,10 @@ function forceOpusMaxQuality(sdp) {
 
 btnJoin?.addEventListener('click', async () => {
   if (!socket) return toast('❌ Нет соединения');
+
   try {
+    await unlockAudioOnce();
+
     localStream = await navigator.mediaDevices.getUserMedia({
       video: false,
       audio: {
@@ -872,7 +941,9 @@ btnJoin?.addEventListener('click', async () => {
     startKeepAlive();
     setMicStatus(true);
 
-    btnJoin.style.display = 'none'; btnLeave.style.display = 'block'; btnMic.style.display = 'block';
+    btnJoin.style.display = 'none';
+    btnLeave.style.display = 'block';
+    btnMic.style.display = 'block';
     joined = true;
 
     addParticipant(socket.id, 'Вы');
@@ -881,8 +952,9 @@ btnJoin?.addEventListener('click', async () => {
     socket.emit('join');
 
     for (const peerId of window._roomPeers) {
+      if (peerId === socket.id) continue;
       if (!peers[peerId]) {
-        addParticipant(peerId, window._peerNames.get(peerId) || peerId.slice(0,6));
+        addParticipant(peerId, window._peerNames.get(peerId) || peerId.slice(0, 6));
         peers[peerId] = createPeer(peerId, true);
       }
     }
@@ -890,12 +962,18 @@ btnJoin?.addEventListener('click', async () => {
     for (const { from, offer } of pendingOffers) await handleOffer(from, offer);
     pendingOffers = [];
 
-  } catch(err) { toast('❌ Ошибка доступа к микрофону'); }
+  } catch {
+    toast('❌ Ошибка доступа к микрофону');
+  }
 });
 
 btnLeave?.addEventListener('click', () => {
   if (socket) socket.emit('leave');
-  hangUp(); joined = false; resetVoiceUI(); releaseWakeLock(); stopKeepAlive();
+  hangUp();
+  joined = false;
+  resetVoiceUI();
+  releaseWakeLock();
+  stopKeepAlive();
 });
 
 btnMic?.addEventListener('click', () => {
@@ -907,52 +985,99 @@ btnMic?.addEventListener('click', () => {
 
 function createPeer(userId, isInitiator) {
   const peer = new RTCPeerConnection(iceServers);
-  if (localStream) localStream.getTracks().forEach(t => peer.addTrack(t, localStream));
+  console.log('[RTC] createPeer ->', userId, 'initiator=', isInitiator);
 
-  peer.ontrack = event => {
+  if (localStream) {
+    localStream.getAudioTracks().forEach(t => peer.addTrack(t, localStream));
+  } else {
+    peer.addTransceiver('audio', { direction: 'recvonly' });
+  }
+
+  peer.ontrack = async (event) => {
+    console.log('[RTC] ontrack from', userId, 'kind=', event.track?.kind);
+
     let audio = document.getElementById('audio-' + userId);
     if (!audio) {
-      audio = document.createElement('audio'); audio.id = 'audio-' + userId;
-      audio.autoplay = true; audio.playsInline = true; hiddenAudios.appendChild(audio);
+      audio = document.createElement('audio');
+      audio.id = 'audio-' + userId;
+      audio.autoplay = true;
+      audio.playsInline = true;
+      audio.muted = false;
+      audio.volume = 1.0;
+      hiddenAudios.appendChild(audio);
     }
-    audio.srcObject = event.streams[0];
-    audio.play().then(() => startVolumeAnalysis(userId, event.streams[0])).catch(e=>{});
+
+    const stream = event.streams?.[0] || new MediaStream([event.track]);
+    audio.srcObject = stream;
+    if (remoteMasterAudio) remoteMasterAudio.srcObject = stream;
+
+    const ok1 = await safePlay(audio);
+    const ok2 = remoteMasterAudio ? await safePlay(remoteMasterAudio) : true;
+    console.log('[RTC] play result', userId, { audioEl: ok1, masterEl: ok2 });
+
+    startVolumeAnalysis(userId, stream);
   };
 
-  peer.onicecandidate = e => { if (e.candidate && socket) socket.emit('ice-candidate', { to: userId, candidate: e.candidate }); };
+  peer.onicecandidate = (e) => {
+    if (e.candidate && socket) socket.emit('ice-candidate', { to: userId, candidate: e.candidate });
+  };
+
+  peer.oniceconnectionstatechange = () => {
+    console.log('[RTC] iceConnectionState', userId, peer.iceConnectionState);
+  };
+
+  peer.onconnectionstatechange = () => {
+    console.log('[RTC] connectionState', userId, peer.connectionState);
+    if (['failed', 'closed'].includes(peer.connectionState)) {
+      document.getElementById('audio-' + userId)?.remove();
+    }
+  };
 
   if (isInitiator) {
-    peer.onnegotiationneeded = async () => {
-      const offer = await peer.createOffer();
-      const improvedOffer = { type: offer.type, sdp: forceOpusMaxQuality(offer.sdp) };
-      await peer.setLocalDescription(improvedOffer);
-      socket.emit('offer', { to: userId, offer: improvedOffer });
-    };
+    (async () => {
+      try {
+        const offer = await peer.createOffer({ offerToReceiveAudio: true });
+        const improvedOffer = { type: offer.type, sdp: forceOpusMaxQuality(offer.sdp) };
+        await peer.setLocalDescription(improvedOffer);
+        socket?.emit('offer', { to: userId, offer: peer.localDescription });
+      } catch (e) {
+        console.error('[RTC] createOffer error', e);
+      }
+    })();
   }
+
   return peer;
 }
 
 async function handleOffer(from, offer) {
-  const peer = createPeer(from, false);
-  peers[from] = peer;
+  let peer = peers[from];
+  if (!peer) {
+    peer = createPeer(from, false);
+    peers[from] = peer;
+  }
+
   await peer.setRemoteDescription(new RTCSessionDescription(offer));
+  await flushPendingCandidates(from);
+
   const answer = await peer.createAnswer();
   const improvedAnswer = { type: answer.type, sdp: forceOpusMaxQuality(answer.sdp) };
   await peer.setLocalDescription(improvedAnswer);
-  socket.emit('answer', { to: from, answer: improvedAnswer });
+
+  socket.emit('answer', { to: from, answer: peer.localDescription });
 }
 
 // ═══════════════════════════════════════════════
-//  УТИЛИТЫ ГРОМКОСТИ И ВИЗУАЛИЗАЦИЯ
+//  Утилиты громкости / участники
 // ═══════════════════════════════════════════════
 function addParticipant(userId, label) {
   if (document.getElementById('p-' + userId) || !participantsBox) return;
   participantsBox.style.display = 'block';
-  const div = document.createElement('div'); div.className = 'participant'; div.id = 'p-' + userId;
+  const div = document.createElement('div');
+  div.className = 'participant';
+  div.id = 'p-' + userId;
+
   const isMe = socket && userId === socket.id;
-  const avatar = isMe
-    ? null
-    : (window._peerAvatars.get(userId) || null);
+  const avatar = isMe ? null : (window._peerAvatars.get(userId) || null);
 
   const avatarHtml = avatar
     ? `<img class="p-avatar-img" src="${avatar}" alt="">`
@@ -967,12 +1092,14 @@ function addParticipant(userId, label) {
   participantsList.appendChild(div);
 
   const btn = div.querySelector('.btn-understood');
-  if (btn) btn.onclick = () => {
-    socket?.emit('understood');
-    btn.textContent = '✅ Отправлено';
-    btn.disabled = true;
-    setTimeout(() => { btn.textContent = '👍 Понял'; btn.disabled = false; }, 3000);
-  };
+  if (btn) {
+    btn.onclick = () => {
+      socket?.emit('understood');
+      btn.textContent = '✅ Отправлено';
+      btn.disabled = true;
+      setTimeout(() => { btn.textContent = '👍 Понял'; btn.disabled = false; }, 3000);
+    };
+  }
 
   const nameEl = div.querySelector('.participant-name');
   if (nameEl && !isMe) {
@@ -991,25 +1118,37 @@ function removeParticipant(userId) {
 function startVolumeAnalysis(userId, stream) {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
   stopVolumeAnalysis(userId);
+
   const source = audioCtx.createMediaStreamSource(stream);
-  const analyser = audioCtx.createAnalyser(); analyser.fftSize = 512;
+  const analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 512;
   source.connect(analyser);
+
   const data = new Uint8Array(analyser.frequencyBinCount);
 
   function tick() {
     if (!analysers[userId]) return;
-    analyser.getByteFrequencyData(data); let sum = 0;
+    analyser.getByteFrequencyData(data);
+    let sum = 0;
     for (let i = 0; i < data.length; i++) sum += data[i];
     const pct = Math.min(100, (sum / data.length) * 3);
     const bar = document.getElementById('vol-' + userId);
-    if (bar) { bar.style.width = pct + '%'; bar.className = 'volume-bar' + (pct > 60 ? ' loud' : ''); }
+    if (bar) {
+      bar.style.width = pct + '%';
+      bar.className = 'volume-bar' + (pct > 60 ? ' loud' : '');
+    }
     analysers[userId].animFrame = requestAnimationFrame(tick);
   }
+
   analysers[userId] = { analyser, source, animFrame: requestAnimationFrame(tick) };
 }
 
 function stopVolumeAnalysis(userId) {
-  if (analysers[userId]) { cancelAnimationFrame(analysers[userId].animFrame); try { analysers[userId].source.disconnect(); } catch(_) {} delete analysers[userId]; }
+  if (analysers[userId]) {
+    cancelAnimationFrame(analysers[userId].animFrame);
+    try { analysers[userId].source.disconnect(); } catch {}
+    delete analysers[userId];
+  }
 }
 
 function stopQualityMonitor(id) {
@@ -1017,14 +1156,17 @@ function stopQualityMonitor(id) {
 }
 
 // ═══════════════════════════════════════════════
-//  СИСТЕМНЫЕ ЗВУКИ И WAKELOCK
+//  Системные звуки / wake lock
 // ═══════════════════════════════════════════════
 async function requestWakeLock() {
   if (!('wakeLock' in navigator)) return;
-  try { wakeLock = await navigator.wakeLock.request('screen'); } catch(e) {}
+  try { wakeLock = await navigator.wakeLock.request('screen'); } catch {}
 }
 async function releaseWakeLock() {
-  if (wakeLock) { try { await wakeLock.release(); } catch(_) {} wakeLock = null; }
+  if (wakeLock) {
+    try { await wakeLock.release(); } catch {}
+    wakeLock = null;
+  }
 }
 
 function startKeepAlive() {
@@ -1033,60 +1175,106 @@ function startKeepAlive() {
     const buf = audioCtx.createBuffer(1, audioCtx.sampleRate, audioCtx.sampleRate);
     const src = audioCtx.createBufferSource();
     const dest = audioCtx.createMediaStreamDestination();
-    src.buffer = buf; src.loop = true; src.connect(dest); src.start();
-    keepAliveAudio.srcObject = dest.stream; keepAliveAudio.play().catch(e=>{});
-  } catch(e) {}
+    src.buffer = buf;
+    src.loop = true;
+    src.connect(dest);
+    src.start();
+    keepAliveAudio.srcObject = dest.stream;
+    keepAliveAudio.play().catch(() => {});
+  } catch {}
 }
-function stopKeepAlive() { keepAliveAudio.srcObject = null; keepAliveAudio.pause(); }
+function stopKeepAlive() {
+  keepAliveAudio.srcObject = null;
+  keepAliveAudio.pause();
+}
 
 function playBeep(type) {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator(); const gain = ctx.createGain();
-    osc.connect(gain); gain.connect(ctx.destination);
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
     gain.gain.setValueAtTime(0.3, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
-    if (type === 'join') { osc.frequency.setValueAtTime(600, ctx.currentTime); osc.frequency.setValueAtTime(900, ctx.currentTime + 0.12); }
-    else { osc.frequency.setValueAtTime(900, ctx.currentTime); osc.frequency.setValueAtTime(500, ctx.currentTime + 0.12); }
-    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.35);
+    if (type === 'join') {
+      osc.frequency.setValueAtTime(600, ctx.currentTime);
+      osc.frequency.setValueAtTime(900, ctx.currentTime + 0.12);
+    } else {
+      osc.frequency.setValueAtTime(900, ctx.currentTime);
+      osc.frequency.setValueAtTime(500, ctx.currentTime + 0.12);
+    }
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.35);
     osc.onended = () => ctx.close();
-  } catch(e) {}
+  } catch {}
 }
 
 function playOkSound() {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const gain = ctx.createGain(); gain.connect(ctx.destination);
+    const gain = ctx.createGain();
+    gain.connect(ctx.destination);
     [{ freq: 880, start: 0.00 }, { freq: 1100, start: 0.22 }].forEach(({ freq, start }) => {
-      const osc = ctx.createOscillator(); osc.type = 'sine'; osc.connect(gain);
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.connect(gain);
       osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
       gain.gain.setValueAtTime(0, ctx.currentTime + start);
       gain.gain.linearRampToValueAtTime(0.4, ctx.currentTime + start + 0.04);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + 0.20);
-      osc.start(ctx.currentTime + start); osc.stop(ctx.currentTime + start + 0.22);
+      osc.start(ctx.currentTime + start);
+      osc.stop(ctx.currentTime + start + 0.22);
     });
     setTimeout(() => ctx.close(), 1500);
-  } catch(e) {}
+  } catch {}
 }
 
-function setMicStatus(active) { const el = document.getElementById('mic-status'); if(el) { el.textContent = active ? '🟢 Микрофон включен' : '🔴 Микрофон выключен'; el.className = 'mic-status ' + (active ? 'active' : 'muted'); } }
-function resetVoiceUI() { if(btnJoin) btnJoin.style.display='block'; if(btnLeave) btnLeave.style.display='none'; if(btnMic) btnMic.style.display='none'; setMicStatus(false); }
+function setMicStatus(active) {
+  const el = document.getElementById('mic-status');
+  if (el) {
+    el.textContent = active ? '🟢 Микрофон включен' : '🔴 Микрофон выключен';
+    el.className = 'mic-status ' + (active ? 'active' : 'muted');
+  }
+}
+
+function resetVoiceUI() {
+  if (btnJoin) btnJoin.style.display = 'block';
+  if (btnLeave) btnLeave.style.display = 'none';
+  if (btnMic) btnMic.style.display = 'none';
+  setMicStatus(false);
+}
 
 // ═══════════════════════════════════════════════
-//  ПОЛНАЯ ОЧИСТКА ПРИ ВЫХОДЕ ИЗ ЗВОНКА/КОМНАТЫ
+//  Полная очистка
 // ═══════════════════════════════════════════════
 function hangUp() {
   Object.keys(analysers).forEach(id => stopVolumeAnalysis(id));
-  Object.values(peers).forEach(p  => p.close());
+  Object.values(peers).forEach(p => p.close());
   peers = {};
 
-  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
-  if (audioCtx) { audioCtx.close(); audioCtx = null; }
+  if (localStream) {
+    localStream.getTracks().forEach(t => t.stop());
+    localStream = null;
+  }
+
+  if (audioCtx) {
+    audioCtx.close();
+    audioCtx = null;
+  }
 
   if (hiddenAudios) hiddenAudios.innerHTML = '';
+  if (remoteMasterAudio) {
+    remoteMasterAudio.srcObject = null;
+    remoteMasterAudio.pause?.();
+  }
+
   pendingOffers = [];
+  Object.keys(pendingRemoteCandidates).forEach(k => delete pendingRemoteCandidates[k]);
+
   if (participantsList) participantsList.innerHTML = '';
   if (participantsBox) participantsBox.style.display = 'none';
+
   micEnabled = true;
 
   if (window.stopVideo) window.stopVideo();
