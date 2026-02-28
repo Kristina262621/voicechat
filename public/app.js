@@ -184,8 +184,8 @@ function bindAuthEvents() {
   });
 
   /* Логин */
-  DOM.loginForm.addEventListener('submit', async e => {
-    e.preventDefault();
+  DOM.regForm.addEventListener('submit', async e => {
+  e.preventDefault();
     DOM.loginErr.textContent = '';
     const username = DOM.loginUsername.value.trim();
     const password = DOM.loginPassword.value;
@@ -2149,10 +2149,12 @@ function updateDocTitle() {
 
 /* Перехватываем renderChatList для обновления заголовка */
 const _origRenderChatList = renderChatList;
-function renderChatList() {
+window._renderChatListPatched = function() {
   _origRenderChatList();
   updateDocTitle();
-}
+};
+// Перезаписываем через присваивание — работает
+var renderChatList = window._renderChatListPatched;
 
 /* ══════════════════════════════════════════════
    ИНИЦИАЛИЗАЦИЯ МОДУЛЯ НАСТРОЕК
