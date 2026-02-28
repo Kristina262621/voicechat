@@ -1631,60 +1631,9 @@ function pickFile(accept)   {
 }
 
 /* ══════════════════════════════════════════════
-   ИНИЦИАЛИЗАЦИЯ
+   ГЛОБАЛЬНЫЙ ЭКСПОРТ
 ══════════════════════════════════════════════ */
-async function init() {
-  initDOM();
-  Theme.init();
-  registerSW();
-  await PushNotif.request();
-
-  const token   = sessionStorage.getItem('chat_token');
-  const session = sessionStorage.getItem('chat_session');
-  if (token && session) {
-    try { App.currentUser = JSON.parse(session); } catch {}
-  }
-
-  connectSocket();
-  if (!token) showAuth();
-
-  DOM.backBtn      && DOM.backBtn.addEventListener('click', goBack);
-  DOM.searchInput  && DOM.searchInput.addEventListener('input', onSearchInput);
-  DOM.searchClear  && DOM.searchClear.addEventListener('click', clearSearch);
-  DOM.msgInput     && DOM.msgInput.addEventListener('input',   onMsgInput);
-  DOM.msgInput     && DOM.msgInput.addEventListener('keydown', onMsgKeydown);
-  DOM.messagesArea && DOM.messagesArea.addEventListener('scroll', onMessagesScroll);
-  DOM.sendBtn      && DOM.sendBtn.addEventListener('click', sendMessage);
-  DOM.fileInput    && DOM.fileInput.addEventListener('change', onFileSelected);
-  DOM.overlay      && DOM.overlay.addEventListener('click', closeOverlay);
-
-  $('login-password') && $('login-password').addEventListener('keydown', e => {
-    if (e.key === 'Enter') doLogin();
-  });
-  $('reg-password2') && $('reg-password2').addEventListener('keydown', e => {
-    if (e.key === 'Enter') doRegister();
-  });
-
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeOverlay();
-  });
-
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && App.currentChat) {
-      App.unread.set(App.currentChat, 0);
-      renderChatList();
-    }
-  });
-
-  let _tx0 = 0;
-  document.addEventListener('touchstart', e => {
-    _tx0 = e.touches[0].clientX;
-  }, { passive: true });
-  document.addEventListener('touchend', e => {
-    const dx = e.changedTouches[0].clientX - _tx0;
-    if (dx > 80 && window.innerWidth <= 700 && App.currentChat) goBack();
-  }, { passive: true });
-
+function exposeGlobals() {
   Object.assign(window, {
     openChat, goBack, switchTab,
     onSearchInput, clearSearch,
@@ -1703,8 +1652,76 @@ async function init() {
     doLogin, doLogout, doRegister, switchAuthTab,
     Theme,
   });
+}
+exposeGlobals();
 
-  console.log('✅ SecureChat ready');
+/* ══════════════════════════════════════════════
+   ИНИЦИАЛИЗАЦИЯ
+══════════════════════════════════════════════ */
+async function init() {
+  try {
+    initDOM();
+    Theme.init();
+    registerSW();
+    await PushNotif.request();
+
+    const token   = sessionStorage.getItem('chat_token');
+    const session = sessionStorage.getItem('chat_session');
+    if (token && session) {
+      try { App.currentUser = JSON.parse(session); } catch {}
+    }
+
+    connectSocket();
+    if (!token) showAuth();
+
+    DOM.backBtn      && DOM.backBtn.addEventListener('click', goBack);
+    DOM.searchInput  && DOM.searchInput.addEventListener('input', onSearchInput);
+    DOM.searchClear  && DOM.searchClear.addEventListener('click', clearSearch);
+    DOM.msgInput     && DOM.msgInput.addEventListener('input',   onMsgInput);
+    DOM.msgInput     && DOM.msgInput.addEventListener('keydown', onMsgKeydown);
+    DOM.messagesArea && DOM.messagesArea.addEventListener('scroll', onMessagesScroll);
+    DOM.sendBtn      && DOM.sendBtn.addEventListener('click', sendMessage);
+    DOM.fileInput    && DOM.fileInput.addEventListener('change', onFileSelected);
+    DOM.overlay      && DOM.overlay.addEventListener('click', closeOverlay);
+
+    $('login-password')?.addEventListener('keydown', e => {
+      if (e.key === 'Enter') doLogin();
+    });
+    $('reg-password2')?.addEventListener('keydown', e => {
+      if (e.key === 'Enter') doRegister();
+    });
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') closeOverlay();
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && App.currentChat) {
+        App.unread.set(App.currentChat, 0);
+        renderChatList();
+      }
+    });
+
+    let _tx0 = 0;
+    document.addEventListener('touchstart', e => {
+      _tx0 = e.touches[0].clientX;
+    }, { passive: true });
+
+    document.addEventListener('touchend', e => {
+      const dx = e.changedTouches[0].clientX - _tx0;
+      if (dx > 80 && window.innerWidth <= 700 && App.currentChat) goBack();
+    }, { passive: true });
+
+  } catch (e) {
+    console.error('❌ init failed:', e);
+    showAuth();
+  } finally {
+    console.log('✅ SecureChat ready');
+  }
 }
 
-document.addEventListener('DOMContentLoaded', init);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
