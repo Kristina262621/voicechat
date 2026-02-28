@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
   <title>Secure Chat</title>
   <style>
     *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
@@ -140,7 +141,7 @@
     .attach-popup.open { display:flex; }
     .attach-item { padding:10px 14px; border:none; background:none; color:var(--text); text-align:left; cursor:pointer; }
 
-    .toast { position:fixed; bottom:90px; left:50%; transform:translateX(-50%); background:rgba(30,40,55,.97); padding:10px 20px; border-radius:20px; font-size:13px; z-index:9999; animation:toastAnim 2.5s ease forwards; }
+    .toast { position:fixed; bottom:90px; left:50%; transform:translateX(-50%); background:rgba(30,40,55,.97); padding:10px 20px; border-radius:20px; font-size:13px; z-index:9999; animation:toastAnim 2.5s ease forwards; white-space:nowrap; }
     @keyframes toastAnim { 0%{opacity:0;transform:translate(-50%,10px)} 15%,75%{opacity:1;transform:translate(-50%,0)} 100%{opacity:0} }
 
     #lightbox { display:none; position:fixed; inset:0; background:rgba(0,0,0,.95); z-index:3000; align-items:center; justify-content:center; }
@@ -188,13 +189,27 @@
 
     #typing-indicator { font-size:12px; color:var(--sub); padding:0 14px 6px; display:none; }
 
-    #msg-menu { position:fixed; background:var(--surface); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:6px; display:none; z-index:9999; }
+    #msg-menu { position:fixed; background:var(--surface); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:6px; display:none; z-index:9999; min-width:160px; }
     .msg-menu-item { padding:8px 12px; cursor:pointer; border-radius:8px; font-size:13px; color:var(--text); }
     .msg-menu-item:hover { background:rgba(255,255,255,0.06); }
 
     #reaction-picker { position:fixed; background:var(--surface); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:6px; display:none; z-index:9999; gap:4px; }
     .reaction-item { font-size:18px; cursor:pointer; padding:4px; border-radius:8px; }
     .reaction-item:hover { background:rgba(255,255,255,0.06); }
+
+    .msg-media { max-width:100%; max-height:260px; border-radius:10px; display:block; cursor:pointer; }
+    .msg-file { display:flex; align-items:center; gap:10px; background:rgba(255,255,255,0.06); padding:10px 12px; border-radius:10px; }
+    .msg-file-icon { font-size:22px; }
+    .msg-file-info { flex:1; min-width:0; }
+    .msg-file-name { font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .msg-file-size { font-size:11px; color:var(--sub); }
+    .msg-file-dl { font-size:20px; text-decoration:none; }
+    .msg-decrypt-status { font-size:10px; color:var(--sub); margin-top:2px; }
+    .msg-decrypt-status.ok { color:var(--green); }
+    .msg-decrypt-status.err { color:var(--red); }
+
+    .btn-understood { padding:4px 10px; border:none; border-radius:10px; background:rgba(91,140,255,0.15); color:var(--accent); font-size:11px; cursor:pointer; }
+    .understood-banner { position:fixed; bottom:120px; left:50%; transform:translateX(-50%); background:rgba(76,175,80,0.2); border:1px solid rgba(76,175,80,0.4); color:#a5d6a7; padding:8px 20px; border-radius:20px; font-size:13px; z-index:9000; pointer-events:none; }
   </style>
 </head>
 <body>
@@ -205,12 +220,10 @@
     <div class="auth-logo">🔐</div>
     <div class="auth-title">Secure Chat</div>
     <div class="auth-sub">Сквозное шифрование · Нет логов · Нет следов</div>
-
     <div class="auth-tabs">
       <button class="auth-tab active" id="tab-login" onclick="switchTab('login')">Войти</button>
       <button class="auth-tab" id="tab-reg" onclick="switchTab('reg')">Регистрация</button>
     </div>
-
     <form class="auth-form" id="form-login" onsubmit="doLogin(event)">
       <input class="field" id="login-username" type="text" placeholder="Имя пользователя" autocomplete="username" maxlength="24"/>
       <div class="pw-wrap">
@@ -220,7 +233,6 @@
       <div class="error-msg" id="login-error"></div>
       <button class="btn-primary" type="submit" id="btn-login">🔑 Войти</button>
     </form>
-
     <form class="auth-form" id="form-reg" style="display:none" onsubmit="doRegister(event)">
       <input class="field" id="reg-username" type="text" placeholder="Придумай имя (2–24 символа)" autocomplete="username" maxlength="24"/>
       <div class="pw-wrap">
@@ -249,7 +261,6 @@
     <button class="icon-btn" title="Создать" onclick="openCreateRoom()">➕</button>
     <button class="icon-btn" title="Выход" onclick="doLogout()">🚪</button>
   </div>
-
   <div class="rooms-layout">
     <div class="sidebar">
       <button class="sidebar-btn active" id="sb-chats" onclick="switchSection('chats')">💬</button>
@@ -257,18 +268,15 @@
       <button class="sidebar-btn" id="sb-contacts" onclick="switchSection('contacts')">👤</button>
       <button class="sidebar-btn" id="sb-requests" onclick="switchSection('requests')">📩</button>
     </div>
-
     <div class="rooms-main">
       <div class="rooms-search">
         <input type="text" placeholder="🔍 Поиск…" id="rooms-search-input" oninput="filterRooms()"/>
       </div>
-
       <div class="segment-tabs">
         <div class="segment-tab active" id="tab-all" onclick="setSegment('all')">Все</div>
         <div class="segment-tab" id="tab-priv" onclick="setSegment('priv')">Приватные</div>
         <div class="segment-tab" id="tab-group" onclick="setSegment('group')">Группы</div>
       </div>
-
       <div class="rooms-list" id="rooms-list"></div>
       <div class="rooms-list" id="contacts-list" style="display:none"></div>
       <div class="rooms-list" id="requests-list" style="display:none"></div>
@@ -350,7 +358,7 @@
       <div class="tg-header-name" id="chat-room-name">Комната</div>
       <div class="tg-header-sub">🔒 E2E · <span style="color:var(--green)"><span id="user-count">0</span> онлайн</span></div>
     </div>
-    <button id="btn-video-call" title="Начать видеозвонок">📹</button>
+    <button id="btn-video-call" title="Видеозвонок">📹</button>
   </div>
 
   <div id="reconnect-banner">🔄 Переподключаемся…</div>
@@ -380,7 +388,7 @@
     <div class="tg-input-row">
       <div class="attach-popup" id="attach-popup">
         <button class="attach-item" id="btn-photo">🖼 Фото</button>
-        <button class="attach-item" id="btn-video">🎬 Видео</button>
+        <button class="attach-item" id="btn-video-file">🎬 Видео</button>
         <button class="attach-item" id="btn-file">📎 Файл</button>
       </div>
       <button class="btn-attach-tg" id="btn-attach-toggle">📎</button>
@@ -418,9 +426,7 @@
     <span class="video-title">Видеозвонок</span>
     <span id="video-timer">Активен</span>
   </div>
-
   <div id="video-grid" class="video-grid"></div>
-
   <div class="video-controls-bar">
     <button id="v-btn-cam" class="v-control">📹</button>
     <button id="v-btn-mic" class="v-control">🎙️</button>
@@ -429,6 +435,7 @@
 </div>
 
 <div id="lightbox"><span id="lightbox-close">✕</span><div id="lightbox-content"></div></div>
+
 <div id="msg-menu">
   <div class="msg-menu-item" data-action="reply">↩ Ответить</div>
   <div class="msg-menu-item" data-action="copy">📋 Копировать</div>
@@ -437,6 +444,7 @@
   <div class="msg-menu-item" data-action="edit">✏️ Редактировать</div>
   <div class="msg-menu-item" data-action="delete">🗑 Удалить</div>
 </div>
+
 <div id="reaction-picker">
   <span class="reaction-item">👍</span>
   <span class="reaction-item">❤️</span>
@@ -445,8 +453,8 @@
   <span class="reaction-item">😮</span>
 </div>
 
+<input type="file" id="file-input" accept="*/*" style="display:none">
 <audio id="keep-alive-audio" loop playsinline></audio>
-<audio id="remote-audio" autoplay playsinline></audio>
 <div id="hidden-audios"></div>
 
 <script src="/socket.io/socket.io.js"></script>
@@ -454,7 +462,6 @@
 <script src="app.js"></script>
 
 <script>
-/* ОБЩЕЕ СОСТОЯНИЕ */
 let currentUser = null, currentRoom = null, pendingRoom = null, allRooms = [];
 let currentSection = 'chats';
 let currentSegment = 'all';
@@ -470,63 +477,78 @@ function setError(id, msg) { document.getElementById(id).textContent = msg; }
 function clearError(id) { document.getElementById(id).textContent = ''; }
 function togglePw(id, btn) { const i = document.getElementById(id); if(i.type==='password'){i.type='text';btn.textContent='🙈'}else{i.type='password';btn.textContent='👁'} }
 function switchTab(t) {
-  const isL = t==='login'; document.getElementById('tab-login').classList.toggle('active', isL); document.getElementById('tab-reg').classList.toggle('active', !isL);
-  document.getElementById('form-login').style.display = isL?'':'none'; document.getElementById('form-reg').style.display = isL?'none':'';
+  const isL = t==='login';
+  document.getElementById('tab-login').classList.toggle('active', isL);
+  document.getElementById('tab-reg').classList.toggle('active', !isL);
+  document.getElementById('form-login').style.display = isL ? '' : 'none';
+  document.getElementById('form-reg').style.display = isL ? 'none' : '';
 }
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-function renderAvatar(container, avatar, fallback) {
-  if (!container) return;
-  if (avatar) {
-    container.innerHTML = `<img src="${avatar}" alt="">`;
-  } else {
-    container.innerHTML = `<div class="fallback">${escHtml(fallback || 'U')}</div>`;
-  }
-}
-
 async function doLogin(e) {
-  e.preventDefault(); const u = document.getElementById('login-username').value.trim(), p = document.getElementById('login-password').value;
-  clearError('login-error'); if(!u||!p){ setError('login-error','Заполни поля'); return; }
-  const btn = document.getElementById('btn-login'); btn.disabled=true; btn.textContent='Входим…';
+  e.preventDefault();
+  const u = document.getElementById('login-username').value.trim();
+  const p = document.getElementById('login-password').value;
+  clearError('login-error');
+  if (!u || !p) { setError('login-error','Заполни поля'); return; }
+  const btn = document.getElementById('btn-login'); btn.disabled = true; btn.textContent = 'Входим…';
   try {
     const r = await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p})});
     const d = await r.json();
-    if(d.ok){ saveSession(d.token,d.username,d.userId); enterApp(d.token,d.username,d.userId); } else setError('login-error', 'Неверное имя или пароль');
-  } catch { setError('login-error','Ошибка сети'); } finally { btn.disabled=false; btn.textContent='🔑 Войти'; }
+    if (d.ok) { saveSession(d.token,d.username,d.userId); enterApp(d.token,d.username,d.userId); }
+    else setError('login-error','Неверное имя или пароль');
+  } catch { setError('login-error','Ошибка сети'); }
+  finally { btn.disabled = false; btn.textContent = '🔑 Войти'; }
 }
 
 async function doRegister(e) {
-  e.preventDefault(); const u = document.getElementById('reg-username').value.trim(), p = document.getElementById('reg-password').value, p2 = document.getElementById('reg-password2').value;
-  clearError('reg-error'); if(!u||!p){ setError('reg-error','Заполни поля'); return; } if(p!==p2){ setError('reg-error','Пароли не совпадают'); return; } if(p.length<4){ setError('reg-error','Нужно 4+ символа'); return; }
-  const btn = document.getElementById('btn-reg'); btn.disabled=true; btn.textContent='Создаём…';
+  e.preventDefault();
+  const u = document.getElementById('reg-username').value.trim();
+  const p = document.getElementById('reg-password').value;
+  const p2 = document.getElementById('reg-password2').value;
+  clearError('reg-error');
+  if (!u || !p) { setError('reg-error','Заполни поля'); return; }
+  if (p !== p2) { setError('reg-error','Пароли не совпадают'); return; }
+  if (p.length < 4) { setError('reg-error','Нужно 4+ символа'); return; }
+  const btn = document.getElementById('btn-reg'); btn.disabled = true; btn.textContent = 'Создаём…';
   try {
     const r = await fetch('/api/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p})});
     const d = await r.json();
-    if(d.ok){ saveSession(d.token,d.username,d.userId); enterApp(d.token,d.username,d.userId); } else setError('reg-error','Имя занято');
-  } catch { setError('reg-error','Ошибка сети'); } finally { btn.disabled=false; btn.textContent='✅ Зарегистрироваться'; }
+    if (d.ok) { saveSession(d.token,d.username,d.userId); enterApp(d.token,d.username,d.userId); }
+    else setError('reg-error','Имя занято');
+  } catch { setError('reg-error','Ошибка сети'); }
+  finally { btn.disabled = false; btn.textContent = '✅ Зарегистрироваться'; }
 }
 
-function saveSession(tok, un, uid) { 
-  localStorage.setItem('chat_token',tok); 
-  localStorage.setItem('chat_username',un); 
-  localStorage.setItem('chat_user_id',uid); 
+function saveSession(tok, un, uid) {
+  localStorage.setItem('chat_token', tok);
+  localStorage.setItem('chat_username', un);
+  localStorage.setItem('chat_user_id', uid);
 }
-function doLogout() { localStorage.removeItem('chat_token'); localStorage.removeItem('chat_username'); localStorage.removeItem('chat_user_id'); currentUser=null; showScreen('screen-auth'); }
+function doLogout() {
+  localStorage.removeItem('chat_token');
+  localStorage.removeItem('chat_username');
+  localStorage.removeItem('chat_user_id');
+  currentUser = null;
+  showScreen('screen-auth');
+}
 function enterApp(tok, un, uid) {
-  currentUser={token:tok,username:un,id:uid};
-  window._currentUsername=un;
-  window._currentUserId=uid;
-  document.getElementById('header-username').textContent=un;
-  renderAvatar(document.getElementById('header-user-avatar'), null, un.slice(0,1).toUpperCase());
+  currentUser = { token:tok, username:un, id:uid };
+  window._currentUsername = un;
+  window._currentUserId = uid;
+  document.getElementById('header-username').textContent = un;
+  const av = document.getElementById('header-user-avatar');
+  av.innerHTML = '';
+  av.textContent = un.slice(0,1).toUpperCase();
   showScreen('screen-rooms');
   loadRooms();
 }
 async function tryAutoLogin() {
-  const tok = localStorage.getItem('chat_token'); if(!tok)return;
-  try { 
-    const r = await fetch('/api/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:tok})}); 
-    const d = await r.json(); 
-    if(d.ok) enterApp(tok,d.username,d.userId); else doLogout(); 
+  const tok = localStorage.getItem('chat_token'); if (!tok) return;
+  try {
+    const r = await fetch('/api/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:tok})});
+    const d = await r.json();
+    if (d.ok) enterApp(tok, d.username, d.userId); else doLogout();
   } catch {}
 }
 
@@ -534,11 +556,11 @@ async function loadRooms() {
   try {
     const r = await fetch('/api/rooms',{headers:{'Authorization':'Bearer '+currentUser.token}});
     const d = await r.json();
-    if(d.ok){ allRooms=d.rooms; filterRooms(); }
+    if (d.ok) { allRooms = d.rooms; filterRooms(); }
   } catch {}
 }
 
-function setSegment(seg){
+function setSegment(seg) {
   currentSegment = seg;
   document.getElementById('tab-all').classList.toggle('active', seg==='all');
   document.getElementById('tab-priv').classList.toggle('active', seg==='priv');
@@ -548,17 +570,14 @@ function setSegment(seg){
 
 function filterRooms() {
   const q = document.getElementById('rooms-search-input').value.toLowerCase();
-  const list = document.getElementById('rooms-list'); list.innerHTML='';
-  let filtered = allRooms.filter(r=>r.name.toLowerCase().includes(q));
-
-  if(currentSection==='groups') filtered = filtered.filter(r=> r.is_group);
-  if(currentSection==='chats') filtered = filtered.filter(r=> !r.is_group);
-
-  if(currentSegment==='priv') filtered = filtered.filter(r=>r.is_private || r.ephemeral);
-  if(currentSegment==='group') filtered = filtered.filter(r=> r.is_group);
-
+  const list = document.getElementById('rooms-list'); list.innerHTML = '';
+  let filtered = allRooms.filter(r => r.name.toLowerCase().includes(q));
+  if (currentSection === 'groups') filtered = filtered.filter(r => r.is_group);
+  if (currentSection === 'chats') filtered = filtered.filter(r => !r.is_group);
+  if (currentSegment === 'priv') filtered = filtered.filter(r => r.is_private || r.ephemeral);
+  if (currentSegment === 'group') filtered = filtered.filter(r => r.is_group);
   filtered.forEach(room => {
-    const el = document.createElement('div'); el.className='room-item';
+    const el = document.createElement('div'); el.className = 'room-item';
     const avatarHtml = room.avatar ? `<img src="${room.avatar}" alt="">` : '💬';
     el.innerHTML = `
       <div class="room-avatar">${avatarHtml}</div>
@@ -566,65 +585,93 @@ function filterRooms() {
         <div class="room-name">${escHtml(room.name)}</div>
         <div class="room-meta">Создал ${escHtml(room.owner||'admin')}</div>
       </div>
-      ${room.has_password?'<div style="font-size:16px;color:var(--sub)">🔒</div>':''}`;
-    el.onclick = () => selectRoom(room); list.appendChild(el);
+      ${room.has_password ? '<div style="font-size:16px;color:var(--sub)">🔒</div>' : ''}`;
+    el.onclick = () => selectRoom(room);
+    list.appendChild(el);
   });
 }
 
-function switchSection(sec){
+function switchSection(sec) {
   currentSection = sec;
-  ['chats','groups','contacts','requests'].forEach(s=>{
+  ['chats','groups','contacts','requests'].forEach(s => {
     document.getElementById('sb-'+s).classList.toggle('active', s===sec);
   });
-
-  document.getElementById('rooms-list').style.display = (sec==='chats' || sec==='groups') ? '' : 'none';
+  document.getElementById('rooms-list').style.display = (sec==='chats'||sec==='groups') ? '' : 'none';
   document.getElementById('contacts-list').style.display = (sec==='contacts') ? '' : 'none';
   document.getElementById('requests-list').style.display = (sec==='requests') ? '' : 'none';
-
-  if(sec==='contacts') loadContacts();
-  if(sec==='requests') loadRequests();
-  if(sec==='chats' || sec==='groups') loadRooms();
+  if (sec==='contacts') loadContacts();
+  if (sec==='requests') loadRequests();
+  if (sec==='chats'||sec==='groups') loadRooms();
 }
 
 function selectRoom(r) {
-  if(r.has_password){ pendingRoom=r; document.getElementById('modal-room-pw-name').textContent=r.name; document.getElementById('room-pw-input').value=''; openModal('modal-room-pw'); } else joinRoom(r);
+  if (r.has_password) {
+    pendingRoom = r;
+    document.getElementById('modal-room-pw-name').textContent = r.name;
+    document.getElementById('room-pw-input').value = '';
+    openModal('modal-room-pw');
+  } else { joinRoom(r); }
 }
+
 async function doRoomPwEnter() {
-  const pw=document.getElementById('room-pw-input').value; clearError('room-pw-error'); if(!pw){setError('room-pw-error','Введи пароль');return;}
+  const pw = document.getElementById('room-pw-input').value;
+  clearError('room-pw-error');
+  if (!pw) { setError('room-pw-error','Введи пароль'); return; }
   try {
-    const r=await fetch(`/api/rooms/${pendingRoom.id}/join`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentUser.token},body:JSON.stringify({password:pw})});
-    const d=await r.json(); if(d.ok){closeModal('modal-room-pw');joinRoom(d.room);}else setError('room-pw-error','Неверный пароль');
+    const r = await fetch(`/api/rooms/${pendingRoom.id}/join`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentUser.token},body:JSON.stringify({password:pw})});
+    const d = await r.json();
+    if (d.ok) { closeModal('modal-room-pw'); joinRoom(d.room); }
+    else setError('room-pw-error','Неверный пароль');
   } catch { setError('room-pw-error','Ошибка'); }
 }
-function joinRoom(r) { 
-  currentRoom=r; 
-  document.getElementById('chat-room-name').textContent=r.name; 
+
+function joinRoom(r) {
+  currentRoom = r;
+  document.getElementById('chat-room-name').textContent = r.name;
   document.getElementById('chat-avatar').innerHTML = r.avatar ? `<img src="${r.avatar}" alt="">` : '💬';
   document.getElementById('pinned-banner').style.display = 'none';
-  showScreen('screen-chat'); 
-  if(window.initSocket) window.initSocket(currentUser.token, r.id, currentUser.username); 
+  document.getElementById('chat-messages').innerHTML = '<div id="participants" style="display:none"><div style="font-size:11px;color:var(--sub);margin-bottom:8px">🎙 ГОЛОСОВОЙ ЧАТ</div><div id="participants-list"></div></div>';
+  showScreen('screen-chat');
+  if (window.initSocket) window.initSocket(currentUser.token, r.id, currentUser.username);
 }
-function leaveRoom() { if(window.socketLeave) window.socketLeave(); currentRoom=null; showScreen('screen-rooms'); loadRooms(); }
 
-function openCreateRoom() { 
-  document.getElementById('create-room-name').value=''; 
-  document.getElementById('create-room-pw').value=''; 
-  document.getElementById('create-pw-check').checked=false; 
-  document.getElementById('create-group-check').checked=false;
-  toggleCreatePw(); openModal('modal-create'); 
+function leaveRoom() {
+  if (window.socketLeave) window.socketLeave();
+  currentRoom = null;
+  showScreen('screen-rooms');
+  loadRooms();
 }
-function toggleCreatePw() { document.getElementById('create-pw-wrap').style.display = document.getElementById('create-pw-check').checked?'':'none'; }
+
+function openCreateRoom() {
+  document.getElementById('create-room-name').value = '';
+  document.getElementById('create-room-pw').value = '';
+  document.getElementById('create-pw-check').checked = false;
+  document.getElementById('create-group-check').checked = false;
+  toggleCreatePw();
+  openModal('modal-create');
+}
+function toggleCreatePw() {
+  document.getElementById('create-pw-wrap').style.display = document.getElementById('create-pw-check').checked ? '' : 'none';
+}
 async function doCreateRoom() {
-  const n=document.getElementById('create-room-name').value.trim(), has=document.getElementById('create-pw-check').checked, pw=has?document.getElementById('create-room-pw').value:null;
+  const n = document.getElementById('create-room-name').value.trim();
+  const has = document.getElementById('create-pw-check').checked;
+  const pw = has ? document.getElementById('create-room-pw').value : null;
   const isGroup = document.getElementById('create-group-check').checked;
-  if(!n){setError('create-room-error','Введи название');return;} if(has&&!pw){setError('create-room-error','Введи пароль');return;}
-  try { const r=await fetch('/api/rooms',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentUser.token},body:JSON.stringify({name:n,password:pw,isGroup})});
-  const d=await r.json(); if(d.ok){closeModal('modal-create');toast('✅ Создано');loadRooms();}else setError('create-room-error','Ошибка'); } catch { setError('create-room-error','Сеть'); }
+  clearError('create-room-error');
+  if (!n) { setError('create-room-error','Введи название'); return; }
+  if (has && !pw) { setError('create-room-error','Введи пароль'); return; }
+  try {
+    const r = await fetch('/api/rooms',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentUser.token},body:JSON.stringify({name:n,password:pw,isGroup})});
+    const d = await r.json();
+    if (d.ok) { closeModal('modal-create'); toast('✅ Создано'); loadRooms(); }
+    else setError('create-room-error','Ошибка');
+  } catch { setError('create-room-error','Сеть'); }
 }
 
 /* Профиль drawer */
-function toggleProfileDrawer(open){ document.getElementById('profile-drawer').classList.toggle('open', open); }
-window.showUserProfile = function(user){
+function toggleProfileDrawer(open) { document.getElementById('profile-drawer').classList.toggle('open', open); }
+window.showUserProfile = function(user) {
   selectedProfile = user;
   document.getElementById('profile-name').textContent = user.username || 'User';
   document.getElementById('profile-status').textContent = 'онлайн';
@@ -635,105 +682,85 @@ window.showUserProfile = function(user){
   toggleProfileDrawer(true);
 };
 
-function startPrivateChatFromProfile(){ if(selectedProfile) createPrivateChat(selectedProfile); }
-async function sendFriendRequestFromProfile(){
-  if(!selectedProfile) return;
-  await fetch('/api/contacts/send',{ method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentUser.token}, body:JSON.stringify({userId: selectedProfile.userId || selectedProfile.id})});
+function startPrivateChatFromProfile() { if (selectedProfile) createPrivateChat(selectedProfile); }
+async function sendFriendRequestFromProfile() {
+  if (!selectedProfile) return;
+  await fetch('/api/contacts/send',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentUser.token},body:JSON.stringify({userId: selectedProfile.userId || selectedProfile.id})});
   toast('Запрос отправлен');
 }
-function muteUserFromProfile(){ toast('Пользователь отключён'); }
-function blockUserFromProfile(){ toast('Пользователь заблокирован'); }
+function muteUserFromProfile() { toast('Пользователь отключён'); }
+function blockUserFromProfile() { toast('Пользователь заблокирован'); }
 
-/* Контакты/Запросы */
-async function loadContacts(){
+async function loadContacts() {
   const list = document.getElementById('contacts-list'); list.innerHTML = '';
-  try{
-    const r = await fetch('/api/contacts', { headers:{'Authorization':'Bearer '+currentUser.token} });
+  try {
+    const r = await fetch('/api/contacts',{headers:{'Authorization':'Bearer '+currentUser.token}});
     const d = await r.json();
-    if(!d.ok) return;
-    d.contacts.forEach(c=>{
-      const row = document.createElement('div');
-      row.className = 'contact-row';
+    if (!d.ok) return;
+    d.contacts.forEach(c => {
+      const row = document.createElement('div'); row.className = 'contact-row';
       row.innerHTML = `
         <div class="tg-avatar">${c.avatar ? `<img src="${c.avatar}" alt="">` : '👤'}</div>
-        <div>
-          <div>${escHtml(c.username)}</div>
-          <div style="font-size:12px;color:var(--sub)">${c.bio||'офлайн'}</div>
-        </div>
+        <div><div>${escHtml(c.username)}</div><div style="font-size:12px;color:var(--sub)">${c.bio||'офлайн'}</div></div>
         <div class="contact-actions">
           <button class="btn-mini primary">Чат</button>
           <button class="btn-mini">Профиль</button>
         </div>`;
-      row.querySelector('.btn-mini.primary').onclick = ()=>createPrivateChat(c);
-      row.querySelector('.btn-mini').onclick = ()=>window.showUserProfile(c);
+      row.querySelector('.btn-mini.primary').onclick = () => createPrivateChat(c);
+      row.querySelector('.btn-mini').onclick = () => window.showUserProfile(c);
       list.appendChild(row);
     });
   } catch {}
 }
 
-async function loadRequests(){
+async function loadRequests() {
   const list = document.getElementById('requests-list'); list.innerHTML = '';
-  try{
-    const r = await fetch('/api/contacts/requests', { headers:{'Authorization':'Bearer '+currentUser.token} });
+  try {
+    const r = await fetch('/api/contacts/requests',{headers:{'Authorization':'Bearer '+currentUser.token}});
     const d = await r.json();
-    if(!d.ok) return;
-    d.requests.forEach(u=>{
-      const row = document.createElement('div');
-      row.className = 'contact-row';
+    if (!d.ok) return;
+    d.requests.forEach(u => {
+      const row = document.createElement('div'); row.className = 'contact-row';
       row.innerHTML = `
         <div class="tg-avatar">${u.avatar ? `<img src="${u.avatar}" alt="">` : '👤'}</div>
-        <div>
-          <div>${escHtml(u.username)}</div>
-          <div style="font-size:12px;color:var(--sub)">хочет в контакты</div>
-        </div>
+        <div><div>${escHtml(u.username)}</div><div style="font-size:12px;color:var(--sub)">хочет в контакты</div></div>
         <div class="contact-actions">
           <button class="btn-mini primary">Принять</button>
           <button class="btn-mini">Отклонить</button>
         </div>`;
-      row.querySelector('.btn-mini.primary').onclick = ()=>respondRequest(u.id, true);
-      row.querySelector('.btn-mini').onclick = ()=>respondRequest(u.id, false);
+      row.querySelector('.btn-mini.primary').onclick = () => respondRequest(u.id, true);
+      row.querySelector('.btn-mini').onclick = () => respondRequest(u.id, false);
       list.appendChild(row);
     });
   } catch {}
 }
 
-async function respondRequest(id, accept){
-  await fetch('/api/contacts/requests/respond',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentUser.token},
-    body:JSON.stringify({id, accept})
-  });
+async function respondRequest(id, accept) {
+  await fetch('/api/contacts/requests/respond',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentUser.token},body:JSON.stringify({id, accept})});
   loadRequests();
 }
 
-async function createPrivateChat(contact){
-  const r = await fetch('/api/chats/private',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentUser.token},
-    body:JSON.stringify({userId: contact.id})
-  });
+async function createPrivateChat(contact) {
+  const r = await fetch('/api/chats/private',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentUser.token},body:JSON.stringify({userId: contact.id})});
   const d = await r.json();
-  if(d.ok){ joinRoom(d.room); }
+  if (d.ok) { joinRoom(d.room); }
 }
 
-/* Профиль (мой) */
 async function openMyProfile() {
   try {
-    const r = await fetch('/api/me', { headers:{'Authorization':'Bearer '+currentUser.token} });
+    const r = await fetch('/api/me',{headers:{'Authorization':'Bearer '+currentUser.token}});
     const d = await r.json();
     if (!d.ok) return;
-    const user = d.user;
-    pendingProfileAvatar = user.avatar || null;
+    pendingProfileAvatar = d.user.avatar || null;
     const preview = document.getElementById('my-avatar-preview');
-    preview.innerHTML = user.avatar ? `<img src="${user.avatar}" alt="">` : (user.username||'U').slice(0,1).toUpperCase();
-    document.getElementById('profile-bio').value = user.bio || '';
+    preview.innerHTML = d.user.avatar ? `<img src="${d.user.avatar}" alt="">` : (d.user.username||'U').slice(0,1).toUpperCase();
+    document.getElementById('profile-bio').value = d.user.bio || '';
     openModal('modal-profile');
   } catch {}
 }
 
 document.getElementById('profile-avatar-input').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
+  const file = e.target.files[0]; if (!file) return;
   pendingProfileAvatar = await fileToDataUrl(file);
   document.getElementById('my-avatar-preview').innerHTML = `<img src="${pendingProfileAvatar}" alt="">`;
 });
@@ -741,24 +768,16 @@ document.getElementById('profile-avatar-input').addEventListener('change', async
 async function saveProfile() {
   const bio = document.getElementById('profile-bio').value.trim();
   try {
-    const r = await fetch('/api/me', {
-      method:'PUT',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentUser.token},
-      body: JSON.stringify({ avatar: pendingProfileAvatar, bio })
-    });
+    const r = await fetch('/api/me',{method:'PUT',headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentUser.token},body:JSON.stringify({avatar:pendingProfileAvatar, bio})});
     const d = await r.json();
     if (d.ok) { toast('✅ Профиль обновлён'); closeModal('modal-profile'); }
     else toast('❌ Ошибка профиля');
   } catch {}
 }
 
-/* Настройки комнаты */
 function openRoomSettings() {
   if (!currentRoom) return;
-  if (currentRoom.owner_id !== currentUser.id) {
-    toast('❌ Только владелец может менять аватар');
-    return;
-  }
+  if (currentRoom.owner_id !== currentUser.id) { toast('❌ Только владелец может менять аватар'); return; }
   pendingRoomAvatar = currentRoom.avatar || null;
   const preview = document.getElementById('room-avatar-preview');
   preview.innerHTML = currentRoom.avatar ? `<img src="${currentRoom.avatar}" alt="">` : '💬';
@@ -766,8 +785,7 @@ function openRoomSettings() {
 }
 
 document.getElementById('room-avatar-input').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
+  const file = e.target.files[0]; if (!file) return;
   pendingRoomAvatar = await fileToDataUrl(file);
   document.getElementById('room-avatar-preview').innerHTML = `<img src="${pendingRoomAvatar}" alt="">`;
 });
@@ -775,17 +793,13 @@ document.getElementById('room-avatar-input').addEventListener('change', async (e
 async function saveRoomAvatar() {
   if (!currentRoom) return;
   try {
-    const r = await fetch(`/api/rooms/${currentRoom.id}/avatar`, {
-      method:'PUT',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentUser.token},
-      body: JSON.stringify({ avatar: pendingRoomAvatar })
-    });
+    const r = await fetch(`/api/rooms/${currentRoom.id}/avatar`,{method:'PUT',headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentUser.token},body:JSON.stringify({avatar:pendingRoomAvatar})});
     const d = await r.json();
-    if (d.ok) { 
-      toast('✅ Аватар обновлён'); 
+    if (d.ok) {
+      toast('✅ Аватар обновлён');
       currentRoom.avatar = pendingRoomAvatar;
       document.getElementById('chat-avatar').innerHTML = pendingRoomAvatar ? `<img src="${pendingRoomAvatar}" alt="">` : '💬';
-      closeModal('modal-room-settings'); 
+      closeModal('modal-room-settings');
       loadRooms();
     } else toast('❌ Ошибка');
   } catch {}
@@ -815,21 +829,12 @@ function addVideoTile(id, stream, label, isLocal) {
     tile = document.createElement('div');
     tile.className = 'video-tile';
     tile.id = 'vtile-' + id;
-
     const vid = document.createElement('video');
-    vid.autoplay = true; 
-    vid.playsinline = true; 
-    if (isLocal) {
-      vid.muted = true;
-      vid.style.transform = 'scaleX(-1)';
-    }
-
+    vid.autoplay = true; vid.playsinline = true;
+    if (isLocal) { vid.muted = true; vid.style.transform = 'scaleX(-1)'; }
     const name = document.createElement('div');
-    name.className = 'video-tile-name';
-    name.textContent = label;
-
-    tile.appendChild(vid);
-    tile.appendChild(name);
+    name.className = 'video-tile-name'; name.textContent = label;
+    tile.appendChild(vid); tile.appendChild(name);
     videoGrid.appendChild(tile);
   }
   const videoObj = tile.querySelector('video');
@@ -847,23 +852,16 @@ function getOrCreateVideoPeer(peerId) {
     ]
   });
   videoPeers.set(peerId, pc);
-
   pc.ontrack = (event) => {
     const label = window._peerNames?.get(peerId) || 'Мембер';
     addVideoTile(peerId, event.streams[0], label, false);
   };
-
   pc.onicecandidate = (event) => {
-    if (event.candidate && window._socket) {
-      window._socket.emit('video-ice', { to: peerId, candidate: event.candidate });
-    }
+    if (event.candidate && window._socket) window._socket.emit('video-ice', { to: peerId, candidate: event.candidate });
   };
-
   pc.onconnectionstatechange = () => {
-    if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
-      removeVideoTile(peerId);
-      pc.close();
-      videoPeers.delete(peerId);
+    if (['disconnected','failed','closed'].includes(pc.connectionState)) {
+      removeVideoTile(peerId); pc.close(); videoPeers.delete(peerId);
     }
   };
   return pc;
@@ -873,12 +871,10 @@ document.getElementById('btn-video-call').addEventListener('click', async () => 
   if (videoActive) return;
   videoOverlay.classList.remove('hidden');
   videoActive = true; vidCamMuted = false; vidMicMuted = false;
-
   try {
-    localVidStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: true });
+    localVidStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:'user' }, audio: true });
     addVideoTile('local', localVidStream, 'Вы', true);
     if (window._socket) window._socket.emit('video-start');
-
     if (window._roomPeers) {
       for (const peerId of window._roomPeers) {
         if (peerId === window._socket?.id) continue;
@@ -889,7 +885,7 @@ document.getElementById('btn-video-call').addEventListener('click', async () => 
         window._socket.emit('video-offer', { to: peerId, offer: pc.localDescription });
       }
     }
-  } catch (err) {
+  } catch {
     toast('❌ Нет доступа к камере');
     videoOverlay.classList.add('hidden');
     videoActive = false;
@@ -898,13 +894,13 @@ document.getElementById('btn-video-call').addEventListener('click', async () => 
 
 document.getElementById('v-btn-cam').addEventListener('click', function() {
   vidCamMuted = !vidCamMuted;
-  if(localVidStream) localVidStream.getVideoTracks().forEach(t => t.enabled = !vidCamMuted);
+  if (localVidStream) localVidStream.getVideoTracks().forEach(t => t.enabled = !vidCamMuted);
   this.classList.toggle('off', vidCamMuted);
 });
 
 document.getElementById('v-btn-mic').addEventListener('click', function() {
   vidMicMuted = !vidMicMuted;
-  if(localVidStream) localVidStream.getAudioTracks().forEach(t => t.enabled = !vidMicMuted);
+  if (localVidStream) localVidStream.getAudioTracks().forEach(t => t.enabled = !vidMicMuted);
   this.classList.toggle('off', vidMicMuted);
 });
 
@@ -912,48 +908,35 @@ document.getElementById('v-btn-hangup').addEventListener('click', () => { window
 
 window.stopVideo = function() {
   if (!videoActive) return;
-  videoOverlay.classList.add('hidden');
-  videoActive = false;
-
+  videoOverlay.classList.add('hidden'); videoActive = false;
   if (localVidStream) { localVidStream.getTracks().forEach(t => t.stop()); localVidStream = null; }
   removeVideoTile('local');
-
   videoPeers.forEach((pc, id) => { pc.close(); removeVideoTile(id); });
   videoPeers.clear();
-
   if (window._socket) window._socket.emit('video-stop');
 };
 
 window.onVideoOffer = async function(socketId, offer) {
   try {
     if (!videoActive) {
-      videoOverlay.classList.remove('hidden');
-      videoActive = true;
+      videoOverlay.classList.remove('hidden'); videoActive = true;
       try {
         localVidStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         addVideoTile('local', localVidStream, 'Вы', true);
       } catch(e) { toast('Видео без вашей камеры'); }
     }
     const pc = getOrCreateVideoPeer(socketId);
-
     if (pc.signalingState !== 'stable') {
-      const isPolite = (window._socket?.id || "") > socketId;
+      const isPolite = (window._socket?.id || '') > socketId;
       if (!isPolite) return;
-      await Promise.all([
-        pc.setLocalDescription({ type: "rollback" }),
-        pc.setRemoteDescription(new RTCSessionDescription(offer))
-      ]);
+      await Promise.all([pc.setLocalDescription({ type:'rollback' }), pc.setRemoteDescription(new RTCSessionDescription(offer))]);
     } else {
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
     }
-
     if (localVidStream) {
       const senders = pc.getSenders();
-      localVidStream.getTracks().forEach(t => {
-        if (!senders.find(s => s.track === t)) pc.addTrack(t, localVidStream);
-      });
+      localVidStream.getTracks().forEach(t => { if (!senders.find(s => s.track === t)) pc.addTrack(t, localVidStream); });
     }
-
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     window._socket?.emit('video-answer', { to: socketId, answer: pc.localDescription });
@@ -962,16 +945,12 @@ window.onVideoOffer = async function(socketId, offer) {
 
 window.onVideoAnswer = async function(socketId, answer) {
   const pc = videoPeers.get(socketId);
-  if (pc && pc.signalingState !== 'stable') {
-    await pc.setRemoteDescription(new RTCSessionDescription(answer));
-  }
+  if (pc && pc.signalingState !== 'stable') await pc.setRemoteDescription(new RTCSessionDescription(answer));
 };
 
 window.onVideoIce = async function(socketId, candidate) {
   const pc = videoPeers.get(socketId);
-  if (pc) {
-    try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e) {}
-  }
+  if (pc) { try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e) {} }
 };
 
 window.onUserLeft = window.onVideoStop = function(socketId) {
@@ -981,12 +960,26 @@ window.onUserLeft = window.onVideoStop = function(socketId) {
 };
 
 /* UI */
-document.getElementById('btn-attach-toggle').addEventListener('click', (e) => { e.stopPropagation(); document.getElementById('attach-popup').classList.toggle('open'); });
+document.getElementById('btn-attach-toggle').addEventListener('click', (e) => {
+  e.stopPropagation();
+  document.getElementById('attach-popup').classList.toggle('open');
+});
 document.addEventListener('click', () => document.getElementById('attach-popup').classList.remove('open'));
-document.getElementById('attach-popup').addEventListener('click', (e) => e.stopPropagation());
-['btn-photo','btn-video','btn-file'].forEach(id => document.getElementById(id)?.addEventListener('click', () => document.getElementById('attach-popup').classList.remove('open')));
-document.getElementById('lightbox-close').onclick = () => { document.getElementById('lightbox').classList.remove('open'); document.getElementById('lightbox-content').innerHTML = ''; };
-document.getElementById('lightbox').addEventListener('click', (e) => { if(e.target===document.getElementById('lightbox')){document.getElementById('lightbox').classList.remove('open');document.getElementById('lightbox-content').innerHTML='';} });
+document.getElementById('attach-popup').addEventListener('click', e => e.stopPropagation());
+['btn-photo','btn-video-file','btn-file'].forEach(id => {
+  document.getElementById(id)?.addEventListener('click', () => document.getElementById('attach-popup').classList.remove('open'));
+});
+
+document.getElementById('lightbox-close').onclick = () => {
+  document.getElementById('lightbox').classList.remove('open');
+  document.getElementById('lightbox-content').innerHTML = '';
+};
+document.getElementById('lightbox').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('lightbox')) {
+    document.getElementById('lightbox').classList.remove('open');
+    document.getElementById('lightbox-content').innerHTML = '';
+  }
+});
 
 tryAutoLogin();
 </script>
