@@ -1211,9 +1211,21 @@ async function changeAvatar() {
    НОВЫЙ ЧАТ
 ══════════════════════════════════════════════ */
 function openNewChat() {
-  if (DOM.ncUserSearch) DOM.ncUserSearch.value   = '';
-  if (DOM.ncGroupName)  DOM.ncGroupName.value    = '';
-  if (DOM.ncUserList)   DOM.ncUserList.innerHTML = '';
+  // init состояния выбора участников для групп
+  if (!App.ncGroupSelected) App.ncGroupSelected = new Set();
+  App.ncGroupSelected.clear();
+
+  if (DOM.ncUserSearch) DOM.ncUserSearch.value = '';
+  if (DOM.ncGroupName)  DOM.ncGroupName.value  = '';
+  if ($('nc-group-pass'))   $('nc-group-pass').value   = '';
+  if ($('nc-group-search')) $('nc-group-search').value = '';
+
+  if (DOM.ncUserList) DOM.ncUserList.innerHTML = '';
+  if ($('nc-group-list')) $('nc-group-list').innerHTML = '';
+
+  const selCounter = $('nc-group-selected');
+  if (selCounter) selCounter.textContent = 'Выбрано: 0';
+
   switchNewChatTab('private');
   openModal('modal-new-chat');
   renderNcContacts('');
@@ -1221,19 +1233,30 @@ function openNewChat() {
 
 function switchNewChatTab(mode) {
   document.querySelectorAll('.nctab').forEach((btn, i) => {
-    btn.classList.toggle('active',
-      (i === 0 && mode === 'private') || (i === 1 && mode === 'group'));
+    btn.classList.toggle(
+      'active',
+      (i === 0 && mode === 'private') || (i === 1 && mode === 'group')
+    );
   });
+
   $('nctab-private')?.classList.toggle('hidden', mode !== 'private');
   $('nctab-group')?.classList.toggle('hidden',   mode !== 'group');
+
+  if (mode === 'private') {
+    renderNcContacts(DOM.ncUserSearch?.value.trim() || '');
+  } else {
+    renderNcGroupContacts($('nc-group-search')?.value.trim() || '');
+  }
 }
 
 function renderNcContacts(query) {
-  const q        = query.toLowerCase();
+  const q = query.toLowerCase();
   const contacts = [...App.contacts.values()].filter(c =>
     !q || c.username.toLowerCase().includes(q)
   );
+
   if (!DOM.ncUserList) return;
+
   if (!contacts.length) {
     DOM.ncUserList.innerHTML =
       `<div style="text-align:center;padding:24px;color:var(--text2)">
@@ -1241,10 +1264,12 @@ function renderNcContacts(query) {
        </div>`;
     return;
   }
+
   DOM.ncUserList.innerHTML = contacts.map(c => {
     const av = c.avatar
       ? `<img class="avatar-img" src="${escHtml(c.avatar)}" alt="">`
       : getInitialsEmoji(c.username);
+
     return `
       <div class="contact-item" data-id="${c.id}">
         <div class="ci-avatar">${av}</div>
@@ -1260,11 +1285,66 @@ function searchUsers() {
   renderNcContacts(DOM.ncUserSearch?.value.trim() || '');
 }
 
+function searchGroupUsers() {
+  renderNcGroupContacts($('nc-group-search')?.value.trim() || '');
+}
+
+function renderNcGroupContacts(query) {
+  if (!App.ncGroupSelected) App.ncGroupSelected = new Set();
+
+  const q = (query || '').toLowerCase();
+  const contacts = [...App.contacts.values()].filter(c =>
+    !q || c.username.toLowerCase().includes(q)
+  );
+
+  const list = $('nc-group-list');
+  if (!list) return;
+
+  if (!contacts.length) {
+    list.innerHTML =
+      `<div style="text-align:center;padding:24px;color:var(--text2)">
+         Контакты не найдены
+       </div>`;
+  } else {
+    list.innerHTML = contacts.map(c => {
+      const selected = App.ncGroupSelected.has(c.id);
+      const av = c.avatar
+        ? `<img class="avatar-img" src="${escHtml(c.avatar)}" alt="">`
+        : getInitialsEmoji(c.username);
+
+      return `
+        <div class="contact-item ${selected ? 'selected' : ''}" data-id="${c.id}">
+          <div class="ci-avatar">${av}</div>
+          <div class="ci-body">
+            <span class="ci-name">${escHtml(c.username)}</span>
+          </div>
+          <button class="btn-sm" onclick="toggleGroupUser(${c.id})">
+            ${selected ? 'Убрать' : 'Выбрать'}
+          </button>
+        </div>`;
+    }).join('');
+  }
+
+  const counter = $('nc-group-selected');
+  if (counter) counter.textContent = `Выбрано: ${App.ncGroupSelected.size}`;
+}
+
+function toggleGroupUser(userId) {
+  if (!App.ncGroupSelected) App.ncGroupSelected = new Set();
+
+  if (App.ncGroupSelected.has(userId)) {
+    App.ncGroupSelected.delete(userId);
+  } else {
+    App.ncGroupSelected.add(userId);
+  }
+
+  renderNcGroupContacts($('nc-group-search')?.value.trim() || '');
+}
+
 async function ncSelectUser(userId) {
   const isGroup = !$('nctab-group')?.classList.contains('hidden');
   if (isGroup) {
-    const item = DOM.ncUserList?.querySelector(`[data-id="${userId}"]`);
-    if (item) item.classList.toggle('selected');
+    // в режиме группы выбор идет через toggleGroupUser()
     return;
   }
   closeModal('modal-new-chat');
@@ -1274,10 +1354,10 @@ async function ncSelectUser(userId) {
 async function createPrivateChat(userId) {
   const token = sessionStorage.getItem('chat_token');
   try {
-    const res  = await fetch('/api/chats/private', {
-      method:  'POST',
+    const res = await fetch('/api/chats/private', {
+      method: 'POST',
       headers: {
-        'Content-Type':  'application/json',
+        'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + token,
       },
       body: JSON.stringify({ userId }),
@@ -1296,22 +1376,34 @@ async function createPrivateChat(userId) {
 }
 
 async function createGroup() {
-  const name     = DOM.ncGroupName?.value.trim();
-  const selected = [...(DOM.ncUserList?.querySelectorAll('.contact-item.selected') || [])]
-    .map(el => +el.dataset.id);
-  if (!name) { showNotif('Введите название группы', 'error'); return; }
-  if (!selected.length) { showNotif('Выберите хотя бы одного участника', 'error'); return; }
+  const name = DOM.ncGroupName?.value.trim();
+  const pass = $('nc-group-pass')?.value.trim() || '';
+  const selected = [...(App.ncGroupSelected || new Set())];
+
+  if (!name) {
+    showNotif('Введите название группы', 'error');
+    return;
+  }
+  if (!selected.length) {
+    showNotif('Выберите хотя бы одного участника', 'error');
+    return;
+  }
 
   const token = sessionStorage.getItem('chat_token');
+
   try {
-    const res  = await fetch('/api/chats/group', {
-      method:  'POST',
+    const payload = { name, members: selected };
+    if (pass) payload.password = pass;
+
+    const res = await fetch('/api/chats/group', {
+      method: 'POST',
       headers: {
-        'Content-Type':  'application/json',
+        'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + token,
       },
-      body: JSON.stringify({ name, members: selected }),
+      body: JSON.stringify(payload),
     });
+
     const data = await res.json();
     if (data.ok && data.chat) {
       App.chats.set(data.chat.id, { info: data.chat, messages: [] });
@@ -1325,7 +1417,6 @@ async function createGroup() {
     showNotif('Ошибка сети', 'error');
   }
 }
-
 /* ══════════════════════════════════════════════
    ИНФОРМАЦИЯ О ЧАТЕ
 ══════════════════════════════════════════════ */
