@@ -123,14 +123,12 @@
   <!-- ── ЦЕНТРАЛЬНАЯ ПАНЕЛЬ ── -->
   <main class="chat-area" id="chat-area">
 
-    <!-- Пустое состояние -->
     <div class="chat-empty" id="chat-empty">
       <div class="chat-empty-icon">💬</div>
       <h2>Выберите комнату</h2>
       <p>чтобы начать общение</p>
     </div>
 
-    <!-- Активный чат -->
     <div id="chat-view" class="hidden">
 
       <header class="chat-header">
@@ -154,10 +152,12 @@
       </div>
 
       <div id="msg-search-bar" class="hidden"
-           style="padding:8px 16px;background:var(--bg-1);border-bottom:1px solid var(--border)">
+           style="padding:8px 16px;background:var(--bg-1);
+                  border-bottom:1px solid var(--border)">
         <div class="search-wrap">
           <span class="icon">🔍</span>
-          <input type="text" id="msg-search-input" placeholder="Поиск по сообщениям..." />
+          <input type="text" id="msg-search-input"
+                 placeholder="Поиск по сообщениям..." />
         </div>
       </div>
 
@@ -186,6 +186,7 @@
           <button class="send-btn" id="send-btn" title="Отправить">➤</button>
         </div>
       </div>
+
     </div><!-- /chat-view -->
   </main>
 
@@ -205,7 +206,9 @@
         <button class="voice-media-btn hidden" id="mic-btn">🎤 <span>Микр.</span></button>
         <button class="voice-media-btn hidden" id="cam-btn">📷 <span>Камера</span></button>
         <button class="voice-media-btn hidden" id="screen-btn">🖥️ <span>Экран</span></button>
-        <button class="voice-media-btn danger hidden" id="hangup-btn">📵 <span>Завершить</span></button>
+        <button class="voice-media-btn danger hidden" id="hangup-btn">
+          📵 <span>Завершить</span>
+        </button>
       </div>
     </div>
   </aside>
@@ -215,6 +218,7 @@
 <!-- ═══════════════════════════════════════════════
      МОДАЛЬНЫЕ ОКНА
 ═══════════════════════════════════════════════════ -->
+
 <div class="modal-overlay hidden" id="modal-create-room">
   <div class="modal">
     <h2>Новая комната
@@ -222,7 +226,8 @@
     </h2>
     <div class="form-group">
       <label>Название</label>
-      <input type="text" id="new-room-name" placeholder="Название комнаты" maxlength="64" />
+      <input type="text" id="new-room-name"
+             placeholder="Название комнаты" maxlength="64" />
     </div>
     <div class="form-group">
       <label>Пароль <span class="text-muted text-sm">(необязательно)</span></label>
@@ -264,7 +269,8 @@
     <h2>Профиль
       <button class="modal-close" data-close="modal-profile">✕</button>
     </h2>
-    <div style="display:flex;flex-direction:column;align-items:center;gap:12px;margin-bottom:20px">
+    <div style="display:flex;flex-direction:column;align-items:center;
+                gap:12px;margin-bottom:20px">
       <div class="profile-avatar" id="profile-modal-avatar"
            style="width:72px;height:72px;font-size:28px;cursor:pointer">?</div>
       <label class="btn btn-ghost text-sm" style="cursor:pointer">
@@ -280,10 +286,12 @@
     <div class="form-group">
       <label>О себе <span class="text-muted text-sm">(до 200 симв.)</span></label>
       <textarea id="profile-bio" rows="3" maxlength="200"
-                style="width:100%;background:var(--bg-2);border:1px solid var(--border);
-                       border-radius:var(--radius-xs);color:var(--text-1);
-                       padding:10px 14px;font-size:14px;resize:vertical;
-                       outline:none;font-family:var(--font)"
+                style="width:100%;background:var(--bg-2);
+                       border:1px solid var(--border);
+                       border-radius:var(--radius-xs);
+                       color:var(--text-1);padding:10px 14px;
+                       font-size:14px;resize:vertical;outline:none;
+                       font-family:var(--font)"
                 placeholder="Расскажите о себе..."></textarea>
     </div>
     <div class="modal-actions">
@@ -338,5 +346,75 @@
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="app.js"></script>
+
+<script>
+/* ── Мобильный сайдбар ── */
+(function () {
+  const menuBtn  = document.getElementById('mobile-menu-btn');
+  const sidebar  = document.getElementById('sidebar');
+  const overlay  = document.getElementById('sidebar-overlay');
+  const closeBtn = document.getElementById('members-close-btn');
+  const membersPanel = document.getElementById('members-panel');
+  const membersToggle = document.getElementById('members-toggle-btn');
+
+  function openSidebar() {
+    sidebar.classList.add('open');
+    overlay.classList.add('visible');
+  }
+
+  function closeSidebar() {
+    sidebar.classList.remove('open');
+    overlay.classList.remove('visible');
+  }
+
+  function openMembers() {
+    membersPanel.classList.add('open');
+    overlay.classList.add('visible');
+  }
+
+  function closeMembers() {
+    membersPanel.classList.remove('open');
+    overlay.classList.remove('visible');
+  }
+
+  menuBtn?.addEventListener('click', function (e) {
+    e.stopPropagation();
+    openSidebar();
+  });
+
+  overlay?.addEventListener('click', function () {
+    closeSidebar();
+    closeMembers();
+  });
+
+  /* Закрываем сайдбар при выборе комнаты на мобильном */
+  document.getElementById('rooms-list')?.addEventListener('click', function () {
+    if (window.innerWidth <= 680) closeSidebar();
+  });
+
+  /* Правая панель участников */
+  membersToggle?.addEventListener('click', function (e) {
+    e.stopPropagation();
+    if (window.innerWidth <= 680) {
+      openMembers();
+    }
+  });
+
+  closeBtn?.addEventListener('click', closeMembers);
+
+  /* Закрыть сайдбар кнопкой назад на Android */
+  window.addEventListener('popstate', function () {
+    if (sidebar.classList.contains('open')) {
+      closeSidebar();
+      history.pushState(null, '');
+    }
+    if (membersPanel.classList.contains('open')) {
+      closeMembers();
+      history.pushState(null, '');
+    }
+  });
+})();
+</script>
+
 </body>
 </html>
