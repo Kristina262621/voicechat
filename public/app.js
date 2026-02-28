@@ -10,85 +10,80 @@ const App = {
   socket:       null,
   currentUser:  null,
   currentChat:  null,
-  chats:        new Map(),   // chatId → { info, messages[] }
-  contacts:     new Map(),   // userId → userInfo
-  typingTimers: new Map(),   // chatId → timerId
-  replyTo:      null,        // { msgId, text, senderName }
-  editMsg:      null,        // { msgId, text }
-  keyPair:      null,        // ECDH ключевая пара
-  sharedKeys:   new Map(),   // chatId → CryptoKey
-  unread:       new Map(),   // chatId → count
-  activeTab:    'chats',     // 'chats' | 'contacts' | 'explore'
+  chats:        new Map(),
+  contacts:     new Map(),
+  typingTimers: new Map(),
+  replyTo:      null,
+  editMsg:      null,
+  keyPair:      null,
+  sharedKeys:   new Map(),
+  unread:       new Map(),
+  activeTab:    'chats',
   searchQuery:  '',
   e2eEnabled:   false,
+  _pendingRequests: [],
+  _ncModal:     null,
+  _ncSearchHandler: null,
 };
 
-/* ─── DOM REFS ─── */
+/* ─── DOM REFS — заполняется в DOMContentLoaded ─── */
 const $ = id => document.getElementById(id);
-
-const DOM = {
-  /* Экраны */
-  screenAuth:    $('screen-auth'),
-  screenApp:     $('screen-app'),
-
-  /* Авторизация */
-  authTabs:      document.querySelectorAll('.auth-tab'),
-  authForms:     document.querySelectorAll('.auth-form'),
-  loginForm:     $('login-form'),
-  regForm:       $('reg-form'),
-  loginUsername: $('login-username'),
-  loginPassword: $('login-password'),
-  loginErr:      $('login-err'),
-  regUsername:   $('reg-username'),
-  regPassword:   $('reg-password'),
-  regPassword2:  $('reg-password2'),
-  regErr:        $('reg-err'),
-
-  /* Сайдбар */
-  myAvatar:      $('my-avatar'),
-  searchInput:   $('search-input'),
-  searchClear:   $('search-clear'),
-  newChatBtn:    $('new-chat-btn'),
-  sidebarTabs:   document.querySelectorAll('.stab'),
-  chatList:      $('chat-list'),
-  contactsPanel: $('contacts-panel'),
-  explorePanel:  $('explore-panel'),
-
-  /* Область чата */
-  chatPlaceholder: $('chat-placeholder'),
-  chatWrap:        $('chat-wrap'),
-  backBtn:         $('back-btn'),
-  chAvatar:        $('ch-avatar'),
-  chName:          $('ch-name'),
-  chStatus:        $('ch-status'),
-  chatInfoBtn:     $('chat-info-btn'),
-  messagesList:    $('messages-list'),
-  messagesArea:    $('messages-area'),
-
-  /* Ввод */
-  replyBar:      $('reply-bar'),
-  replyText:     $('reply-text'),
-  replyClose:    $('reply-close'),
-  editBar:       $('edit-bar'),
-  editText:      $('edit-bar-text'),
-  editClose:     $('edit-close'),
-  attachBtn:     $('attach-btn'),
-  attachMenu:    $('attach-menu'),
-  fileImageBtn:  $('file-image-btn'),
-  fileDocBtn:    $('file-doc-btn'),
-  fileInput:     $('file-input'),
-  msgInput:      $('msg-input'),
-  sendBtn:       $('send-btn'),
-
-  /* Уведомления */
-  notifications: $('notifications'),
-};
+const DOM = {};
 
 /* ══════════════════════════════════════════════
-   ИНИЦИАЛИЗАЦИЯ
+   ИНИЦИАЛИЗАЦИЯ DOM
+══════════════════════════════════════════════ */
+function initDOM() {
+  Object.assign(DOM, {
+    screenAuth:      $('screen-auth'),
+    screenApp:       $('screen-app'),
+    authTabs:        document.querySelectorAll('.auth-tab'),
+    authForms:       document.querySelectorAll('.auth-form'),
+    loginUsername:   $('login-username'),
+    loginPassword:   $('login-password'),
+    loginErr:        $('login-err'),
+    regUsername:     $('reg-username'),
+    regPassword:     $('reg-password'),
+    regPassword2:    $('reg-password2'),
+    regErr:          $('reg-err'),
+    myAvatar:        $('my-avatar'),
+    searchInput:     $('search-input'),
+    searchClear:     $('search-clear'),
+    newChatBtn:      $('new-chat-btn'),
+    sidebarTabs:     document.querySelectorAll('.stab'),
+    chatList:        $('chat-list'),
+    contactsPanel:   $('contacts-panel'),
+    explorePanel:    $('explore-panel'),
+    chatPlaceholder: $('chat-placeholder'),
+    chatWrap:        $('chat-wrap'),
+    backBtn:         $('back-btn'),
+    chAvatar:        $('ch-avatar'),
+    chName:          $('ch-name'),
+    chStatus:        $('ch-status'),
+    chatInfoBtn:     $('chat-info-btn'),
+    messagesList:    $('messages-list'),
+    messagesArea:    $('messages-area'),
+    replyBar:        $('reply-bar'),
+    replyText:       $('reply-text'),
+    replyClose:      $('reply-close'),
+    editBar:         $('edit-bar'),
+    editText:        $('edit-bar-text'),
+    editClose:       $('edit-close'),
+    attachBtn:       $('attach-btn'),
+    attachMenu:      $('attach-menu'),
+    fileImageBtn:    $('file-image-btn'),
+    fileDocBtn:      $('file-doc-btn'),
+    fileInput:       $('file-input'),
+    msgInput:        $('msg-input'),
+    sendBtn:         $('send-btn'),
+    notifications:   $('notifications'),
+  });
+}
+
+/* ══════════════════════════════════════════════
+   ГЛАВНАЯ ИНИЦИАЛИЗАЦИЯ
 ══════════════════════════════════════════════ */
 async function init() {
-  // Генерируем ECDH ключевую пару для E2E
   try {
     App.keyPair = await E2E.generateKeyPair();
     App.e2eEnabled = true;
@@ -96,16 +91,12 @@ async function init() {
     console.warn('E2E недоступен:', e);
   }
 
-  // Подключаемся к серверу
   connectSocket();
-
-  // Навешиваем обработчики
   bindAuthEvents();
   bindSidebarEvents();
   bindChatEvents();
   bindInputEvents();
 
-  // Проверяем сохранённую сессию
   const saved = sessionStorage.getItem('chat_session');
   if (saved) {
     try {
@@ -113,12 +104,14 @@ async function init() {
       App.currentUser = sess;
       showApp();
       App.socket.emit('auth:restore', { userId: sess.id, token: sess.token });
-    } catch { sessionStorage.removeItem('chat_session'); }
+    } catch {
+      sessionStorage.removeItem('chat_session');
+    }
   }
 }
 
 /* ══════════════════════════════════════════════
-   SOCKET.IO ПОДКЛЮЧЕНИЕ
+   SOCKET.IO
 ══════════════════════════════════════════════ */
 function connectSocket() {
   App.socket = io({ transports: ['websocket'] });
@@ -126,55 +119,42 @@ function connectSocket() {
   App.socket.on('connect', () => {
     console.log('Socket connected:', App.socket.id);
   });
-
   App.socket.on('disconnect', () => {
     showNotif('Соединение потеряно. Переподключение…', 'error');
   });
-
   App.socket.on('connect_error', () => {
     showNotif('Ошибка подключения к серверу', 'error');
   });
 
-  /* ── Авторизация ── */
-  App.socket.on('auth:ok', onAuthOk);
-  App.socket.on('auth:err', onAuthErr);
-
-  /* ── Чаты ── */
-  App.socket.on('chats:list',     onChatsList);
-  App.socket.on('chat:created',   onChatCreated);
-  App.socket.on('chat:updated',   onChatUpdated);
-  App.socket.on('chat:joined',    onChatJoined);
-  App.socket.on('chat:left',      onChatLeft);
-
-  /* ── Сообщения ── */
-  App.socket.on('msg:history',    onMsgHistory);
-  App.socket.on('msg:new',        onMsgNew);
-  App.socket.on('msg:edited',     onMsgEdited);
-  App.socket.on('msg:deleted',    onMsgDeleted);
-  App.socket.on('msg:reaction',   onMsgReaction);
-
-  /* ── Контакты / пользователи ── */
-  App.socket.on('contacts:list',  onContactsList);
-  App.socket.on('contact:request',onContactRequest);
-  App.socket.on('contact:accepted',onContactAccepted);
-  App.socket.on('users:search',   onUsersSearch);
-  App.socket.on('groups:explore', onGroupsExplore);
-
-  /* ── Онлайн / печатает ── */
-  App.socket.on('user:online',    onUserOnline);
-  App.socket.on('user:offline',   onUserOffline);
-  App.socket.on('chat:typing',    onChatTyping);
-
-  /* ── E2E ── */
-  App.socket.on('e2e:pubkey',     onE2EPubkey);
+  App.socket.on('auth:ok',           onAuthOk);
+  App.socket.on('auth:err',          onAuthErr);
+  App.socket.on('chats:list',        onChatsList);
+  App.socket.on('chat:created',      onChatCreated);
+  App.socket.on('chat:updated',      onChatUpdated);
+  App.socket.on('chat:joined',       onChatJoined);
+  App.socket.on('chat:left',         onChatLeft);
+  App.socket.on('msg:history',       onMsgHistory);
+  App.socket.on('msg:new',           onMsgNew);
+  App.socket.on('msg:edited',        onMsgEdited);
+  App.socket.on('msg:deleted',       onMsgDeleted);
+  App.socket.on('msg:reaction',      onMsgReaction);
+  App.socket.on('contacts:list',     onContactsList);
+  App.socket.on('contact:request',   onContactRequest);
+  App.socket.on('contact:accepted',  onContactAccepted);
+  App.socket.on('users:search',      onUsersSearch);
+  App.socket.on('groups:explore',    onGroupsExplore);
+  App.socket.on('user:online',       onUserOnline);
+  App.socket.on('user:offline',      onUserOffline);
+  App.socket.on('chat:typing',       onChatTyping);
+  App.socket.on('e2e:pubkey',        onE2EPubkey);
 }
 
 /* ══════════════════════════════════════════════
-   АВТОРИЗАЦИЯ — СОБЫТИЯ DOM
+   АВТОРИЗАЦИЯ — DOM СОБЫТИЯ
 ══════════════════════════════════════════════ */
 function bindAuthEvents() {
-  // Переключение табов — только визуальное,
-  // логика входа/регистрации через doLogin() / doRegister()
+  // Только визуальное переключение табов.
+  // Логика входа/регистрации — через doLogin() / doRegister() (onclick в HTML).
   DOM.authTabs.forEach(tab => {
     tab.addEventListener('click', () => {
       const tabName = tab.getAttribute('onclick')?.match(/'(\w+)'/)?.[1];
@@ -194,7 +174,6 @@ async function onAuthOk(data) {
   App.currentUser = data;
   sessionStorage.setItem('chat_session', JSON.stringify(data));
 
-  // Отправляем публичный E2E ключ на сервер
   if (App.e2eEnabled) {
     const pubKey = await E2E.exportPublicKey(App.keyPair.publicKey);
     App.socket.emit('e2e:pubkey', { pubKey });
@@ -207,7 +186,8 @@ async function onAuthOk(data) {
 
 function onAuthErr(data) {
   const err = data.message || 'Ошибка авторизации';
-  if ($('login-form').classList.contains('hidden')) {
+  const loginTab = document.getElementById('tab-login');
+  if (loginTab && loginTab.classList.contains('hidden')) {
     DOM.regErr.textContent = err;
   } else {
     DOM.loginErr.textContent = err;
@@ -251,8 +231,7 @@ function getInitialsEmoji(name) {
 }
 
 function formatTime(ts) {
-  const d = new Date(ts);
-  return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  return new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 }
 
 function formatDate(ts) {
@@ -265,8 +244,8 @@ function formatDate(ts) {
 }
 
 function formatSize(bytes) {
-  if (bytes < 1024)       return bytes + ' Б';
-  if (bytes < 1048576)    return (bytes / 1024).toFixed(1) + ' КБ';
+  if (bytes < 1024)    return bytes + ' Б';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' КБ';
   return (bytes / 1048576).toFixed(1) + ' МБ';
 }
 
@@ -279,6 +258,7 @@ function escHtml(str) {
 }
 
 function showNotif(text, type = 'info', duration = 3500) {
+  if (!DOM.notifications) return;
   const el = document.createElement('div');
   el.className = `notif${type === 'error' ? ' error' : type === 'success' ? ' success' : ''}`;
   el.textContent = text;
@@ -286,17 +266,15 @@ function showNotif(text, type = 'info', duration = 3500) {
   setTimeout(() => el.remove(), duration);
 }
 /* ══════════════════════════════════════════════
-   ЧАСТЬ 2: Сайдбар, список чатов, табы
+   ЧАСТЬ 2: Сайдбар, чаты, сообщения
 ══════════════════════════════════════════════ */
 
 /* ══════════════════════════════════════════════
-   САЙДБАР — СОБЫТИЯ
+   САЙДБАР
 ══════════════════════════════════════════════ */
 function bindSidebarEvents() {
-  /* Мой аватар → профиль */
   DOM.myAvatar.addEventListener('click', openProfileModal);
 
-  /* Поиск */
   DOM.searchInput.addEventListener('input', e => {
     App.searchQuery = e.target.value.trim();
     DOM.searchClear.classList.toggle('hidden', !App.searchQuery);
@@ -310,10 +288,8 @@ function bindSidebarEvents() {
     renderChatList();
   });
 
-  /* Новый чат */
   DOM.newChatBtn.addEventListener('click', openNewChatModal);
 
-  /* Табы сайдбара */
   DOM.sidebarTabs.forEach(tab => {
     tab.addEventListener('click', () => {
       DOM.sidebarTabs.forEach(t => t.classList.remove('active'));
@@ -324,9 +300,6 @@ function bindSidebarEvents() {
   });
 }
 
-/* ══════════════════════════════════════════════
-   РЕНДЕР ТАБА САЙДБАРА
-══════════════════════════════════════════════ */
 function renderSidebarTab() {
   DOM.chatList.classList.add('hidden');
   DOM.contactsPanel.classList.add('hidden');
@@ -353,16 +326,13 @@ function renderSidebarTab() {
 ══════════════════════════════════════════════ */
 function onChatsList(data) {
   App.chats.clear();
-  data.chats.forEach(chat => {
-    App.chats.set(chat.id, { info: chat, messages: [] });
-  });
+  data.chats.forEach(chat => App.chats.set(chat.id, { info: chat, messages: [] }));
   renderChatList();
 }
 
 function onChatCreated(chat) {
   App.chats.set(chat.id, { info: chat, messages: [] });
   renderChatList();
-  // Автоматически открываем новый чат
   openChat(chat.id);
 }
 
@@ -396,36 +366,25 @@ function renderChatList() {
   const q = App.searchQuery.toLowerCase();
   let chats = [...App.chats.values()];
 
-  if (q) {
-    chats = chats.filter(c =>
-      c.info.name.toLowerCase().includes(q)
-    );
-  }
+  if (q) chats = chats.filter(c => c.info.name.toLowerCase().includes(q));
 
-  // Сортировка по времени последнего сообщения
-  chats.sort((a, b) => {
-    const ta = a.info.lastMsgTime || 0;
-    const tb = b.info.lastMsgTime || 0;
-    return tb - ta;
-  });
+  chats.sort((a, b) => (b.info.lastMsgTime || 0) - (a.info.lastMsgTime || 0));
 
-  if (chats.length === 0) {
+  if (!chats.length) {
     DOM.chatList.innerHTML = `
       <div class="chat-placeholder" style="padding:32px 0">
         <div class="placeholder-icon">💬</div>
-        <div class="placeholder-text">
-          ${q ? 'Ничего не найдено' : 'Нет чатов'}
-        </div>
+        <div class="placeholder-text">${q ? 'Ничего не найдено' : 'Нет чатов'}</div>
       </div>`;
+    updateDocTitle();
     return;
   }
 
   DOM.chatList.innerHTML = chats.map(c => renderChatItem(c)).join('');
-
-  // Навешиваем клики
   DOM.chatList.querySelectorAll('.chat-item').forEach(el => {
     el.addEventListener('click', () => openChat(el.dataset.id));
   });
+  updateDocTitle();
 }
 
 function renderChatItem(c) {
@@ -441,17 +400,11 @@ function renderChatItem(c) {
     ? escHtml(info.lastMsg).slice(0, 42) + (info.lastMsg.length > 42 ? '…' : '')
     : '<span style="opacity:.5">Нет сообщений</span>';
 
-  const timeStr = info.lastMsgTime
-    ? formatTime(info.lastMsgTime)
-    : '';
-
-  const unreadBadge = unread > 0
-    ? `<span class="unread-badge">${unread > 99 ? '99+' : unread}</span>`
-    : '';
-
-  const groupIcon = info.type === 'group'
-    ? '<span style="font-size:10px;opacity:.5">👥</span>'
-    : '';
+  const timeStr      = info.lastMsgTime ? formatTime(info.lastMsgTime) : '';
+  const unreadBadge  = unread > 0
+    ? `<span class="unread-badge">${unread > 99 ? '99+' : unread}</span>` : '';
+  const groupIcon    = info.type === 'group'
+    ? '<span style="font-size:10px;opacity:.5">👥</span>' : '';
 
   return `
     <div class="chat-item${isActive ? ' active' : ''}" data-id="${escHtml(info.id)}">
@@ -478,7 +431,6 @@ function openChat(chatId) {
   App.currentChat = chatId;
   App.unread.set(chatId, 0);
 
-  // Мобильный — скрываем сайдбар
   if (window.innerWidth <= 700) {
     document.querySelector('.sidebar').classList.add('hidden-mobile');
   }
@@ -487,14 +439,11 @@ function openChat(chatId) {
   DOM.chatWrap.classList.remove('hidden');
 
   renderChatHeader();
-  renderChatList(); // обновить активный элемент
-
-  // Сбрасываем состояние ввода
+  renderChatList();
   clearReplyBar();
   clearEditBar();
   DOM.msgInput.value = '';
 
-  // Запрашиваем историю
   const chat = App.chats.get(chatId);
   if (chat && chat.messages.length === 0) {
     App.socket.emit('msg:history', { chatId });
@@ -502,12 +451,9 @@ function openChat(chatId) {
     renderMessages();
   }
 
-  // E2E — запрашиваем публичный ключ собеседника (для личных чатов)
   if (chat && chat.info.type === 'direct' && App.e2eEnabled) {
     const otherId = chat.info.members?.find(m => m !== App.currentUser.id);
-    if (otherId) {
-      App.socket.emit('e2e:getkey', { userId: otherId });
-    }
+    if (otherId) App.socket.emit('e2e:getkey', { userId: otherId });
   }
 }
 
@@ -532,11 +478,10 @@ function renderChatHeader() {
 
   if (info.type === 'group') {
     DOM.chStatus.textContent = `${info.memberCount || 0} участников`;
-    DOM.chStatus.className = 'ch-status';
+    DOM.chStatus.className   = 'ch-status';
   } else {
-    const online = info.online;
-    DOM.chStatus.textContent = online ? 'В сети' : 'Не в сети';
-    DOM.chStatus.className   = `ch-status${online ? ' online' : ''}`;
+    DOM.chStatus.textContent = info.online ? 'В сети' : 'Не в сети';
+    DOM.chStatus.className   = `ch-status${info.online ? ' online' : ''}`;
   }
 }
 
@@ -544,10 +489,8 @@ function renderChatHeader() {
    ОНЛАЙН / ОФЛАЙН
 ══════════════════════════════════════════════ */
 function onUserOnline(data) {
-  // Обновляем статус в чатах
   App.chats.forEach((chat, id) => {
-    if (chat.info.type === 'direct' &&
-        chat.info.members?.includes(data.userId)) {
+    if (chat.info.type === 'direct' && chat.info.members?.includes(data.userId)) {
       chat.info.online = true;
       if (App.currentChat === id) renderChatHeader();
     }
@@ -557,10 +500,9 @@ function onUserOnline(data) {
 
 function onUserOffline(data) {
   App.chats.forEach((chat, id) => {
-    if (chat.info.type === 'direct' &&
-        chat.info.members?.includes(data.userId)) {
-      chat.info.online = false;
-      chat.info.lastSeen = data.lastSeen;
+    if (chat.info.type === 'direct' && chat.info.members?.includes(data.userId)) {
+      chat.info.online    = false;
+      chat.info.lastSeen  = data.lastSeen;
       if (App.currentChat === id) renderChatHeader();
     }
   });
@@ -580,14 +522,14 @@ function updateContactStatus(userId, online) {
 ══════════════════════════════════════════════ */
 function onChatTyping(data) {
   if (data.chatId !== App.currentChat) return;
-  if (data.userId === App.currentUser.id) return;
+  if (data.userId === App.currentUser?.id) return;
 
-  const statusEl = DOM.chStatus;
-  const prevText = statusEl.textContent;
+  const statusEl  = DOM.chStatus;
+  const prevText  = statusEl.textContent;
   const prevClass = statusEl.className;
 
   statusEl.textContent = `${escHtml(data.username)} печатает…`;
-  statusEl.className = 'ch-status';
+  statusEl.className   = 'ch-status';
 
   clearTimeout(App.typingTimers.get(data.chatId));
   App.typingTimers.set(data.chatId, setTimeout(() => {
@@ -595,12 +537,9 @@ function onChatTyping(data) {
     statusEl.className   = prevClass;
   }, 3000));
 }
-/* ══════════════════════════════════════════════
-   ЧАСТЬ 3: Сообщения — рендер, отправка, реакции
-══════════════════════════════════════════════ */
 
 /* ══════════════════════════════════════════════
-   ИСТОРИЯ СООБЩЕНИЙ
+   СООБЩЕНИЯ — SOCKET HANDLERS
 ══════════════════════════════════════════════ */
 function onMsgHistory(data) {
   const chat = App.chats.get(data.chatId);
@@ -620,15 +559,18 @@ function onMsgNew(data) {
   if (App.currentChat === data.chatId) {
     appendMessage(data);
     scrollToBottom();
-    // Помечаем прочитанным
     App.socket.emit('msg:read', { chatId: data.chatId, msgId: data.id });
   } else {
-    // Увеличиваем счётчик непрочитанных
     const prev = App.unread.get(data.chatId) || 0;
     App.unread.set(data.chatId, prev + 1);
-    // Уведомление
     showNotif(`${escHtml(data.senderName)}: ${escHtml(data.text || '📎').slice(0, 50)}`);
   }
+
+  if (data.senderId !== App.currentUser?.id) {
+    Sound.playBeep();
+    PushNotif.send(data.senderName || 'Новое сообщение', (data.text || '📎 Файл').slice(0, 80));
+  }
+
   renderChatList();
 }
 
@@ -646,11 +588,10 @@ function onMsgEdited(data) {
       const textEl = el.querySelector('.msg-text');
       if (textEl) {
         textEl.innerHTML = formatMsgText(data.text);
-        // Метка «изменено»
         let edited = el.querySelector('.msg-edited');
         if (!edited) {
           edited = document.createElement('span');
-          edited.className = 'msg-edited';
+          edited.className   = 'msg-edited';
           edited.textContent = ' (изм.)';
           el.querySelector('.msg-meta')?.appendChild(edited);
         }
@@ -712,9 +653,8 @@ function appendMessage(msg) {
   const chat = App.chats.get(App.currentChat);
   if (!chat) return;
 
-  // Разделитель даты если нужен
-  const msgs    = chat.messages;
-  const prev    = msgs[msgs.length - 2];
+  const msgs     = chat.messages;
+  const prev     = msgs[msgs.length - 2];
   const prevDate = prev ? new Date(prev.ts).toDateString() : null;
   const newDate  = new Date(msg.ts).toDateString();
 
@@ -724,26 +664,21 @@ function appendMessage(msg) {
     sep.textContent = formatDate(msg.ts);
     DOM.messagesList.appendChild(sep);
   }
-
   DOM.messagesList.appendChild(buildMsgEl(msg));
 }
 
-/* ── Построение DOM-элемента сообщения ── */
 function buildMsgEl(msg) {
   const isMine = msg.senderId === App.currentUser?.id;
   const wrap   = document.createElement('div');
   wrap.className     = `msg-wrap${isMine ? ' mine' : ''}`;
   wrap.dataset.msgId = msg.id;
+  wrap.innerHTML     = buildMsgInner(msg, isMine);
 
-  wrap.innerHTML = buildMsgInner(msg, isMine);
-
-  // Контекстное меню
   wrap.addEventListener('contextmenu', e => {
     e.preventDefault();
     openMsgContextMenu(e, msg, isMine);
   });
 
-  // Долгое нажатие (мобильный)
   let longPressTimer;
   wrap.addEventListener('touchstart', () => {
     longPressTimer = setTimeout(() => openMsgContextMenu(null, msg, isMine), 500);
@@ -769,11 +704,8 @@ function buildMsgInner(msg, isMine) {
        </div>`
     : '';
 
-  const contentHtml = buildMsgContent(msg);
-  const editedMark  = msg.edited
-    ? '<span class="msg-edited"> (изм.)</span>'
-    : '';
-
+  const contentHtml   = buildMsgContent(msg);
+  const editedMark    = msg.edited ? '<span class="msg-edited"> (изм.)</span>' : '';
   const reactionsHtml = msg.reactions && Object.keys(msg.reactions).length
     ? buildReactionsHtml(msg.reactions)
     : '<div class="msg-reactions"></div>';
@@ -782,8 +714,7 @@ function buildMsgInner(msg, isMine) {
     ${avatar}
     <div class="msg-bubble">
       ${!isMine && msg.senderName
-        ? `<div class="msg-sender">${escHtml(msg.senderName)}</div>`
-        : ''}
+        ? `<div class="msg-sender">${escHtml(msg.senderName)}</div>` : ''}
       ${replyHtml}
       ${contentHtml}
       <div class="msg-meta">
@@ -812,38 +743,24 @@ function buildMsgContent(msg) {
               </div>
             </div>`;
   }
-  if (msg.text) {
-    return `<div class="msg-text">${formatMsgText(msg.text)}</div>`;
-  }
+  if (msg.text) return `<div class="msg-text">${formatMsgText(msg.text)}</div>`;
   return '';
 }
 
-/* ── Форматирование текста (ссылки, жирный, курсив, код) ── */
 function formatMsgText(text) {
   let t = escHtml(text);
-  // Ссылки
-  t = t.replace(
-    /(https?:\/\/[^\s<>"]+)/g,
-    '<a href="$1" target="_blank" rel="noopener" class="msg-link">$1</a>'
-  );
-  // **жирный**
+  t = t.replace(/(https?:\/\/[^\s<>"]+)/g,
+    '<a href="$1" target="_blank" rel="noopener" class="msg-link">$1</a>');
   t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  // _курсив_
   t = t.replace(/_(.+?)_/g, '<em>$1</em>');
-  // `код`
   t = t.replace(/`(.+?)`/g, '<code class="msg-code">$1</code>');
-  // Переносы строк
   t = t.replace(/\n/g, '<br>');
   return t;
 }
 
-/* ══════════════════════════════════════════════
-   РЕАКЦИИ
-══════════════════════════════════════════════ */
 function buildReactionsHtml(reactions) {
   if (!reactions || !Object.keys(reactions).length)
     return '<div class="msg-reactions"></div>';
-
   const items = Object.entries(reactions)
     .filter(([, users]) => users.length > 0)
     .map(([emoji, users]) =>
@@ -852,7 +769,6 @@ function buildReactionsHtml(reactions) {
          ${emoji} ${users.length}
        </span>`
     ).join('');
-
   return `<div class="msg-reactions">${items}</div>`;
 }
 
@@ -861,75 +777,57 @@ function renderReactions(msgWrapEl, reactions) {
   if (el) el.outerHTML = buildReactionsHtml(reactions);
 }
 
-/* ══════════════════════════════════════════════
-   СКРОЛЛ
-══════════════════════════════════════════════ */
 function scrollToBottom(smooth = true) {
-  const el = DOM.messagesArea;
-  el.scrollTo({
-    top:      el.scrollHeight,
+  DOM.messagesArea.scrollTo({
+    top:      DOM.messagesArea.scrollHeight,
     behavior: smooth ? 'smooth' : 'instant'
   });
 }
-
 /* ══════════════════════════════════════════════
-   ОТПРАВКА СООБЩЕНИЙ
+   ЧАСТЬ 3: Ввод, файлы, контекстное меню, модалки
 ══════════════════════════════════════════════ */
+
 function bindChatEvents() {
-  /* Кнопка назад (мобильный) */
   DOM.backBtn.addEventListener('click', () => {
     document.querySelector('.sidebar').classList.remove('hidden-mobile');
     App.currentChat = null;
     showChatPlaceholder();
     renderChatList();
   });
-
-  /* Инфо о чате */
   DOM.chatInfoBtn.addEventListener('click', openChatInfoModal);
 }
 
 function bindInputEvents() {
-  /* Поле ввода */
   DOM.msgInput.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
     }
   });
-
   DOM.msgInput.addEventListener('input', () => {
     autoResizeInput();
     sendTyping();
   });
-
-  /* Кнопка отправки */
   DOM.sendBtn.addEventListener('click', sendMessage);
-
-  /* Reply / Edit закрытие */
   DOM.replyClose.addEventListener('click', clearReplyBar);
   DOM.editClose.addEventListener('click',  clearEditBar);
 
-  /* Прикрепить файл */
   DOM.attachBtn.addEventListener('click', e => {
     e.stopPropagation();
     DOM.attachMenu.classList.toggle('hidden');
   });
-
   DOM.fileImageBtn.addEventListener('click', () => {
     DOM.fileInput.accept = 'image/*';
     DOM.fileInput.click();
     DOM.attachMenu.classList.add('hidden');
   });
-
   DOM.fileDocBtn.addEventListener('click', () => {
     DOM.fileInput.accept = '*/*';
     DOM.fileInput.click();
     DOM.attachMenu.classList.add('hidden');
   });
-
   DOM.fileInput.addEventListener('change', onFileSelected);
 
-  /* Клик вне attach-меню */
   document.addEventListener('click', e => {
     if (!DOM.attachMenu.classList.contains('hidden') &&
         !DOM.attachBtn.contains(e.target)) {
@@ -942,7 +840,6 @@ async function sendMessage() {
   if (!App.currentChat) return;
   const text = DOM.msgInput.value.trim();
 
-  /* Режим редактирования */
   if (App.editMsg) {
     if (!text) return;
     App.socket.emit('msg:edit', {
@@ -965,7 +862,6 @@ async function sendMessage() {
     tempId:  E2E.randomId()
   };
 
-  /* E2E шифрование для личных чатов */
   const chat = App.chats.get(App.currentChat);
   if (App.e2eEnabled && chat?.info.type === 'direct') {
     const sharedKey = App.sharedKeys.get(App.currentChat);
@@ -995,9 +891,6 @@ function sendTyping() {
   clearTimeout(typingTimeout);
 }
 
-/* ══════════════════════════════════════════════
-   ФАЙЛЫ
-══════════════════════════════════════════════ */
 async function onFileSelected(e) {
   const file = e.target.files[0];
   if (!file || !App.currentChat) return;
@@ -1021,8 +914,8 @@ async function onFileSelected(e) {
     const data = await res.json();
     if (data.ok) {
       App.socket.emit('msg:send', {
-        chatId: App.currentChat,
-        file:   data.file,
+        chatId:  App.currentChat,
+        file:    data.file,
         replyTo: App.replyTo || null,
         tempId:  E2E.randomId()
       });
@@ -1035,9 +928,6 @@ async function onFileSelected(e) {
   }
 }
 
-/* ══════════════════════════════════════════════
-   REPLY / EDIT ПАНЕЛИ
-══════════════════════════════════════════════ */
 function openReplyBar(msg) {
   App.replyTo = { msgId: msg.id, text: msg.text || '📎', senderName: msg.senderName };
   DOM.replyText.textContent = `${msg.senderName}: ${(msg.text || '📎').slice(0, 60)}`;
@@ -1067,18 +957,13 @@ function clearEditBar() {
   autoResizeInput();
 }
 
-/* ══════════════════════════════════════════════
-   E2E — ОБМЕН КЛЮЧАМИ
-══════════════════════════════════════════════ */
 async function onE2EPubkey(data) {
   if (!App.e2eEnabled || !data.userId || !data.pubKey) return;
   try {
     const theirPub  = await E2E.importPublicKey(data.pubKey);
     const sharedKey = await E2E.deriveSharedKey(App.keyPair.privateKey, theirPub);
-    // Связываем ключ с chatId
     App.chats.forEach((chat, chatId) => {
-      if (chat.info.type === 'direct' &&
-          chat.info.members?.includes(data.userId)) {
+      if (chat.info.type === 'direct' && chat.info.members?.includes(data.userId)) {
         App.sharedKeys.set(chatId, sharedKey);
       }
     });
@@ -1086,12 +971,9 @@ async function onE2EPubkey(data) {
     console.warn('E2E ключ не удалось импортировать:', e);
   }
 }
-/* ══════════════════════════════════════════════
-   ЧАСТЬ 4: Контекстное меню, модалки, изображения
-══════════════════════════════════════════════ */
 
 /* ══════════════════════════════════════════════
-   КОНТЕКСТНОЕ МЕНЮ СООБЩЕНИЯ
+   КОНТЕКСТНОЕ МЕНЮ
 ══════════════════════════════════════════════ */
 function openMsgContextMenu(e, msg, isMine) {
   closeAllOverlays();
@@ -1110,6 +992,9 @@ function openMsgContextMenu(e, msg, isMine) {
     buttons.push({ label: '🗑 Удалить',        action: () => deleteMessage(msg), danger: true });
   }
 
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+
   buttons.forEach(b => {
     const btn = document.createElement('button');
     btn.textContent = b.label;
@@ -1122,20 +1007,11 @@ function openMsgContextMenu(e, msg, isMine) {
     menu.appendChild(btn);
   });
 
-  // Позиционирование
   document.body.appendChild(menu);
 
-  let x, y;
-  if (e) {
-    x = e.clientX;
-    y = e.clientY;
-  } else {
-    // Мобильный — по центру экрана
-    x = window.innerWidth  / 2 - 85;
-    y = window.innerHeight / 2 - 80;
-  }
+  let x = e ? e.clientX : window.innerWidth  / 2 - 85;
+  let y = e ? e.clientY : window.innerHeight / 2 - 80;
 
-  // Проверяем выход за края
   const mw = menu.offsetWidth  || 180;
   const mh = menu.offsetHeight || 160;
   if (x + mw > window.innerWidth)  x = window.innerWidth  - mw - 8;
@@ -1144,19 +1020,10 @@ function openMsgContextMenu(e, msg, isMine) {
   menu.style.left = x + 'px';
   menu.style.top  = y + 'px';
 
-  // Оверлей для закрытия
-  const overlay = document.createElement('div');
-  overlay.className = 'overlay';
-  overlay.addEventListener('click', () => {
-    menu.remove();
-    overlay.remove();
-  });
+  overlay.addEventListener('click', () => { menu.remove(); overlay.remove(); });
   document.body.appendChild(overlay);
 }
 
-/* ══════════════════════════════════════════════
-   ПИКЕР РЕАКЦИЙ
-══════════════════════════════════════════════ */
 const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🔥', '👏', '🎉'];
 
 function openReactionPicker(msg) {
@@ -1165,65 +1032,43 @@ function openReactionPicker(msg) {
   const picker = document.createElement('div');
   picker.className = 'reaction-picker';
 
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+
   REACTIONS.forEach(emoji => {
     const span = document.createElement('span');
     span.textContent = emoji;
     span.addEventListener('click', () => {
-      App.socket.emit('msg:react', {
-        chatId: App.currentChat,
-        msgId:  msg.id,
-        emoji
-      });
+      App.socket.emit('msg:react', { chatId: App.currentChat, msgId: msg.id, emoji });
       picker.remove();
       overlay.remove();
     });
     picker.appendChild(span);
   });
 
-  // Позиционирование — над полем ввода
   document.body.appendChild(picker);
   const pw = picker.offsetWidth || 280;
   picker.style.left   = Math.max(8, (window.innerWidth - pw) / 2) + 'px';
   picker.style.bottom = '80px';
 
-  const overlay = document.createElement('div');
-  overlay.className = 'overlay';
-  overlay.addEventListener('click', () => {
-    picker.remove();
-    overlay.remove();
-  });
+  overlay.addEventListener('click', () => { picker.remove(); overlay.remove(); });
   document.body.appendChild(overlay);
 }
 
-/* ══════════════════════════════════════════════
-   УДАЛЕНИЕ СООБЩЕНИЯ
-══════════════════════════════════════════════ */
 function deleteMessage(msg) {
-  openConfirmModal(
-    'Удалить сообщение?',
-    'Это действие нельзя отменить.',
-    () => {
-      App.socket.emit('msg:delete', {
-        chatId: App.currentChat,
-        msgId:  msg.id
-      });
-    }
-  );
+  openConfirmModal('Удалить сообщение?', 'Это действие нельзя отменить.', () => {
+    App.socket.emit('msg:delete', { chatId: App.currentChat, msgId: msg.id });
+  });
 }
 
-/* ══════════════════════════════════════════════
-   КОПИРОВАНИЕ
-══════════════════════════════════════════════ */
 function copyText(text) {
   if (!text) return;
   navigator.clipboard.writeText(text)
     .then(() => showNotif('Скопировано', 'success'))
     .catch(() => {
-      // Фоллбэк
       const ta = document.createElement('textarea');
       ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.opacity  = '0';
+      ta.style.cssText = 'position:fixed;opacity:0';
       document.body.appendChild(ta);
       ta.select();
       document.execCommand('copy');
@@ -1232,26 +1077,65 @@ function copyText(text) {
     });
 }
 
-/* ══════════════════════════════════════════════
-   ПРОСМОТР ИЗОБРАЖЕНИЯ
-══════════════════════════════════════════════ */
 function openImageModal(url) {
   closeAllOverlays();
-
   const modal = document.createElement('div');
   modal.className = 'modal';
-  modal.innerHTML = `
-    <div class="modal-image-box">
-      <img src="${escHtml(url)}" alt="Изображение">
-    </div>`;
-
+  modal.innerHTML = `<div class="modal-image-box"><img src="${escHtml(url)}" alt="Изображение"></div>`;
   modal.addEventListener('click', () => modal.remove());
   document.body.appendChild(modal);
 }
 
 /* ══════════════════════════════════════════════
-   МОДАЛКА — ПРОФИЛЬ
+   МОДАЛКИ
 ══════════════════════════════════════════════ */
+function createModal(title) {
+  const el  = document.createElement('div');
+  el.className = 'modal';
+
+  const box = document.createElement('div');
+  box.className = 'modal-box';
+
+  const header = document.createElement('div');
+  header.className = 'modal-header';
+  header.innerHTML = `<span>${escHtml(title)}</span>
+    <button class="modal-close" title="Закрыть">✕</button>`;
+
+  const body = document.createElement('div');
+  body.className = 'modal-body';
+
+  box.appendChild(header);
+  box.appendChild(body);
+  el.appendChild(box);
+
+  header.querySelector('.modal-close').addEventListener('click', () => el.remove());
+  el.addEventListener('click', e => { if (e.target === el) el.remove(); });
+  document.body.appendChild(el);
+
+  return { el, box, header, body };
+}
+
+function closeAllOverlays() {
+  document.querySelectorAll('.modal, .ctx-menu, .reaction-picker, .overlay')
+    .forEach(el => el.remove());
+}
+
+function openConfirmModal(title, text, onConfirm) {
+  closeAllOverlays();
+  const modal = createModal(title);
+  modal.body.innerHTML = `
+    <p style="color:var(--text2);font-size:14px">${escHtml(text)}</p>
+    <button class="modal-btn danger" id="confirm-ok">Подтвердить</button>
+    <button class="modal-btn" id="confirm-cancel"
+            style="background:transparent;color:var(--text2)">Отмена</button>`;
+  modal.body.querySelector('#confirm-ok').addEventListener('click', () => {
+    modal.el.remove(); onConfirm();
+  });
+  modal.body.querySelector('#confirm-cancel').addEventListener('click', () => {
+    modal.el.remove();
+  });
+}
+
 function openProfileModal() {
   closeAllOverlays();
   const u = App.currentUser;
@@ -1274,29 +1158,21 @@ function openProfileModal() {
     <button class="modal-btn" id="pm-save">Сохранить</button>
     <button class="modal-btn danger" id="pm-logout">Выйти</button>`;
 
-  document.body.appendChild(modal.el);
-
-  /* Смена аватара */
   const avatarInput = modal.body.querySelector('#pm-avatar-input');
-  modal.body.querySelector('#pm-avatar-btn').addEventListener('click', () => {
-    avatarInput.click();
-  });
+  modal.body.querySelector('#pm-avatar-btn').addEventListener('click', () => avatarInput.click());
 
   avatarInput.addEventListener('change', async e => {
     const file = e.target.files[0];
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      showNotif('Фото слишком большое (макс. 5 МБ)', 'error');
-      return;
-    }
+    if (file.size > 5 * 1024 * 1024) { showNotif('Фото слишком большое (макс. 5 МБ)', 'error'); return; }
     const formData = new FormData();
     formData.append('file', file);
     formData.append('type', 'avatar');
     try {
       const res  = await fetch('/upload', {
-        method:  'POST',
+        method: 'POST',
         headers: { 'x-user-id': u.id, 'x-token': u.token },
-        body:    formData
+        body: formData
       });
       const data = await res.json();
       if (data.ok) {
@@ -1308,7 +1184,6 @@ function openProfileModal() {
     } catch { showNotif('Ошибка загрузки фото', 'error'); }
   });
 
-  /* Сохранить */
   modal.body.querySelector('#pm-save').addEventListener('click', () => {
     const bio = modal.body.querySelector('#pm-bio').value.trim();
     App.socket.emit('user:update', { bio, avatar: App.currentUser.avatar });
@@ -1318,7 +1193,6 @@ function openProfileModal() {
     showNotif('Профиль сохранён', 'success');
   });
 
-  /* Выйти */
   modal.body.querySelector('#pm-logout').addEventListener('click', () => {
     modal.el.remove();
     App.socket.emit('auth:logout');
@@ -1326,9 +1200,6 @@ function openProfileModal() {
   });
 }
 
-/* ══════════════════════════════════════════════
-   МОДАЛКА — ИНФОРМАЦИЯ О ЧАТЕ
-══════════════════════════════════════════════ */
 function openChatInfoModal() {
   if (!App.currentChat) return;
   const chat = App.chats.get(App.currentChat);
@@ -1337,14 +1208,6 @@ function openChatInfoModal() {
 
   closeAllOverlays();
   const modal = createModal(info.type === 'group' ? 'О группе' : 'О чате');
-
-  const membersHtml = info.type === 'group' && info.memberCount
-    ? `<p>Участников: <strong>${info.memberCount}</strong></p>`
-    : '';
-
-  const descHtml = info.description
-    ? `<p>${escHtml(info.description)}</p>`
-    : '';
 
   modal.body.innerHTML = `
     <div class="profile-avatar-wrap">
@@ -1356,14 +1219,12 @@ function openChatInfoModal() {
       <div class="profile-username">${escHtml(info.name)}</div>
     </div>
     <div class="chat-info-meta">
-      ${descHtml}
-      ${membersHtml}
+      ${info.description ? `<p>${escHtml(info.description)}</p>` : ''}
+      ${info.type === 'group' && info.memberCount
+        ? `<p>Участников: <strong>${info.memberCount}</strong></p>` : ''}
     </div>
     ${info.type === 'group'
-      ? `<button class="modal-btn danger" id="ci-leave">Покинуть группу</button>`
-      : ''}`;
-
-  document.body.appendChild(modal.el);
+      ? `<button class="modal-btn danger" id="ci-leave">Покинуть группу</button>` : ''}`;
 
   modal.body.querySelector('#ci-leave')?.addEventListener('click', () => {
     modal.el.remove();
@@ -1375,9 +1236,6 @@ function openChatInfoModal() {
   });
 }
 
-/* ══════════════════════════════════════════════
-   МОДАЛКА — НОВЫЙ ЧАТ
-══════════════════════════════════════════════ */
 function openNewChatModal() {
   closeAllOverlays();
   const modal = createModal('Новый чат');
@@ -1388,19 +1246,18 @@ function openNewChatModal() {
       <button class="nctab"        data-tab="group">Группа</button>
     </div>
     <div id="nct-direct">
-      <input class="search-field" id="nc-search" placeholder="Имя пользователя…" autocomplete="off">
+      <input class="search-field" id="nc-search"
+             placeholder="Имя пользователя…" autocomplete="off">
       <div id="nc-results" style="margin-top:8px;display:flex;flex-direction:column;gap:6px"></div>
     </div>
     <div id="nct-group" class="hidden">
-      <input class="search-field" id="nc-group-name" placeholder="Название группы…" maxlength="40">
+      <input class="search-field" id="nc-group-name"
+             placeholder="Название группы…" maxlength="40">
       <textarea class="profile-bio-input" id="nc-group-desc"
                 placeholder="Описание (необязательно)" style="margin-top:8px"></textarea>
       <button class="modal-btn" id="nc-create-group" style="margin-top:4px">Создать группу</button>
     </div>`;
 
-  document.body.appendChild(modal.el);
-
-  /* Табы */
   modal.body.querySelectorAll('.nctab').forEach(tab => {
     tab.addEventListener('click', () => {
       modal.body.querySelectorAll('.nctab').forEach(t => t.classList.remove('active'));
@@ -1410,26 +1267,18 @@ function openNewChatModal() {
     });
   });
 
-  /* Поиск пользователей */
   let searchTimer;
   modal.body.querySelector('#nc-search').addEventListener('input', e => {
     clearTimeout(searchTimer);
     const q = e.target.value.trim();
-    if (q.length < 2) {
-      modal.body.querySelector('#nc-results').innerHTML = '';
-      return;
-    }
-    searchTimer = setTimeout(() => {
-      App.socket.emit('users:search', { query: q });
-    }, 300);
+    if (q.length < 2) { modal.body.querySelector('#nc-results').innerHTML = ''; return; }
+    searchTimer = setTimeout(() => App.socket.emit('users:search', { query: q }), 300);
   });
 
-  /* Результаты поиска */
   App._ncModal = modal;
   App._ncSearchHandler = data => renderNcResults(data, modal);
   App.socket.once('users:search', App._ncSearchHandler);
 
-  /* Создать группу */
   modal.body.querySelector('#nc-create-group').addEventListener('click', () => {
     const name = modal.body.querySelector('#nc-group-name').value.trim();
     const desc = modal.body.querySelector('#nc-group-desc').value.trim();
@@ -1437,17 +1286,12 @@ function openNewChatModal() {
     App.socket.emit('chat:create', { type: 'group', name, description: desc });
     modal.el.remove();
   });
-
-  modal.el.addEventListener('remove', () => {
-    App.socket.off('users:search', App._ncSearchHandler);
-  });
 }
 
 function renderNcResults(data, modal) {
   const container = modal?.body.querySelector('#nc-results');
   if (!container) return;
 
-  // Вешаем обработчик снова для следующего поиска
   App.socket.once('users:search', d => renderNcResults(d, App._ncModal));
 
   if (!data.users?.length) {
@@ -1463,95 +1307,23 @@ function renderNcResults(data, modal) {
           : getInitialsEmoji(u.username)}
       </div>
       <div class="ci-body">
-        <div class="ci-top">
-          <span class="ci-name">${escHtml(u.username)}</span>
-        </div>
+        <div class="ci-top"><span class="ci-name">${escHtml(u.username)}</span></div>
       </div>
     </div>`).join('');
 
   container.querySelectorAll('.contact-item').forEach(el => {
     el.addEventListener('click', () => {
-      App.socket.emit('chat:create', {
-        type:   'direct',
-        userId: el.dataset.uid
-      });
+      App.socket.emit('chat:create', { type: 'direct', userId: el.dataset.uid });
       modal.el.remove();
     });
   });
 }
-
 /* ══════════════════════════════════════════════
-   МОДАЛКА — ПОДТВЕРЖДЕНИЕ
-══════════════════════════════════════════════ */
-function openConfirmModal(title, text, onConfirm) {
-  closeAllOverlays();
-  const modal = createModal(title);
-  modal.body.innerHTML = `
-    <p style="color:var(--text2);font-size:14px">${escHtml(text)}</p>
-    <button class="modal-btn danger" id="confirm-ok">Подтвердить</button>
-    <button class="modal-btn" id="confirm-cancel"
-            style="background:transparent;color:var(--text2)">Отмена</button>`;
-
-  document.body.appendChild(modal.el);
-
-  modal.body.querySelector('#confirm-ok').addEventListener('click', () => {
-    modal.el.remove();
-    onConfirm();
-  });
-  modal.body.querySelector('#confirm-cancel').addEventListener('click', () => {
-    modal.el.remove();
-  });
-}
-
-/* ══════════════════════════════════════════════
-   ФАБРИКА МОДАЛОК
-══════════════════════════════════════════════ */
-function createModal(title) {
-  const el = document.createElement('div');
-  el.className = 'modal';
-
-  const box = document.createElement('div');
-  box.className = 'modal-box';
-
-  const header = document.createElement('div');
-  header.className = 'modal-header';
-  header.innerHTML = `
-    <span>${escHtml(title)}</span>
-    <button class="modal-close" title="Закрыть">✕</button>`;
-
-  const body = document.createElement('div');
-  body.className = 'modal-body';
-
-  box.appendChild(header);
-  box.appendChild(body);
-  el.appendChild(box);
-
-  // Закрытие по крестику
-  header.querySelector('.modal-close').addEventListener('click', () => el.remove());
-
-  // Закрытие по клику на фон
-  el.addEventListener('click', e => {
-    if (e.target === el) el.remove();
-  });
-
-  document.body.appendChild(el);
-
-  return { el, box, header, body };
-}
-
-/* ══════════════════════════════════════════════
-   ЗАКРЫТИЕ ВСЕХ ОВЕРЛЕЕВ
-══════════════════════════════════════════════ */
-function closeAllOverlays() {
-  document.querySelectorAll('.modal, .ctx-menu, .reaction-picker, .overlay')
-    .forEach(el => el.remove());
-}
-/* ══════════════════════════════════════════════
-   ЧАСТЬ 5: Контакты, Explore, поиск пользователей
+   ЧАСТЬ 4: Контакты, Explore, тема, SW, точка входа
 ══════════════════════════════════════════════ */
 
 /* ══════════════════════════════════════════════
-   КОНТАКТЫ — SOCKET HANDLERS
+   КОНТАКТЫ
 ══════════════════════════════════════════════ */
 function onContactsList(data) {
   App.contacts.clear();
@@ -1561,8 +1333,6 @@ function onContactsList(data) {
 
 function onContactRequest(data) {
   showNotif(`📩 ${escHtml(data.fromUsername)} хочет добавить вас в контакты`);
-  // Добавляем входящий запрос во временный список
-  if (!App._pendingRequests) App._pendingRequests = [];
   App._pendingRequests.push(data);
   if (App.activeTab === 'contacts') renderContactsPanel();
 }
@@ -1573,22 +1343,14 @@ function onContactAccepted(data) {
   if (App.activeTab === 'contacts') renderContactsPanel();
 }
 
-/* ══════════════════════════════════════════════
-   КОНТАКТЫ — РЕНДЕР
-══════════════════════════════════════════════ */
 function renderContactsPanel() {
   const panel = DOM.contactsPanel;
   const q     = App.searchQuery.toLowerCase();
 
   let contacts = [...App.contacts.values()];
-  if (q) {
-    contacts = contacts.filter(c =>
-      c.username.toLowerCase().includes(q)
-    );
-  }
+  if (q) contacts = contacts.filter(c => c.username.toLowerCase().includes(q));
 
-  // Входящие запросы
-  const pending = (App._pendingRequests || []);
+  const pending = App._pendingRequests || [];
   const pendingHtml = pending.length
     ? `<div class="section-title">Запросы (${pending.length})</div>
        ${pending.map(r => renderContactRequest(r)).join('')}`
@@ -1597,52 +1359,38 @@ function renderContactsPanel() {
   const contactsHtml = contacts.length
     ? `<div class="section-title">Контакты (${contacts.length})</div>
        ${contacts.map(c => renderContactItem(c)).join('')}`
-    : `<div class="empty-hint">
-         ${q ? 'Ничего не найдено' : 'Нет контактов'}
-       </div>`;
+    : `<div class="empty-hint">${q ? 'Ничего не найдено' : 'Нет контактов'}</div>`;
 
   panel.innerHTML = `
     <div class="contacts-search-row">
-      <input class="search-field"
-             id="contacts-search-field"
-             placeholder="Найти пользователя…"
-             value="${escHtml(q)}"
-             autocomplete="off">
+      <input class="search-field" id="contacts-search-field"
+             placeholder="Найти пользователя…" value="${escHtml(q)}" autocomplete="off">
       <button class="icon-btn" id="contacts-search-btn" title="Поиск">🔍</button>
     </div>
     <div id="contacts-search-results"></div>
     ${pendingHtml}
     ${contactsHtml}`;
 
-  /* Поиск по нику */
   let searchTimer;
   panel.querySelector('#contacts-search-field').addEventListener('input', e => {
     clearTimeout(searchTimer);
     const val = e.target.value.trim();
-    if (val.length < 2) {
-      panel.querySelector('#contacts-search-results').innerHTML = '';
-      return;
-    }
-    searchTimer = setTimeout(() => {
-      App.socket.emit('users:search', { query: val });
-    }, 300);
+    if (val.length < 2) { panel.querySelector('#contacts-search-results').innerHTML = ''; return; }
+    searchTimer = setTimeout(() => App.socket.emit('users:search', { query: val }), 300);
   });
 
   panel.querySelector('#contacts-search-btn').addEventListener('click', () => {
     const val = panel.querySelector('#contacts-search-field').value.trim();
-    if (val.length < 2) return;
-    App.socket.emit('users:search', { query: val });
+    if (val.length >= 2) App.socket.emit('users:search', { query: val });
   });
 
-  /* Навешиваем обработчики */
   panel.querySelectorAll('.contact-accept-btn').forEach(btn => {
     btn.addEventListener('click', e => {
       e.stopPropagation();
       const reqId = btn.closest('[data-req-id]')?.dataset.reqId;
       if (!reqId) return;
       App.socket.emit('contact:accept', { requestId: reqId });
-      App._pendingRequests = (App._pendingRequests || [])
-        .filter(r => r.requestId !== reqId);
+      App._pendingRequests = App._pendingRequests.filter(r => r.requestId !== reqId);
       renderContactsPanel();
     });
   });
@@ -1653,8 +1401,7 @@ function renderContactsPanel() {
       const reqId = btn.closest('[data-req-id]')?.dataset.reqId;
       if (!reqId) return;
       App.socket.emit('contact:decline', { requestId: reqId });
-      App._pendingRequests = (App._pendingRequests || [])
-        .filter(r => r.requestId !== reqId);
+      App._pendingRequests = App._pendingRequests.filter(r => r.requestId !== reqId);
       renderContactsPanel();
     });
   });
@@ -1666,30 +1413,20 @@ function renderContactsPanel() {
 
 function renderContactItem(c) {
   const avatarHtml = c.avatar
-    ? `<img class="avatar-img" src="${escHtml(c.avatar)}" alt="">`
-    : getInitialsEmoji(c.username);
-
-  const onlineHtml = c.online
-    ? '<span class="online-dot"></span>'
-    : '';
-
+    ? `<img class="avatar-img" src="${escHtml(c.avatar)}" alt="">` : getInitialsEmoji(c.username);
   return `
     <div class="contact-item" data-uid="${escHtml(c.id)}">
       <div class="ci-avatar">
         ${avatarHtml}
-        ${onlineHtml}
+        ${c.online ? '<span class="online-dot"></span>' : ''}
       </div>
       <div class="ci-body">
         <div class="ci-top">
           <span class="ci-name">${escHtml(c.username)}</span>
-          ${c.online
-            ? '<span style="font-size:11px;color:var(--accent)">В сети</span>'
-            : ''}
+          ${c.online ? '<span style="font-size:11px;color:var(--accent)">В сети</span>' : ''}
         </div>
         <div class="ci-bottom">
-          <span style="font-size:12px;color:var(--text2)">
-            ${escHtml(c.bio || '')}
-          </span>
+          <span style="font-size:12px;color:var(--text2)">${escHtml(c.bio || '')}</span>
         </div>
       </div>
     </div>`;
@@ -1704,9 +1441,7 @@ function renderContactRequest(r) {
           : getInitialsEmoji(r.fromUsername)}
       </div>
       <div class="ci-body">
-        <div class="ci-top">
-          <span class="ci-name">${escHtml(r.fromUsername)}</span>
-        </div>
+        <div class="ci-top"><span class="ci-name">${escHtml(r.fromUsername)}</span></div>
         <div class="ci-bottom" style="gap:6px;display:flex">
           <button class="contact-accept-btn">✅ Принять</button>
           <button class="contact-decline-btn">❌ Отклонить</button>
@@ -1715,21 +1450,15 @@ function renderContactRequest(r) {
     </div>`;
 }
 
-/* ══════════════════════════════════════════════
-   ПОИСК ПОЛЬЗОВАТЕЛЕЙ (глобальный)
-══════════════════════════════════════════════ */
 function onUsersSearch(data) {
-  // Если открыта панель контактов — показываем в ней
   if (App.activeTab === 'contacts') {
     const resultsEl = DOM.contactsPanel.querySelector('#contacts-search-results');
     if (!resultsEl) return;
-
     if (!data.users?.length) {
       resultsEl.innerHTML = '<div class="empty-hint">Пользователи не найдены</div>';
       return;
     }
-
-    resultsEl.innerHTML = `
+        resultsEl.innerHTML = `
       <div class="section-title">Найдено</div>
       ${data.users.map(u => renderSearchUserItem(u)).join('')}`;
 
@@ -1737,14 +1466,11 @@ function onUsersSearch(data) {
       el.addEventListener('click', () => openUserProfileModal(el.dataset.uid));
     });
   }
-
-  // Если открыт новый-чат-модал — туда (обрабатывается в renderNcResults)
 }
 
 function renderSearchUserItem(u) {
-  const isContact  = App.contacts.has(u.id);
-  const isSelf     = u.id === App.currentUser?.id;
-
+  const isContact = App.contacts.has(u.id);
+  const isSelf    = u.id === App.currentUser?.id;
   return `
     <div class="contact-item search-user-item" data-uid="${escHtml(u.id)}">
       <div class="ci-avatar">
@@ -1755,14 +1481,10 @@ function renderSearchUserItem(u) {
       <div class="ci-body">
         <div class="ci-top">
           <span class="ci-name">${escHtml(u.username)}</span>
-          ${isContact
-            ? '<span style="font-size:11px;color:var(--accent)">В контактах</span>'
-            : ''}
+          ${isContact ? '<span style="font-size:11px;color:var(--accent)">В контактах</span>' : ''}
         </div>
         <div class="ci-bottom">
-          <span style="font-size:12px;color:var(--text2)">
-            ${escHtml(u.bio || '')}
-          </span>
+          <span style="font-size:12px;color:var(--text2)">${escHtml(u.bio || '')}</span>
         </div>
       </div>
       ${!isContact && !isSelf
@@ -1773,36 +1495,32 @@ function renderSearchUserItem(u) {
     </div>`;
 }
 
-/* ══════════════════════════════════════════════
-   ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ
-══════════════════════════════════════════════ */
 function openUserProfileModal(userId) {
-  const u = App.contacts.get(userId);
   if (!userId) return;
-
+  const u = App.contacts.get(userId);
   closeAllOverlays();
+
   const modal  = createModal('Профиль');
   const isSelf = userId === App.currentUser?.id;
 
-  const avatarHtml = u?.avatar
-    ? `<img class="avatar-img" src="${escHtml(u.avatar)}" alt="">`
-    : getInitialsEmoji(u?.username || '?');
-
   modal.body.innerHTML = `
     <div class="profile-avatar-wrap">
-      <div class="profile-avatar">${avatarHtml}</div>
+      <div class="profile-avatar">
+        ${u?.avatar
+          ? `<img class="avatar-img" src="${escHtml(u.avatar)}" alt="">`
+          : getInitialsEmoji(u?.username || '?')}
+      </div>
       <div class="profile-username">${escHtml(u?.username || userId)}</div>
     </div>
     ${u?.bio ? `<p style="text-align:center;color:var(--text2)">${escHtml(u.bio)}</p>` : ''}
     ${u?.online
-      ? '<p style="text-align:center;font-size:13px;color:var(--accent)">🟢 В сети</p>'
-      : ''}
-    <div id="upm-actions" style="display:flex;flex-direction:column;gap:8px;margin-top:12px"></div>`;
+      ? '<p style="text-align:center;font-size:13px;color:var(--accent)">🟢 В сети</p>' : ''}
+    <div id="upm-actions"
+         style="display:flex;flex-direction:column;gap:8px;margin-top:12px"></div>`;
 
   const actions = modal.body.querySelector('#upm-actions');
 
   if (!isSelf) {
-    /* Написать сообщение */
     const msgBtn = document.createElement('button');
     msgBtn.className   = 'modal-btn';
     msgBtn.textContent = '💬 Написать сообщение';
@@ -1812,21 +1530,19 @@ function openUserProfileModal(userId) {
     });
     actions.appendChild(msgBtn);
 
-    /* Добавить в контакты */
     if (!App.contacts.has(userId)) {
       const addBtn = document.createElement('button');
       addBtn.className   = 'modal-btn';
       addBtn.textContent = '➕ Добавить в контакты';
       addBtn.addEventListener('click', () => {
         App.socket.emit('contact:request', { toUserId: userId });
-        addBtn.disabled     = true;
-        addBtn.textContent  = '⏳ Запрос отправлен';
+        addBtn.disabled    = true;
+        addBtn.textContent = '⏳ Запрос отправлен';
         showNotif('Запрос на добавление отправлен', 'success');
       });
       actions.appendChild(addBtn);
     }
 
-    /* Удалить из контактов */
     if (App.contacts.has(userId)) {
       const delBtn = document.createElement('button');
       delBtn.className   = 'modal-btn danger';
@@ -1849,10 +1565,10 @@ function openUserProfileModal(userId) {
 }
 
 /* ══════════════════════════════════════════════
-   EXPLORE — ПУБЛИЧНЫЕ ГРУППЫ
+   EXPLORE
 ══════════════════════════════════════════════ */
 function onGroupsExplore(data) {
-  const panel = DOM.explorePanel;
+  const panel  = DOM.explorePanel;
   const groups = data.groups || [];
 
   if (!groups.length) {
@@ -1871,30 +1587,28 @@ function onGroupsExplore(data) {
   panel.querySelectorAll('.explore-join-btn').forEach(btn => {
     btn.addEventListener('click', e => {
       e.stopPropagation();
-      const chatId = btn.dataset.chatId;
-      App.socket.emit('chat:join', { chatId });
-      btn.disabled     = true;
-      btn.textContent  = '⏳ Вступаем…';
+      App.socket.emit('chat:join', { chatId: btn.dataset.chatId });
+      btn.disabled    = true;
+      btn.textContent = '⏳ Вступаем…';
     });
   });
 
   panel.querySelectorAll('.explore-item').forEach(el => {
     el.addEventListener('click', () => {
-      const chatId = el.dataset.chatId;
-      if (App.chats.has(chatId)) openChat(chatId);
+      if (App.chats.has(el.dataset.chatId)) openChat(el.dataset.chatId);
     });
   });
 }
 
 function renderGroupExploreItem(g) {
-  const inChat    = App.chats.has(g.id);
-  const avatarHtml = g.avatar
-    ? `<img class="avatar-img" src="${escHtml(g.avatar)}" alt="">`
-    : getInitialsEmoji(g.name);
-
+  const inChat = App.chats.has(g.id);
   return `
     <div class="contact-item explore-item" data-chat-id="${escHtml(g.id)}">
-      <div class="ci-avatar">${avatarHtml}</div>
+      <div class="ci-avatar">
+        ${g.avatar
+          ? `<img class="avatar-img" src="${escHtml(g.avatar)}" alt="">`
+          : getInitialsEmoji(g.name)}
+      </div>
       <div class="ci-body">
         <div class="ci-top">
           <span class="ci-name">${escHtml(g.name)}</span>
@@ -1913,37 +1627,28 @@ function renderGroupExploreItem(g) {
         : '<span style="font-size:11px;color:var(--accent)">✓ Вступил</span>'}
     </div>`;
 }
-/* ══════════════════════════════════════════════
-   ЧАСТЬ 6: E2E крипто, уведомления, тема,
-            Service Worker, точка входа
-══════════════════════════════════════════════ */
 
 /* ══════════════════════════════════════════════
-   ТЕМА (светлая / тёмная)
+   ТЕМА
 ══════════════════════════════════════════════ */
 const Theme = {
   STORAGE_KEY: 'chat_theme',
-
   init() {
-    const saved = localStorage.getItem(this.STORAGE_KEY);
-    const prefer = window.matchMedia('(prefers-color-scheme: dark)').matches
-      ? 'dark' : 'light';
+    const saved  = localStorage.getItem(this.STORAGE_KEY);
+    const prefer = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     this.apply(saved || prefer);
     this._bindToggle();
   },
-
   apply(theme) {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem(this.STORAGE_KEY, theme);
     const btn = document.getElementById('theme-toggle');
     if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
   },
-
   toggle() {
     const curr = document.documentElement.getAttribute('data-theme');
     this.apply(curr === 'dark' ? 'light' : 'dark');
   },
-
   _bindToggle() {
     const btn = document.getElementById('theme-toggle');
     if (btn) btn.addEventListener('click', () => this.toggle());
@@ -1951,64 +1656,51 @@ const Theme = {
 };
 
 /* ══════════════════════════════════════════════
-   PUSH-УВЕДОМЛЕНИЯ (браузерные)
+   PUSH / ЗВУК
 ══════════════════════════════════════════════ */
 const PushNotif = {
   allowed: false,
-
   async request() {
     if (!('Notification' in window)) return;
-    if (Notification.permission === 'granted') {
-      this.allowed = true;
-      return;
-    }
+    if (Notification.permission === 'granted') { this.allowed = true; return; }
     if (Notification.permission !== 'denied') {
       const perm = await Notification.requestPermission();
       this.allowed = perm === 'granted';
     }
   },
-
   send(title, body, icon = '/icon.png') {
     if (!this.allowed || document.visibilityState === 'visible') return;
-    try {
-      new Notification(title, { body, icon, silent: false });
-    } catch { /* Safari может бросить */ }
+    try { new Notification(title, { body, icon, silent: false }); } catch {}
   },
 };
 
-/* ══════════════════════════════════════════════
-   ЗВУК УВЕДОМЛЕНИЯ
-══════════════════════════════════════════════ */
 const Sound = {
   _ctx: null,
-
   _getCtx() {
-    if (!this._ctx) {
+    if (!this._ctx)
       this._ctx = new (window.AudioContext || window.webkitAudioContext)();
-    }
     return this._ctx;
   },
-
-  /* Простой «бип» без внешних файлов */
   playBeep() {
+    if (localStorage.getItem('chat_sound') === 'off') return;
     try {
       const ctx  = this._getCtx();
       const osc  = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain);
       gain.connect(ctx.destination);
-      osc.frequency.value   = 880;
-      osc.type              = 'sine';
+      osc.frequency.value = 880;
+      osc.type            = 'sine';
       gain.gain.setValueAtTime(0.15, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + 0.35);
-    } catch { /* AudioContext может быть заблокирован */ }
+    } catch {}
   },
 };
 
 /* ══════════════════════════════════════════════
-   SERVICE WORKER (PWA офлайн)
+   SERVICE WORKER
 ══════════════════════════════════════════════ */
 function registerServiceWorker() {
   if ('serviceWorker' in navigator) {
@@ -2019,126 +1711,62 @@ function registerServiceWorker() {
 }
 
 /* ══════════════════════════════════════════════
-   ГЛОБАЛЬНЫЕ ГОРЯЧИЕ КЛАВИШИ
+   ВСПОМОГАТЕЛЬНЫЕ ГЛОБАЛЬНЫЕ ФУНКЦИИ
 ══════════════════════════════════════════════ */
+function updateDocTitle() {
+  let total = 0;
+  App.unread.forEach(v => { total += v; });
+  document.title = total > 0 ? `(${total > 99 ? '99+' : total}) Чат` : 'Чат';
+}
+
 function bindGlobalKeys() {
   document.addEventListener('keydown', e => {
-    /* Escape — закрыть модалки */
-    if (e.key === 'Escape') {
-      closeAllOverlays();
-      return;
-    }
-    /* Ctrl/Cmd + K — фокус на поиск */
+    if (e.key === 'Escape') { closeAllOverlays(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-      e.preventDefault();
-      DOM.searchInput?.focus();
-      return;
+      e.preventDefault(); DOM.searchInput?.focus(); return;
     }
-    /* Ctrl/Cmd + / — переключить тему */
     if ((e.ctrlKey || e.metaKey) && e.key === '/') {
-      e.preventDefault();
-      Theme.toggle();
+      e.preventDefault(); Theme.toggle();
     }
   });
 }
 
-/* ══════════════════════════════════════════════
-   ВИДИМОСТЬ СТРАНИЦЫ — пауза/возобновление
-══════════════════════════════════════════════ */
 function bindVisibilityChange() {
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      // Помечаем текущий чат прочитанным при возврате
-      if (App.currentChat) {
-        App.unread.set(App.currentChat, 0);
-        renderChatList();
-      }
+    if (document.visibilityState === 'visible' && App.currentChat) {
+      App.unread.set(App.currentChat, 0);
+      renderChatList();
     }
   });
 }
 
-/* ══════════════════════════════════════════════
-   АДАПТИВНОСТЬ — resize
-══════════════════════════════════════════════ */
 function bindResize() {
   window.addEventListener('resize', () => {
-    // Если стало широко — убираем мобильный класс
-    if (window.innerWidth > 700) {
+    if (window.innerWidth > 700)
       document.querySelector('.sidebar')?.classList.remove('hidden-mobile');
-    }
   });
 }
 
-/* ══════════════════════════════════════════════
-   ONLINE / OFFLINE браузера
-══════════════════════════════════════════════ */
 function bindNetworkEvents() {
-  window.addEventListener('offline', () => {
-    showNotif('Нет интернет-соединения', 'error', 5000);
-  });
-  window.addEventListener('online', () => {
+  window.addEventListener('offline', () => showNotif('Нет интернет-соединения', 'error', 5000));
+  window.addEventListener('online',  () => {
     showNotif('Соединение восстановлено', 'success');
-    // Реконнект socket если нужен
     if (!App.socket?.connected) App.socket?.connect();
   });
 }
 
-/* ══════════════════════════════════════════════
-   ПАТЧ onMsgNew — добавляем звук и push
-══════════════════════════════════════════════ */
-const _origOnMsgNew = onMsgNew;
-window.onMsgNew = function patchedOnMsgNew(data) {
-  _origOnMsgNew(data);
-  // Звук только для чужих сообщений
-  if (data.senderId !== App.currentUser?.id) {
-    Sound.playBeep();
-    PushNotif.send(
-      data.senderName || 'Новое сообщение',
-      (data.text || '📎 Файл').slice(0, 80)
-    );
-  }
-};
-
-/* ══════════════════════════════════════════════
-   ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ РЕНДЕРА
-══════════════════════════════════════════════ */
-
-/* Заголовок вкладки браузера с бейджем */
-function updateDocTitle() {
-  let total = 0;
-  App.unread.forEach(v => { total += v; });
-  document.title = total > 0
-    ? `(${total > 99 ? '99+' : total}) Чат`
-    : 'Чат';
-}
-
-/* Перехватываем renderChatList для обновления заголовка */
-const _origRenderChatList = renderChatList;
-window._renderChatListPatched = function() {
-  _origRenderChatList();
-  updateDocTitle();
-};
-// Перезаписываем через присваивание — работает
-var renderChatList = window._renderChatListPatched;
-
-/* ══════════════════════════════════════════════
-   ИНИЦИАЛИЗАЦИЯ МОДУЛЯ НАСТРОЕК
-══════════════════════════════════════════════ */
 function initSettings() {
   const settingsBtn = document.getElementById('settings-btn');
   if (!settingsBtn) return;
-
   settingsBtn.addEventListener('click', () => {
     closeAllOverlays();
     const modal = createModal('Настройки');
-
     modal.body.innerHTML = `
       <div class="settings-row">
         <span>Тёмная тема</span>
         <label class="toggle-switch">
           <input type="checkbox" id="s-theme"
-            ${document.documentElement.getAttribute('data-theme') === 'dark'
-              ? 'checked' : ''}>
+            ${document.documentElement.getAttribute('data-theme') === 'dark' ? 'checked' : ''}>
           <span class="toggle-slider"></span>
         </label>
       </div>
@@ -2160,23 +1788,17 @@ function initSettings() {
       </div>
       <div class="settings-row">
         <span>E2E шифрование</span>
-        <span style="font-size:12px;color:${App.e2eEnabled
-          ? 'var(--accent)' : 'var(--text2)'}">
+        <span style="font-size:12px;color:${App.e2eEnabled ? 'var(--accent)' : 'var(--text2)'}">
           ${App.e2eEnabled ? '🔒 Активно' : '⚠️ Недоступно'}
         </span>
       </div>`;
 
-    /* Тема */
     modal.body.querySelector('#s-theme').addEventListener('change', e => {
       Theme.apply(e.target.checked ? 'dark' : 'light');
     });
-
-    /* Звук */
     modal.body.querySelector('#s-sound').addEventListener('change', e => {
       localStorage.setItem('chat_sound', e.target.checked ? 'on' : 'off');
     });
-
-    /* Push */
     modal.body.querySelector('#s-push').addEventListener('change', async e => {
       if (e.target.checked) {
         await PushNotif.request();
@@ -2187,10 +1809,10 @@ function initSettings() {
     });
   });
 }
-/* ══════════════════════════════════════════════
-   ГЛОБАЛЬНЫЕ ФУНКЦИИ ДЛЯ onclick В HTML
-══════════════════════════════════════════════ */
 
+/* ══════════════════════════════════════════════
+   ГЛОБАЛЬНЫЕ onclick-ФУНКЦИИ ДЛЯ HTML
+══════════════════════════════════════════════ */
 function switchAuthTab(tab) {
   document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.auth-form').forEach(f => f.classList.add('hidden'));
@@ -2203,10 +1825,7 @@ function doLogin() {
   const password = document.getElementById('login-password').value;
   const errEl    = document.getElementById('login-err');
   errEl.textContent = '';
-  if (!username || !password) {
-    errEl.textContent = 'Заполните все поля';
-    return;
-  }
+  if (!username || !password) { errEl.textContent = 'Заполните все поля'; return; }
   E2E.hashPassword(password).then(({ hash, salt }) => {
     App.socket.emit('auth:login', { username, passwordHash: hash, salt });
   });
@@ -2218,53 +1837,12 @@ function doRegister() {
   const password2 = document.getElementById('reg-password2').value;
   const errEl     = document.getElementById('reg-err');
   errEl.textContent = '';
-  if (!username || !password) {
-    errEl.textContent = 'Заполните все поля';
-    return;
-  }
-  if (password !== password2) {
-    errEl.textContent = 'Пароли не совпадают';
-    return;
-  }
-  if (password.length < 6) {
-    errEl.textContent = 'Минимум 6 символов';
-    return;
-  }
+  if (!username || !password) { errEl.textContent = 'Заполните все поля'; return; }
+  if (password !== password2) { errEl.textContent = 'Пароли не совпадают'; return; }
+  if (password.length < 6)   { errEl.textContent = 'Минимум 6 символов';  return; }
   E2E.hashPassword(password).then(({ hash, salt }) => {
     App.socket.emit('auth:register', { username, passwordHash: hash, salt });
   });
-}
-
-function doLogout() {
-  closeModal('modal-profile');
-  App.socket.emit('auth:logout');
-  showAuth();
-}
-
-function openMyProfile() {
-  openProfileModal();
-}
-
-function closeModal(id) {
-  document.getElementById(id)?.classList.add('hidden');
-}
-
-function onSearchInput() {
-  const val = document.getElementById('search-input').value.trim();
-  App.searchQuery = val;
-  document.getElementById('search-clear').classList.toggle('hidden', !val);
-  renderChatList();
-}
-
-function clearSearch() {
-  document.getElementById('search-input').value = '';
-  App.searchQuery = '';
-  document.getElementById('search-clear').classList.add('hidden');
-  renderChatList();
-}
-
-function openNewChat() {
-  openNewChatModal();
 }
 
 function switchTab(tab) {
@@ -2281,150 +1859,84 @@ function goBack() {
   renderChatList();
 }
 
-function openChatInfo() {
-  openChatInfoModal();
-}
-
-function toggleAttachMenu() {
-  document.getElementById('attach-menu')?.classList.toggle('hidden');
-}
+function openChatInfo()     { openChatInfoModal(); }
+function openNewChat()      { openNewChatModal(); }
+function openMyProfile()    { openProfileModal(); }
+function cancelReply()      { clearReplyBar(); }
+function cancelEdit()       { clearEditBar(); }
+function closeOverlay()     { closeAllOverlays(); }
+function toggleAttachMenu() { DOM.attachMenu?.classList.toggle('hidden'); }
 
 function pickFile(accept) {
-  const input = document.getElementById('file-input');
-  input.accept = accept;
-  input.click();
-  document.getElementById('attach-menu')?.classList.add('hidden');
+  DOM.fileInput.accept = accept;
+  DOM.fileInput.click();
+  DOM.attachMenu?.classList.add('hidden');
 }
 
-function onMsgInput() {
-  autoResizeInput();
-  sendTyping();
-}
+function onMsgInput() { autoResizeInput(); sendTyping(); }
 
 function onMsgKeydown(e) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendMessage();
-  }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 }
 
-function cancelReply() {
-  clearReplyBar();
+function onSearchInput() {
+  const val = DOM.searchInput.value.trim();
+  App.searchQuery = val;
+  DOM.searchClear.classList.toggle('hidden', !val);
+  renderChatList();
 }
 
-function cancelEdit() {
-  clearEditBar();
+function clearSearch() {
+  DOM.searchInput.value = '';
+  App.searchQuery = '';
+  DOM.searchClear.classList.add('hidden');
+  renderChatList();
 }
 
-function onMessagesScroll() {
-  // Можно добавить подгрузку истории при скролле вверх
+function doLogout() {
+  App.socket.emit('auth:logout');
+  showAuth();
 }
 
-function searchUsers() {
-  const val = document.getElementById('nc-user-search')?.value.trim();
-  if (!val || val.length < 2) {
-    document.getElementById('nc-user-list').innerHTML = '';
-    return;
-  }
-  App.socket.emit('users:search', { query: val });
-}
-
-function switchNewChatTab(tab) {
-  document.querySelectorAll('.nctab').forEach(t => t.classList.remove('active'));
-  document.querySelector(`.nctab[onclick*="${tab}"]`)?.classList.add('active');
-  document.getElementById('nctab-private').classList.toggle('hidden', tab !== 'private');
-  document.getElementById('nctab-group').classList.toggle('hidden',   tab !== 'group');
-}
-
-function createGroup() {
-  const name = document.getElementById('nc-group-name')?.value.trim();
-  if (!name) { showNotif('Введите название группы', 'error'); return; }
-  App.socket.emit('chat:create', { type: 'group', name });
-  closeModal('modal-new-chat');
-}
-
-function saveProfile() {
-  const bio = document.getElementById('profile-bio')?.value.trim();
-  App.socket.emit('user:update', { bio, avatar: App.currentUser.avatar });
-  App.currentUser.bio = bio;
-  sessionStorage.setItem('chat_session', JSON.stringify(App.currentUser));
-  closeModal('modal-profile');
-  showNotif('Профиль сохранён', 'success');
-}
-
-function changeAvatar() {
-  document.getElementById('avatar-input')?.click();
-}
-
-function onAvatarSelected() {
-  const input = document.getElementById('avatar-input');
-  const file  = input.files[0];
-  if (!file) return;
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('type', 'avatar');
-  fetch('/upload', {
-    method:  'POST',
-    headers: { 'x-user-id': App.currentUser.id, 'x-token': App.currentUser.token },
-    body:    formData
-  }).then(r => r.json()).then(data => {
-    if (data.ok) {
-      App.currentUser.avatar = data.file.url;
-      renderMyAvatar();
-      showNotif('Фото обновлено', 'success');
-    }
-  }).catch(() => showNotif('Ошибка загрузки фото', 'error'));
-}
-
-function leaveChat() {
-  closeModal('modal-chat-info');
-  if (!App.currentChat) return;
-  openConfirmModal(
-    'Покинуть чат?',
-    'Вы покинете этот чат.',
-    () => App.socket.emit('chat:leave', { chatId: App.currentChat })
-  );
-}
-
+/* Заглушки для inline-обработчиков */
+function ctxReply()  {}
+function ctxCopy()   {}
+function ctxEdit()   {}
+function ctxReact()  {}
+function ctxDelete() {}
+function pickReaction(emoji) {}
+function changeChatAvatar()  {}
+function onMessagesScroll()  {}
 function searchGroups() {
   const val = document.getElementById('explore-input')?.value.trim();
   App.socket.emit('groups:explore', { query: val });
 }
 
-function closeOverlay() {
-  closeAllOverlays();
-  document.getElementById('overlay')?.classList.add('hidden');
-}
-
-function ctxReply()  { /* обрабатывается через контекстное меню */ }
-function ctxCopy()   { /* обрабатывается через контекстное меню */ }
-function ctxEdit()   { /* обрабатывается через контекстное меню */ }
-function ctxReact()  { /* обрабатывается через контекстное меню */ }
-function ctxDelete() { /* обрабатывается через контекстное меню */ }
-function pickReaction(emoji) { /* обрабатывается через пикер */ }
-function changeChatAvatar()  { /* заглушка */ }
 /* ══════════════════════════════════════════════
    ТОЧКА ВХОДА
 ══════════════════════════════════════════════ */
 document.addEventListener('DOMContentLoaded', async () => {
-  /* 1. Тема */
+  /* 1. Инициализируем DOM-ссылки ПОСЛЕ загрузки страницы */
+  initDOM();
+
+  /* 2. Тема */
   Theme.init();
 
-  /* 2. Запрашиваем разрешение на уведомления */
+  /* 3. Push-уведомления */
   await PushNotif.request();
 
-  /* 3. Service Worker */
+  /* 4. Service Worker */
   registerServiceWorker();
 
-  /* 4. Глобальные обработчики */
+  /* 5. Глобальные обработчики */
   bindGlobalKeys();
   bindVisibilityChange();
   bindResize();
   bindNetworkEvents();
 
-  /* 5. Настройки */
+  /* 6. Настройки */
   initSettings();
 
-  /* 6. Главная инициализация */
+  /* 7. Главная инициализация */
   await init();
 });
