@@ -1387,8 +1387,18 @@ async function createGroup() {
     return;
   }
 
-  if (!solo && !selected.length) {
-    showNotif('Выберите хотя бы одного участника или включите "Создать группу в одиночку"', 'error');
+  // пробуем взять id текущего пользователя из разных мест
+  const myId =
+    App.me?.id ??
+    App.user?.id ??
+    +(sessionStorage.getItem('user_id') || 0) ||
+    null;
+
+  // если "в одиночку" — отправим хотя бы себя (частый req бэка: min 1)
+  const members = solo ? (myId ? [myId] : []) : selected;
+
+  if (!members.length) {
+    showNotif('Выберите участника (или не удалось определить ваш user_id для одиночной группы)', 'error');
     return;
   }
 
@@ -1397,7 +1407,9 @@ async function createGroup() {
   try {
     const payload = {
       name,
-      members: solo ? [] : selected
+      members,          // основной вариант
+      memberIds: members,     // совместимость
+      participants: members,  // совместимость
     };
     if (pass) payload.password = pass;
 
@@ -1410,17 +1422,24 @@ async function createGroup() {
       body: JSON.stringify(payload),
     });
 
-    const data = await res.json();
-    if (data.ok && data.chat) {
+    const raw = await res.text();
+    let data;
+    try { data = JSON.parse(raw); }
+    catch { data = { ok: false, error: raw || `HTTP ${res.status}` }; }
+
+    if (res.ok && data.ok && data.chat) {
       App.chats.set(data.chat.id, { info: data.chat, messages: [] });
       renderChatList();
       openChat(data.chat.id);
       closeModal('modal-new-chat');
+      showNotif('Группа создана', 'success');
     } else {
-      showNotif(data.error || 'Ошибка создания группы', 'error');
+      console.error('createGroup failed:', res.status, data);
+      showNotif(`[${res.status}] ${data.error || 'Ошибка создания группы'}`, 'error');
     }
-  } catch {
-    showNotif('Ошибка сети', 'error');
+  } catch (e) {
+    console.error('createGroup exception:', e);
+    showNotif('Ошибка сети/клиента при создании группы', 'error');
   }
 }
 /* ══════════════════════════════════════════════
