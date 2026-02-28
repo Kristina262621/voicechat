@@ -1161,110 +1161,82 @@ html, body {
    АДАПТИВ — МОБИЛЬНЫЙ (≤ 680px)
 ═══════════════════════════════════════════════════════════ */
 @media (max-width: 680px) {
-  :root { --sidebar-w: 100vw; }
-
-  /* Сайдбар — выезжает поверх */
-  .sidebar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    height: 100%;
-    transform: translateX(-100%);
-    z-index: 200;
-    width: 80vw;
-    max-width: 320px;
-    min-width: unset;
-    box-shadow: var(--shadow);
-    transition: transform 0.25s ease;
-  }
-
-  .sidebar.open { transform: translateX(0); }
-
-  .sidebar-overlay { display: none; }
-  .sidebar-overlay.visible {
-    display: block;
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.5);
-    z-index: 199;
-  }
-
-  /* Чат — занимает весь экран */
-  .chat-area {
-    position: fixed;
-    inset: 0;
-    z-index: 1;
-    display: flex;
-    flex-direction: column;
-  }
-
-  /* Экран "выберите комнату" — по центру, не мешает */
-  #chat-empty {
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-  }
-
-  /* Когда чат активен — скрываем empty */
-  #chat-view {
-    position: fixed;
-    inset: 0;
-    z-index: 2;
-    flex-direction: column;
-  }
-
-  /* Правая панель участников — скрыта */
-  .members-panel { display: none; }
-  .members-panel.open {
-    display: flex;
-    position: fixed;
-    top: 0;
-    right: 0;
-    height: 100%;
-    width: 75%;
-    max-width: 260px;
-    z-index: 200;
-    box-shadow: var(--shadow);
-  }
-
-  /* Кнопка меню */
-  .mobile-menu-btn { display: flex; }
-
-  /* Хедер */
-  .chat-header { padding: 0 10px; gap: 6px; }
-
-  /* Название комнаты — не вылезает */
-  #chat-room-name {
-    font-size: 15px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 40vw;
-  }
-
-  /* Сообщения */
-  .messages-wrap { padding: 10px 8px; }
-
-  /* Пузырьки — не на весь экран */
-  .msg-body { max-width: 72vw; }
-
-  /* Ввод — важно для iOS (без этого зум при фокусе) */
-  .input-area { padding: 10px 8px; }
-  #msg-input  { font-size: 16px; }
 
   /* Auth */
   .auth-card { padding: 28px 20px; }
 
-  /* Голос */
-  .voice-btn { font-size: 11px; padding: 6px 4px; }
+  /* Экран комнат — список на весь экран */
+  .rooms-layout {
+    flex-direction: column;
+  }
 
-  /* Скрываем текст в кнопках голоса */
-  .voice-btn span,
-  .voice-media-btn span { display: none; }
+  /* Левый сайдбар с иконками — горизонтальная полоса снизу */
+  .sidebar {
+    width: 100%;
+    min-width: unset;
+    flex-direction: row;
+    height: 52px;
+    border-right: none;
+    border-top: 1px solid var(--border);
+    padding: 6px 12px;
+    order: 2;
+    justify-content: space-around;
+  }
+
+  .sidebar-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .rooms-main {
+    order: 1;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* Экран чата — полноэкранный */
+  #screen-chat {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Хедер */
+  .tg-header { padding: 0 8px; gap: 6px; }
+
+  #chat-room-name {
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 38vw;
+  }
+
+  /* Сообщения */
+  #chat-messages { padding: 8px 6px; }
+
+  .msg { max-width: 85%; }
+
+  /* Панель ввода */
+  .tg-input-row { padding: 6px 8px 8px; }
+  .voice-bar    { padding: 6px 8px 4px; gap: 6px; }
+
+  /* Важно для iOS — без этого зум при фокусе */
+  #chat-input { font-size: 16px; }
+
+  /* Кнопки голоса */
+  #btn-join, #btn-mic, #btn-leave {
+    font-size: 12px;
+    padding: 8px 4px;
+  }
+
+  /* Видео-кнопка */
+  #btn-video-call {
+    width: 34px;
+    height: 34px;
+    font-size: 16px;
+  }
 }
 /* ═══════════════════════════════════════════════════════════
    УТИЛИТЫ
