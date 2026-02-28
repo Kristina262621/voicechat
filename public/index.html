@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SecureChat</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════
+     ЭКРАН АВТОРИЗАЦИИ
+══════════════════════════════════════════ -->
+<div id="screen-auth" class="screen">
+  <div class="auth-box">
+    <div class="auth-logo">💬</div>
+    <h1 class="auth-title">SecureChat</h1>
+    <p class="auth-sub">Безопасный мессенджер с шифрованием</p>
+
+    <div class="auth-tabs">
+      <button class="auth-tab active" onclick="switchAuthTab('login')">Войти</button>
+      <button class="auth-tab" onclick="switchAuthTab('register')">Регистрация</button>
+    </div>
+
+    <!-- Вход -->
+    <div id="tab-login" class="auth-form">
+      <input id="login-username" class="auth-input" type="text"
+             placeholder="Имя пользователя" autocomplete="username"/>
+      <input id="login-password" class="auth-input" type="password"
+             placeholder="Пароль" autocomplete="current-password"/>
+      <div id="login-err" class="auth-err"></div>
+      <button class="auth-btn" onclick="doLogin()">Войти</button>
+    </div>
+
+    <!-- Регистрация -->
+    <div id="tab-register" class="auth-form hidden">
+      <input id="reg-username" class="auth-input" type="text"
+             placeholder="Имя пользователя" autocomplete="username"/>
+      <input id="reg-password" class="auth-input" type="password"
+             placeholder="Пароль" autocomplete="new-password"/>
+      <input id="reg-password2" class="auth-input" type="password"
+             placeholder="Повтори пароль" autocomplete="new-password"/>
+      <div id="reg-err" class="auth-err"></div>
+      <button class="auth-btn" onclick="doRegister()">Создать аккаунт</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     ГЛАВНЫЙ ЭКРАН
+══════════════════════════════════════════ -->
+<div id="screen-app" class="screen hidden">
+  <div class="layout">
+
+    <!-- ══════════════════════════════════════
+         САЙДБАР
+    ══════════════════════════════════════ -->
+    <aside class="sidebar" id="sidebar">
+
+      <!-- Шапка сайдбара -->
+      <div class="sidebar-header">
+        <div class="my-avatar" id="my-avatar-el" onclick="openMyProfile()"></div>
+        <div class="sidebar-search">
+          <input id="search-input" class="search-input" type="text"
+                 placeholder="Поиск..." oninput="onSearchInput()"/>
+          <button id="search-clear" class="search-clear hidden"
+                  onclick="clearSearch()">✕</button>
+        </div>
+        <button class="icon-btn" onclick="openNewChat()" title="Новый чат">✏️</button>
+      </div>
+
+      <!-- Табы -->
+      <div class="sidebar-tabs">
+        <button id="stab-chats"    class="stab active" onclick="switchTab('chats')">Чаты</button>
+        <button id="stab-contacts" class="stab"        onclick="switchTab('contacts')">Контакты</button>
+        <button id="stab-explore"  class="stab"        onclick="switchTab('explore')">Обзор</button>
+      </div>
+
+      <!-- Список чатов -->
+      <div id="chat-list" class="chat-list"></div>
+
+      <!-- Панель контактов -->
+      <div id="contacts-panel" class="contacts-panel hidden">
+        <div class="contacts-section-title">Контакты</div>
+        <div id="contacts-list" class="contacts-list"></div>
+        <div class="contacts-section-title">Запросы</div>
+        <div id="requests-list" class="contacts-list"></div>
+      </div>
+
+      <!-- Панель обзора -->
+      <div id="explore-panel" class="explore-panel hidden">
+        <div class="explore-search">
+          <input id="explore-input" class="search-input" type="text"
+                 placeholder="Поиск групп..." oninput="searchGroups()"/>
+        </div>
+        <div id="explore-list" class="explore-list"></div>
+      </div>
+
+    </aside>
+
+    <!-- ══════════════════════════════════════
+         ОБЛАСТЬ ЧАТА
+    ══════════════════════════════════════ -->
+    <main class="chat-area" id="chat-area">
+
+      <!-- Заглушка когда чат не выбран -->
+      <div class="chat-placeholder" id="chat-placeholder">
+        <div class="placeholder-icon">💬</div>
+        <div class="placeholder-text">Выбери чат чтобы начать</div>
+      </div>
+
+      <!-- Чат -->
+      <div class="chat-wrap hidden" id="chat-wrap">
+
+        <!-- Шапка чата -->
+        <div class="chat-header">
+          <button class="back-btn hidden" id="back-btn" onclick="goBack()">←</button>
+          <div class="ch-avatar" id="ch-avatar"
+               onclick="openChatInfo()" style="cursor:pointer"></div>
+          <div class="ch-info" onclick="openChatInfo()" style="cursor:pointer">
+            <div class="ch-name"  id="ch-name"></div>
+            <div class="ch-status" id="ch-status"></div>
+          </div>
+        </div>
+                <!-- Сообщения -->
+        <div class="messages-area" id="messages-area"
+             onscroll="onMessagesScroll()">
+          <div class="messages-list" id="messages-list"></div>
+        </div>
+
+        <!-- Панель ответа -->
+        <div class="reply-bar hidden" id="reply-bar">
+          <div class="reply-bar-content">
+            <span class="reply-bar-label">Ответ:</span>
+            <span class="reply-bar-text" id="reply-bar-text"></span>
+          </div>
+          <button class="reply-bar-close" onclick="cancelReply()">✕</button>
+        </div>
+
+        <!-- Панель редактирования -->
+        <div class="edit-bar hidden" id="edit-bar">
+          <div class="edit-bar-content">
+            <span class="edit-bar-label">Редактирование</span>
+            <span class="edit-bar-text" id="edit-bar-text"></span>
+          </div>
+          <button class="edit-bar-close" onclick="cancelEdit()">✕</button>
+        </div>
+
+        <!-- Поле ввода -->
+        <div class="input-area">
+          <button class="icon-btn attach-icon" id="attach-btn"
+                  onclick="toggleAttachMenu()">📎</button>
+
+          <div class="attach-menu hidden" id="attach-menu">
+            <button onclick="pickFile('image/*')">🖼 Изображение</button>
+            <button onclick="pickFile('*/*')">📄 Файл</button>
+          </div>
+
+          <textarea id="msg-input" class="msg-input"
+                    placeholder="Сообщение..."
+                    rows="1"
+                    oninput="onMsgInput()"
+                    onkeydown="onMsgKeydown(event)"></textarea>
+
+          <button class="send-btn" id="send-btn" onclick="sendMessage()">➤</button>
+        </div>
+
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     МОДАЛКИ
+══════════════════════════════════════════ -->
+
+<!-- Профиль -->
+<div class="modal hidden" id="modal-profile">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span>Мой профиль</span>
+      <button class="modal-close" onclick="closeModal('modal-profile')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="profile-avatar-wrap">
+        <div class="profile-avatar" id="profile-avatar-el"></div>
+        <button class="avatar-change-btn" onclick="changeAvatar()">Сменить фото</button>
+      </div>
+      <div class="profile-username" id="profile-username-el"></div>
+      <textarea id="profile-bio" class="profile-bio-input"
+                placeholder="О себе..."></textarea>
+      <button class="modal-btn" onclick="saveProfile()">Сохранить</button>
+      <button class="modal-btn danger" onclick="doLogout()">Выйти</button>
+    </div>
+  </div>
+</div>
+
+<!-- Новый чат -->
+<div class="modal hidden" id="modal-new-chat">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span>Новый чат</span>
+      <button class="modal-close" onclick="closeModal('modal-new-chat')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="new-chat-tabs">
+        <button class="nctab active" onclick="switchNewChatTab('private')">Личный</button>
+        <button class="nctab" onclick="switchNewChatTab('group')">Группа</button>
+      </div>
+
+      <!-- Личный чат -->
+      <div id="nctab-private">
+        <input id="nc-user-search" class="auth-input" type="text"
+               placeholder="Поиск пользователя..." oninput="searchUsers()"/>
+        <div id="nc-user-list" class="user-search-list"></div>
+      </div>
+
+      <!-- Группа -->
+      <div id="nctab-group" class="hidden">
+        <input id="nc-group-name" class="auth-input" type="text"
+               placeholder="Название группы"/>
+        <input id="nc-group-pass" class="auth-input" type="password"
+               placeholder="Пароль (необязательно)"/>
+        <button class="modal-btn" onclick="createGroup()">Создать группу</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Информация о чате -->
+<div class="modal hidden" id="modal-chat-info">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span id="chat-info-title">Информация</span>
+      <button class="modal-close" onclick="closeModal('modal-chat-info')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="profile-avatar-wrap">
+        <div class="profile-avatar" id="chat-info-avatar"></div>
+        <button class="avatar-change-btn" id="chat-info-avatar-btn"
+                onclick="changeChatAvatar()" style="display:none">Сменить фото</button>
+      </div>
+      <div class="profile-username" id="chat-info-name"></div>
+      <div class="chat-info-meta" id="chat-info-meta"></div>
+      <button class="modal-btn danger" id="chat-info-leave-btn"
+              onclick="leaveChat()">Покинуть чат</button>
+    </div>
+  </div>
+</div>
+
+<!-- Просмотр изображения -->
+<div class="modal hidden" id="modal-image">
+  <div class="modal-box modal-image-box" onclick="closeModal('modal-image')">
+    <img id="modal-image-el" src="" alt=""/>
+  </div>
+</div>
+
+<!-- Контекстное меню сообщения -->
+<div class="ctx-menu hidden" id="msg-ctx-menu">
+  <button onclick="ctxReply()">↩ Ответить</button>
+  <button onclick="ctxCopy()">📋 Копировать</button>
+  <button id="ctx-edit-btn" onclick="ctxEdit()">✏️ Редактировать</button>
+  <button onclick="ctxReact()">😊 Реакция</button>
+  <button id="ctx-del-btn" onclick="ctxDelete()" class="danger">🗑 Удалить</button>
+</div>
+
+<!-- Пикер реакций -->
+<div class="reaction-picker hidden" id="reaction-picker">
+  <span onclick="pickReaction('👍')">👍</span>
+  <span onclick="pickReaction('❤️')">❤️</span>
+  <span onclick="pickReaction('😂')">😂</span>
+  <span onclick="pickReaction('😮')">😮</span>
+  <span onclick="pickReaction('😢')">😢</span>
+  <span onclick="pickReaction('🔥')">🔥</span>
+  <span onclick="pickReaction('👏')">👏</span>
+  <span onclick="pickReaction('🎉')">🎉</span>
+</div>
+
+<!-- Скрытый input для файлов -->
+<input type="file" id="file-input" style="display:none" onchange="onFileSelected()"/>
+<input type="file" id="avatar-input" style="display:none"
+       accept="image/*" onchange="onAvatarSelected()"/>
+       </div>
+
+<!-- Оверлей для закрытия меню -->
+<div class="overlay hidden" id="overlay" onclick="closeOverlay()"></div>
+
+<!-- Уведомления -->
+<div class="notifications" id="notifications"></div>
+
+<!-- Скрипты -->
+<script src="/socket.io/socket.io.js"></script>
+<script src="crypto.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
