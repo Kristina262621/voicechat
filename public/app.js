@@ -1749,6 +1749,36 @@ function pickFile(accept)   {
 /* ══════════════════════════════════════════════
    ГЛОБАЛЬНЫЙ ЭКСПОРТ
 ══════════════════════════════════════════════ */
+function getMyId() {
+  // 1) из состояния приложения
+  let id =
+    App?.me?.id ??
+    App?.user?.id ??
+    App?.profile?.id ??
+    null;
+
+  // 2) из storage
+  if (!id) {
+    id =
+      sessionStorage.getItem('user_id') ||
+      localStorage.getItem('user_id') ||
+      null;
+  }
+
+  // 3) из JWT (chat_token)
+  if (!id) {
+    const token = sessionStorage.getItem('chat_token');
+    if (token && token.split('.').length === 3) {
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        id = payload.userId ?? payload.id ?? payload.sub ?? null;
+      } catch {}
+    }
+  }
+
+  id = Number(id);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
 function exposeGlobals() {
   Object.assign(window, {
     openChat, goBack, switchTab,
