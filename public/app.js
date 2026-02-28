@@ -1,1295 +1,1915 @@
-// ═══════════════════════════════════════════════
-//  CRYPTO — AES-256-GCM
-// ═══════════════════════════════════════════════
-const Crypto = (() => {
-  let cryptoKey = null;
+// ═══════════════════════════════════════════════════════════
+//  app.js  —  VoiceChat клиент
+// ═══════════════════════════════════════════════════════════
 
-  async function deriveKey(password) {
-    const enc    = new TextEncoder();
-    const keyMat = await crypto.subtle.importKey(
-      'raw', enc.encode(password), { name: 'PBKDF2' }, false, ['deriveKey']
-    );
-    const salt = enc.encode('voicechat-salt-v1');
-    cryptoKey  = await crypto.subtle.deriveKey(
-      { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
-      keyMat,
-      { name: 'AES-GCM', length: 256 },
-      false,
-      ['encrypt', 'decrypt']
-    );
-    return cryptoKey;
-  }
+'use strict';
 
-  async function encrypt(data) {
-    const iv      = crypto.getRandomValues(new Uint8Array(12));
-    const encoded = typeof data === 'string'
-      ? new TextEncoder().encode(data)
-      : new Uint8Array(data);
-    const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, cryptoKey, encoded);
-    return {
-      iv:        btoa(String.fromCharCode(...iv)),
-      encrypted: btoa(String.fromCharCode(...new Uint8Array(cipher)))
-    };
-  }
+// ── Константы ────────────────────────────────────────────
+const API = '';
+const STORAGE_TOKEN = 'chat_token';
+const STORAGE_USER  = 'chat_user';
+const STORAGE_THEME = 'chat_theme';
+const MSG_LIMIT     = 50;
 
-  async function decrypt(encB64, ivB64) {
-    const iv     = Uint8Array.from(atob(ivB64),  c => c.charCodeAt(0));
-    const cipher = Uint8Array.from(atob(encB64), c => c.charCodeAt(0));
-    return crypto.subtle.decrypt({ name: 'AES-GCM', iv }, cryptoKey, cipher);
-  }
-
-  async function decryptText(encB64, ivB64) {
-    return new TextDecoder().decode(await decrypt(encB64, ivB64));
-  }
-
-  async function decryptBlob(encB64, ivB64, mime) {
-    return new Blob([await decrypt(encB64, ivB64)], { type: mime });
-  }
-
-  return { deriveKey, encrypt, decryptText, decryptBlob };
-})();
-
-// ═══════════════════════════════════════════════
-//  GLOBALS
-// ═══════════════════════════════════════════════
+// ── Состояние приложения ─────────────────────────────────
 let socket        = null;
-let localStream   = null;
-let peers         = {};
-let micEnabled    = true;
-let pendingOffers = [];
-let joined        = false;
-let audioCtx      = null;
-let wakeLock      = null;
-let msgCounter    = 0;
+let currentRoom   = null;
+let currentUser   = null;
+let authToken     = null;
+let cryptoKey     = null;
+let mediaStream   = null;
+let isMuted       = false;
+let peers         = {};          // socketId → RTCPeerConnection
+let audioEls      = {};          // socketId → <audio>
+let ICE_CONFIG    = { iceServers: [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' }
+]};
 
-const analysers     = {};
-const qualityTimers = {};
-const messageStore  = new Map();
-const typingSet     = new Set();
+let videoStream       = null;
+let videopeers        = {};      // socketId → RTCPeerConnection (video)
+let localVideoEl      = null;
+let remoteVideoEls    = {};      // socketId → <video>
 
-let replyTarget   = null;
-let editingMsgId  = null;
-let typingTimer   = null;
-let typingActive  = false;
+let typingTimer       = null;
+let isTyping          = false;
+let replyTo           = null;    // { msgId, username, text }
+let editingMsgId      = null;
+let messageCache      = {};      // msgId → { el, data }
+let reactions         = {};      // msgId → { emoji → Set(userId) }
+let loadingHistory    = false;
+let allHistoryLoaded  = false;
+let oldestMsgDate     = null;
+let pinnedMsgId       = null;
+let contacts          = [];
+let contactRequests   = [];
+let rooms             = [];
 
-window._roomPeers  = new Set();
-window._peerNames  = new Map();
-window._peerAvatars = new Map();
-window._peerIds    = new Map();
-
-const DEFAULT_SERVER_URL = 'https://voicechat-production-3d23.up.railway.app';
-
-// ═══════════════════════════════════════════════
-//  DOM REFS  (безопасное получение)
-// ═══════════════════════════════════════════════
-function el(id) { return document.getElementById(id); }
-
-// ═══════════════════════════════════════════════
-//  УТИЛИТЫ
-// ═══════════════════════════════════════════════
-function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-function formatSize(b) {
-  if (b < 1024) return b + ' Б';
-  if (b < 1048576) return (b/1024).toFixed(1) + ' КБ';
-  return (b/1048576).toFixed(1) + ' МБ';
-}
-function generateMsgId() {
-  return (crypto.randomUUID && crypto.randomUUID()) ||
-    ('m' + Date.now() + '-' + Math.random().toString(16).slice(2));
-}
-function getUserMeta(socketId) {
-  return {
-    socketId,
-    username:  window._peerNames.get(socketId)  || 'Участник',
-    avatar:    window._peerAvatars.get(socketId) || null,
-    userId:    window._peerIds.get(socketId)     || null
-  };
-}
-async function decryptMeta(metaEnc, metaIv) {
-  if (!metaEnc || !metaIv) return null;
-  try { return JSON.parse(await Crypto.decryptText(metaEnc, metaIv)); }
-  catch { return null; }
-}
-function showToastJoin(username)  { toast('👋 ' + username + ' вошёл в комнату'); }
-function showToastLeave(username) { toast('🚪 ' + username + ' покинул комнату'); }
-function toast(msg) {
-  const t = document.createElement('div');
-  t.className = 'toast'; t.textContent = msg;
-  document.body.appendChild(t);
-  setTimeout(() => t.remove(), 2600);
-}
-
-// ═══════════════════════════════════════════════
-//  SOCKET
-// ═══════════════════════════════════════════════
-function normalizeServerUrl(input) {
-  let url = (input && String(input).trim()) || DEFAULT_SERVER_URL;
-  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
-  try {
-    const u = new URL(url);
-    u.hash = ''; u.search = '';
-    if (u.hostname.endsWith('.up.railway.app')) u.port = '';
-    return u.origin;
-  } catch { return DEFAULT_SERVER_URL; }
-}
-
-function initSocket(token, roomId, username, serverUrl) {
-  // Сброс предыдущего соединения
-  if (socket) {
-    socket.removeAllListeners();
-    socket.disconnect();
-    socket = null;
-  }
-  window._roomPeers.clear();
-  window._peerNames.clear();
-  window._peerAvatars.clear();
-  window._peerIds.clear();
-
-  // Сбрасываем состояние голосового чата
-  hangUp();
-  joined = false;
-  resetVoiceUI();
-
-  // Сбрасываем сообщения
-  msgCounter = 0;
-  messageStore.clear();
-  typingSet.clear();
-
-  Crypto.deriveKey(String(roomId)).catch(e => console.error('[crypto]', e));
-
-  const url = normalizeServerUrl(serverUrl);
-  console.log('[socket] connecting to:', url);
-
-  socket = io(url, {
-    path:               '/socket.io',
-    transports:         ['websocket', 'polling'],
-    upgrade:            true,
-    rememberUpgrade:    true,
-    reconnection:       true,
-    reconnectionAttempts: Infinity,
-    reconnectionDelay:  1000,
-    reconnectionDelayMax: 5000,
-    timeout:            20000,
-    withCredentials:    false
-  });
-
-  window._socket = socket;
-
-  if (socket.io) {
-    socket.io.on('reconnect_attempt', n => console.warn('[socket] reconnect_attempt:', n));
-    socket.io.on('reconnect_error',   e => console.error('[socket] reconnect_error:', e?.message));
-    socket.io.on('reconnect_failed',  () => console.error('[socket] reconnect_failed'));
-  }
-
-  socket.on('connect', () => {
-    console.log('[socket] connected:', socket.id);
-    el('reconnect-banner')?.classList.remove('visible');
-    socket.emit('join-room', { token, roomId });
-  });
-
-  socket.on('connect_error', err => console.error('[socket] connect_error:', err?.message));
-  socket.on('error', err => console.error('[socket] error:', err));
-
-  socket.on('auth-fail', () => {
-    if (window.showScreen) window.showScreen('screen-rooms');
-    toast('❌ Ошибка авторизации');
-  });
-
-  socket.on('disconnect', reason => {
-    console.warn('[socket] disconnect:', reason);
-    if (joined) el('reconnect-banner')?.classList.add('visible');
-  });
-
-  socket.on('user-count', count => {
-    const countEl = el('user-count');
-    if (countEl) countEl.textContent = count;
-  });
-
-  socket.on('existing-users', async (users) => {
-    for (const u of users) {
-      const sid = u.socketId;
-      window._roomPeers.add(sid);
-      window._peerNames.set(sid, u.username || 'Участник');
-      window._peerAvatars.set(sid, u.avatar || null);
-      window._peerIds.set(sid, u.userId || null);
-      // Если уже в голосовом — создаём peerConnection
-      if (joined && localStream && !peers[sid]) {
-        addParticipant(sid, u.username || 'Участник');
-        peers[sid] = createPeer(sid, true);
-      }
-    }
-  });
-
-  socket.on('room-history', async ({ messages, pinned }) => {
-    if (!Array.isArray(messages)) return;
-    for (const m of messages) await appendHistoryMessage(m);
-    if (pinned) updatePinnedBanner(pinned);
-  });
-
-  socket.on('user-joined', data => {
-    const sid   = data.socketId;
-    const uname = data.username || 'Участник';
-    window._roomPeers.add(sid);
-    window._peerNames.set(sid, uname);
-    window._peerAvatars.set(sid, data.avatar || null);
-    window._peerIds.set(sid, data.userId || null);
-    playBeep('join');
-    showToastJoin(uname);
-    if (joined && localStream && !peers[sid]) {
-      addParticipant(sid, uname);
-      peers[sid] = createPeer(sid, true);
-    }
-  });
-
-  socket.on('user-left', data => {
-    const sid   = typeof data === 'string' ? data : data.socketId;
-    const uname = window._peerNames.get(sid) || '???';
-    window._roomPeers.delete(sid);
-    window._peerNames.delete(sid);
-    window._peerAvatars.delete(sid);
-    window._peerIds.delete(sid);
-    playBeep('leave');
-    removeParticipant(sid);
-    stopVolumeAnalysis(sid);
-    stopQualityMonitor(sid);
-    if (peers[sid]) { peers[sid].close(); delete peers[sid]; }
-    el('audio-' + sid)?.remove();
-    showToastLeave(uname);
-    if (window.onUserLeft) window.onUserLeft(sid);
-  });
-
-  socket.on('offer', async ({ from, offer }) => {
-    if (!localStream) { pendingOffers.push({ from, offer }); return; }
-    await handleOffer(from, offer);
-  });
-
-  socket.on('answer', async ({ from, answer }) => {
-    const peer = peers[from];
-    if (peer?.signalingState === 'have-local-offer') {
-      await peer.setRemoteDescription(new RTCSessionDescription(answer));
-    }
-  });
-
-  socket.on('ice-candidate', async ({ from, candidate }) => {
-    const peer = peers[from];
-    if (peer && candidate) {
-      try { await peer.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e) {}
-    }
-  });
-
-  socket.on('chat-message', async (data) => {
-    const uname  = window._peerNames.get(data.from) || data.username || '???';
-    const avatar = window._peerAvatars.get(data.from) || null;
-    const domId  = appendMessage({
-      from:      data.from,
-      userId:    data.userId,
-      msgId:     data.msgId,
-      username:  uname,
-      avatar,
-      type:      data.type,
-      fileName:  data.fileName,
-      fileSize:  data.fileSize,
-      mimeType:  data.mimeType,
-      timestamp: data.timestamp,
-      mine:      false,
-      status:    'decrypting'
-    });
-    try {
-      const meta = await decryptMeta(data.metaEnc, data.metaIv);
-      if (data.type === 'text') {
-        const text = await Crypto.decryptText(data.encrypted, data.iv);
-        updateMessage(domId, { text, status: 'ok', replyTo: meta?.replyTo || null, editedAt: data.editedAt || null });
-      } else {
-        const mime = data.mimeType || 'application/octet-stream';
-        const blob = await Crypto.decryptBlob(data.encrypted, data.iv, mime);
-        updateMessage(domId, { localUrl: URL.createObjectURL(blob), status: 'ok', replyTo: meta?.replyTo || null });
-      }
-    } catch { updateMessage(domId, { status: 'error' }); }
-  });
-
-  socket.on('message-edit', async (data) => {
-    const msg = messageStore.get(data.msgId);
-    if (!msg) return;
-    try {
-      const meta = await decryptMeta(data.metaEnc, data.metaIv);
-      const text = await Crypto.decryptText(data.encrypted, data.iv);
-      updateMessage(msg.domId, { text, editedAt: data.editedAt || Date.now(), replyTo: meta?.replyTo || null });
-    } catch {}
-  });
-
-  socket.on('message-delete', ({ msgId }) => {
-    const msg = messageStore.get(msgId);
-    if (msg) markMessageDeleted(msg.domId);
-  });
-
-  socket.on('reaction-toggle', ({ msgId, emoji, userId }) => {
-    toggleReactionLocal(msgId, emoji, userId);
-  });
-
-  socket.on('room-pinned', ({ msgId }) => updatePinnedBanner(msgId));
-
-  socket.on('typing', ({ username, isTyping }) => updateTyping(username, isTyping));
-
-  socket.on('understood', ({ from, username: uname }) => {
-    playOkSound();
-    const name   = uname || window._peerNames.get(from) || '???';
-    const banner = document.createElement('div');
-    banner.className   = 'understood-banner';
-    banner.textContent = '✅ Понял! (' + name + ')';
-    document.body.appendChild(banner);
-    setTimeout(() => banner.remove(), 3000);
-  });
-
-  socket.on('video-start',  d => { if (window.onVideoStart)  window.onVideoStart(typeof d==='string'?d:d.from); });
-  socket.on('video-stop',   d => { if (window.onVideoStop)   window.onVideoStop(typeof d==='string'?d:d.from); });
-  socket.on('video-offer',  async d => { window._roomPeers.add(d.from); if (window.onVideoOffer)  await window.onVideoOffer(d.from, d.offer); });
-  socket.on('video-answer', async d => { if (window.onVideoAnswer) await window.onVideoAnswer(d.from, d.answer); });
-  socket.on('video-ice',    async d => { if (window.onVideoIce)    await window.onVideoIce(d.from, d.candidate); });
-}
-
-function socketLeave() {
-  if (!socket) return;
-  socket.emit('leave');
-  hangUp();
-  joined = false;
-  resetVoiceUI();
-  socket.removeAllListeners();
-  socket.disconnect();
-  socket = null;
-  window._socket = null;
-  window._roomPeers.clear();
-  window._peerNames.clear();
-  window._peerAvatars.clear();
-  window._peerIds.clear();
-}
-
-// ═══════════════════════════════════════════════
-//  ГОЛОСОВОЙ ЧАТ — WebRTC
-// ═══════════════════════════════════════════════
-const ICE_CONFIG = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun.relay.metered.ca:80' },
-    {
-      urls:       'turn:global.relay.metered.ca:80',
-      username:   '4219a9030e911d3a21936639',
-      credential: 'W9K/4EBqUUoxu9FC'
-    }
-  ]
+// ── DOM helpers ──────────────────────────────────────────
+const $  = id => document.getElementById(id);
+const el = (tag, cls, html) => {
+  const e = document.createElement(tag);
+  if (cls)  e.className   = cls;
+  if (html) e.innerHTML   = html;
+  return e;
 };
 
-function forceOpusQuality(sdp) {
-  const lines = sdp.split('\r\n');
-  const result = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line.includes('a=rtpmap') && line.toLowerCase().includes('opus')) {
-      result.push(line);
-      const pt = line.split(':')[1].split(' ')[0];
-      if (i + 1 < lines.length && lines[i + 1].startsWith('a=fmtp:' + pt)) i++;
-      result.push(`a=fmtp:${pt} minptime=10;useinbandfec=1;usedtx=1;stereo=0;maxaveragebitrate=64000`);
-      continue;
-    }
-    if (line.startsWith('b=AS:') || line.startsWith('b=TIAS:')) continue;
-    result.push(line);
-  }
-  return result.join('\r\n');
+function toast(msg, duration = 3000) {
+  const t = el('div', 'toast', msg);
+  document.body.appendChild(t);
+  requestAnimationFrame(() => t.classList.add('show'));
+  setTimeout(() => {
+    t.classList.remove('show');
+    setTimeout(() => t.remove(), 400);
+  }, duration);
 }
 
-// Ждём кнопку через DOMContentLoaded или сразу если DOM готов
-function setupVoiceButtons() {
-  const btnJoin  = el('btn-join');
-  const btnLeave = el('btn-leave');
-  const btnMic   = el('btn-mic');
+function avatarHtml(avatarUrl, username, size = 36) {
+  if (avatarUrl) {
+    return `<img src="${avatarUrl}" class="avatar-img" width="${size}" height="${size}"
+                 style="border-radius:50%;object-fit:cover" alt="">`;
+  }
+  const letter = (username || '?')[0].toUpperCase();
+  const colors  = ['#5865f2','#eb459e','#57f287','#fee75c','#ed4245','#9b59b6','#e67e22'];
+  const color   = colors[(username || '').charCodeAt(0) % colors.length];
+  return `<div class="avatar-letter" style="width:${size}px;height:${size}px;
+          border-radius:50%;background:${color};display:flex;align-items:center;
+          justify-content:center;font-weight:700;font-size:${Math.floor(size*0.45)}px;
+          color:#fff;flex-shrink:0">${letter}</div>`;
+}
 
-  if (!btnJoin) {
-    console.error('[voice] btn-join не найден!');
+// ── Тема ─────────────────────────────────────────────────
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem(STORAGE_THEME, theme);
+  const btn = $('btn-theme');
+  if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+}
+
+function initTheme() {
+  const saved = localStorage.getItem(STORAGE_THEME);
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  applyTheme(saved || (prefersDark ? 'dark' : 'light'));
+}
+
+// ── Крипто ───────────────────────────────────────────────
+async function generateRoomKey(roomName, roomId) {
+  const raw = `${roomName}::${roomId}::voicechat_secret_v2`;
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(raw), { name: 'PBKDF2' }, false, ['deriveKey']
+  );
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: new TextEncoder().encode('vchat_salt_2024'),
+      iterations: 100000, hash: 'SHA-256' },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+async function encryptText(text) {
+  if (!cryptoKey) return { encrypted: text, iv: '' };
+  const iv  = crypto.getRandomValues(new Uint8Array(12));
+  const enc = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    cryptoKey,
+    new TextEncoder().encode(text)
+  );
+  return {
+    encrypted: btoa(String.fromCharCode(...new Uint8Array(enc))),
+    iv:        btoa(String.fromCharCode(...iv))
+  };
+}
+
+async function decryptText(encrypted, ivB64) {
+  if (!cryptoKey || !ivB64) return encrypted;
+  try {
+    const iv  = Uint8Array.from(atob(ivB64), c => c.charCodeAt(0));
+    const enc = Uint8Array.from(atob(encrypted), c => c.charCodeAt(0));
+    const dec = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, cryptoKey, enc);
+    return new TextDecoder().decode(dec);
+  } catch { return '🔒 [не удалось расшифровать]'; }
+}
+
+async function encryptMeta(obj) {
+  const json = JSON.stringify(obj);
+  return encryptText(json);
+}
+
+async function decryptMeta(enc, iv) {
+  if (!enc) return null;
+  try {
+    const json = await decryptText(enc, iv);
+    return JSON.parse(json);
+  } catch { return null; }
+}
+
+// ── ICE конфиг ───────────────────────────────────────────
+async function loadIceConfig() {
+  try {
+    const r = await fetch(`${API}/api/ice-config`, {
+      headers: { 'Authorization': 'Bearer ' + authToken }
+    });
+    const d = await r.json();
+    if (d.ok && d.iceServers) {
+      ICE_CONFIG = { iceServers: d.iceServers };
+      console.log('[ICE] config loaded, servers:', d.iceServers.length);
+    }
+  } catch(e) {
+    console.warn('[ICE] failed to load config, using defaults');
+  }
+}
+
+// ── Инициализация ────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', async () => {
+  initTheme();
+  setupAuthForms();
+  setupThemeToggle();
+
+  const token    = localStorage.getItem(STORAGE_TOKEN);
+  const username = localStorage.getItem(STORAGE_USER);
+
+  if (token && username) {
+    try {
+      const r = await fetch(`${API}/api/verify`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ token })
+      });
+      const d = await r.json();
+      if (d.ok) {
+        authToken   = token;
+        currentUser = { username: d.username, userId: d.userId, avatar: d.avatar, bio: d.bio };
+        await loadIceConfig();
+        showApp();
+      } else {
+        showAuth();
+      }
+    } catch { showAuth(); }
+  } else {
+    showAuth();
+  }
+});
+
+// ── Auth ─────────────────────────────────────────────────
+function setupAuthForms() {
+  $('form-login')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const username = $('login-username').value.trim();
+    const password = $('login-password').value;
+    if (!username || !password) return toast('⚠️ Заполните все поля');
+
+    const btn = e.target.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try {
+      const r = await fetch(`${API}/api/login`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ username, password })
+      });
+      const d = await r.json();
+      if (d.ok) {
+        authToken   = d.token;
+        currentUser = { username: d.username, userId: d.userId };
+        localStorage.setItem(STORAGE_TOKEN, d.token);
+        localStorage.setItem(STORAGE_USER,  d.username);
+        await loadIceConfig();
+        showApp();
+      } else {
+        const msgs = {
+          wrong_credentials: '❌ Неверный логин или пароль',
+          rate_limited:      '⏳ Слишком много попыток, подождите',
+          missing_fields:    '⚠️ Заполните все поля'
+        };
+        toast(msgs[d.error] || '❌ Ошибка входа');
+      }
+    } catch { toast('❌ Ошибка сети'); }
+    finally  { btn.disabled = false; }
+  });
+
+  $('form-register')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const username = $('reg-username').value.trim();
+    const password = $('reg-password').value;
+    if (!username || !password) return toast('⚠️ Заполните все поля');
+    if (username.length < 2)  return toast('⚠️ Имя минимум 2 символа');
+    if (password.length < 4)  return toast('⚠️ Пароль минимум 4 символа');
+
+    const btn = e.target.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try {
+      const r = await fetch(`${API}/api/register`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ username, password })
+      });
+      const d = await r.json();
+      if (d.ok) {
+        authToken   = d.token;
+        currentUser = { username: d.username, userId: d.userId };
+        localStorage.setItem(STORAGE_TOKEN, d.token);
+        localStorage.setItem(STORAGE_USER,  d.username);
+        await loadIceConfig();
+        showApp();
+      } else {
+        const msgs = {
+          username_taken:  '❌ Имя уже занято',
+          username_length: '⚠️ Имя от 2 до 24 символов',
+          password_short:  '⚠️ Пароль минимум 4 символа',
+          rate_limited:    '⏳ Слишком много попыток'
+        };
+        toast(msgs[d.error] || '❌ Ошибка регистрации');
+      }
+    } catch { toast('❌ Ошибка сети'); }
+    finally  { btn.disabled = false; }
+  });
+
+  $('link-to-register')?.addEventListener('click', e => {
+    e.preventDefault();
+    $('auth-login').style.display    = 'none';
+    $('auth-register').style.display = 'block';
+  });
+
+  $('link-to-login')?.addEventListener('click', e => {
+    e.preventDefault();
+    $('auth-register').style.display = 'none';
+    $('auth-login').style.display    = 'block';
+  });
+}
+
+function setupThemeToggle() {
+  $('btn-theme')?.addEventListener('click', () => {
+    const cur = document.documentElement.getAttribute('data-theme');
+    applyTheme(cur === 'dark' ? 'light' : 'dark');
+  });
+}
+
+function showAuth() {
+  $('auth-screen').style.display = 'flex';
+  $('app-screen').style.display  = 'none';
+}
+
+function showApp() {
+  $('auth-screen').style.display = 'none';
+  $('app-screen').style.display  = 'flex';
+  initApp();
+}
+
+// ── Главный экран ────────────────────────────────────────
+async function initApp() {
+  updateProfileUI();
+  setupSidebar();
+  setupProfileModal();
+  setupCreateRoom();
+  setupVoiceButtons();
+  setupChatInput();
+  setupMessageSearch();
+  await loadRooms();
+  await loadContacts();
+  connectSocket();
+}
+
+function updateProfileUI() {
+  const nameEl   = $('profile-username');
+  const avatarEl = $('profile-avatar');
+  if (nameEl)   nameEl.textContent = currentUser?.username || '';
+  if (avatarEl) avatarEl.innerHTML = avatarHtml(currentUser?.avatar, currentUser?.username, 36);
+}
+
+// ── Sidebar ──────────────────────────────────────────────
+function setupSidebar() {
+  $('btn-logout')?.addEventListener('click', () => {
+    if (!confirm('Выйти из аккаунта?')) return;
+    localStorage.removeItem(STORAGE_TOKEN);
+    localStorage.removeItem(STORAGE_USER);
+    disconnectSocket();
+    location.reload();
+  });
+
+  $('btn-show-contacts')?.addEventListener('click', () => {
+    showPanel('contacts-panel');
+  });
+
+  $('btn-show-rooms')?.addEventListener('click', () => {
+    showPanel('rooms-panel');
+  });
+
+  $('btn-theme')?.addEventListener('click', () => {
+    const cur = document.documentElement.getAttribute('data-theme');
+    applyTheme(cur === 'dark' ? 'light' : 'dark');
+  });
+}
+
+function showPanel(panelId) {
+  ['rooms-panel','contacts-panel'].forEach(id => {
+    const p = $(id);
+    if (p) p.style.display = id === panelId ? 'flex' : 'none';
+  });
+}
+// ── Комнаты ──────────────────────────────────────────────
+async function loadRooms() {
+  try {
+    const r = await fetch(`${API}/api/rooms`, {
+      headers: { 'Authorization': 'Bearer ' + authToken }
+    });
+    const d = await r.json();
+    if (!d.ok) return;
+    rooms = d.rooms;
+    renderRoomList(rooms);
+  } catch(e) { console.error('[loadRooms]', e); }
+}
+
+function renderRoomList(list) {
+  const container = $('room-list');
+  if (!container) return;
+  container.innerHTML = '';
+
+  if (!list.length) {
+    container.innerHTML = '<div class="empty-hint">Нет доступных комнат</div>';
     return;
   }
 
-  btnJoin.addEventListener('click', async () => {
-    console.log('[voice] btn-join clicked, socket:', !!socket);
+  list.forEach(room => {
+    const div = el('div', 'room-item');
+    div.dataset.roomId = room.id;
 
-    if (!socket || !socket.connected) {
-      toast('❌ Нет соединения с сервером');
-      return;
-    }
+    const lockIcon  = room.has_password ? '🔒 ' : '';
+    const groupIcon = room.is_group ? '👥 ' : '';
+    const privIcon  = room.is_private ? '🔐 ' : '';
 
-    // Разблокируем AudioContext на iOS — требует user gesture
-    if (audioCtx && audioCtx.state === 'suspended') {
-      await audioCtx.resume();
-    }
+    div.innerHTML = `
+      <div class="room-avatar">${avatarHtml(room.avatar, room.name, 40)}</div>
+      <div class="room-info">
+        <div class="room-name">${lockIcon}${groupIcon}${privIcon}${escHtml(room.name)}</div>
+        <div class="room-owner">Создал: ${escHtml(room.owner)}</div>
+      </div>
+    `;
 
-    btnJoin.disabled = true;
-    btnJoin.textContent = '⏳ Подключаемся…';
+    div.addEventListener('click', () => joinRoom(room));
+    container.appendChild(div);
+  });
+}
+
+function setupCreateRoom() {
+  const btn  = $('btn-create-room');
+  const form = $('create-room-form');
+  const cancel = $('btn-cancel-create');
+
+  btn?.addEventListener('click', () => {
+    if (form) form.style.display = form.style.display === 'none' ? 'flex' : 'none';
+  });
+
+  cancel?.addEventListener('click', () => {
+    if (form) form.style.display = 'none';
+  });
+
+  $('form-create-room')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const name     = $('new-room-name').value.trim();
+    const password = $('new-room-pass').value;
+    const isGroup  = $('new-room-group')?.checked || false;
+
+    if (!name) return toast('⚠️ Введите название комнаты');
+    if (name.length < 2 || name.length > 64) return toast('⚠️ Название от 2 до 64 символов');
+
+    const submitBtn = e.target.querySelector('button[type=submit]');
+    submitBtn.disabled = true;
 
     try {
-      localStream = await navigator.mediaDevices.getUserMedia({
-        video: false,
-        audio: {
-          echoCancellation:  true,
-          noiseSuppression:  true,
-          autoGainControl:   true,
-          sampleRate:        48000,
-          channelCount:      1
-        }
+      const r = await fetch(`${API}/api/rooms`, {
+        method:  'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          'Authorization': 'Bearer ' + authToken
+        },
+        body: JSON.stringify({ name, password, isGroup })
       });
-
-      console.log('[voice] got localStream, tracks:', localStream.getTracks().length);
-
-      // Инициализируем AudioContext после получения потока (user gesture уже был)
-      if (!audioCtx) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+      const d = await r.json();
+      if (d.ok) {
+        toast('✅ Комната создана');
+        $('new-room-name').value = '';
+        $('new-room-pass').value = '';
+        if ($('new-room-group')) $('new-room-group').checked = false;
+        if (form) form.style.display = 'none';
+        await loadRooms();
+      } else {
+        const msgs = {
+          room_exists:  '❌ Комната с таким названием уже существует',
+          invalid_name: '⚠️ Недопустимое название'
+        };
+        toast(msgs[d.error] || '❌ Ошибка создания комнаты');
       }
-      if (audioCtx.state === 'suspended') await audioCtx.resume();
-
-      await requestWakeLock();
-      startKeepAlive();
-      setMicStatus(true);
-
-      btnJoin.style.display  = 'none';
-      btnLeave.style.display = 'block';
-      btnMic.style.display   = 'block';
-      joined = true;
-
-      addParticipant(socket.id, window._currentUsername || 'Вы');
-      startVolumeAnalysis(socket.id, localStream);
-
-      socket.emit('join');
-
-      // Создаём пиры со всеми кто уже в комнате
-      for (const peerId of window._roomPeers) {
-        if (peerId === socket.id) continue;
-        if (!peers[peerId]) {
-          addParticipant(peerId, window._peerNames.get(peerId) || peerId.slice(0,6));
-          peers[peerId] = createPeer(peerId, true);
-        }
-      }
-
-      // Обрабатываем накопленные офферы
-      for (const { from, offer } of pendingOffers) await handleOffer(from, offer);
-      pendingOffers = [];
-
-    } catch (err) {
-      console.error('[voice] getUserMedia error:', err.name, err.message);
-      let msg = '❌ Ошибка доступа к микрофону';
-      if (err.name === 'NotAllowedError')  msg = '❌ Нет разрешения на микрофон';
-      if (err.name === 'NotFoundError')    msg = '❌ Микрофон не найден';
-      if (err.name === 'NotReadableError') msg = '❌ Микрофон занят другим приложением';
-      toast(msg);
-      joined = false;
-    } finally {
-      btnJoin.disabled    = false;
-      btnJoin.textContent = '🎙 Войти в голосовой';
-    }
+    } catch { toast('❌ Ошибка сети'); }
+    finally  { submitBtn.disabled = false; }
   });
 
-  btnLeave.addEventListener('click', () => {
-    if (socket) socket.emit('leave');
-    hangUp();
-    joined = false;
-    resetVoiceUI();
-    releaseWakeLock();
-    stopKeepAlive();
-  });
-
-  btnMic.addEventListener('click', () => {
-    micEnabled = !micEnabled;
-    if (localStream) localStream.getAudioTracks().forEach(t => t.enabled = micEnabled);
-    setMicStatus(micEnabled);
-    btnMic.textContent = micEnabled ? '🔇 Выкл. микрофон' : '🎙 Вкл. микрофон';
+  $('room-search')?.addEventListener('input', e => {
+    const q = e.target.value.toLowerCase().trim();
+    const filtered = rooms.filter(r => r.name.toLowerCase().includes(q));
+    renderRoomList(filtered);
   });
 }
 
-function createPeer(peerId, isInitiator) {
-  const peer = new RTCPeerConnection(ICE_CONFIG);
-
-  // Добавляем треки локального потока
-  if (localStream) {
-    localStream.getTracks().forEach(t => peer.addTrack(t, localStream));
+async function joinRoom(room) {
+  if (room.is_private) {
+    const member = await checkMembership(room.id);
+    if (!member) {
+      toast('🔐 Это приватный чат');
+      return;
+    }
   }
 
-  // Получаем удалённый аудио
-  peer.ontrack = event => {
-    console.log('[peer] ontrack from', peerId, event.streams.length, 'streams');
-    const stream = event.streams[0];
-    if (!stream) return;
-
-    let audio = el('audio-' + peerId);
-    if (!audio) {
-      audio           = document.createElement('audio');
-      audio.id        = 'audio-' + peerId;
-      audio.autoplay  = true;
-      audio.setAttribute('playsinline', '');
-      // Явно НЕ muted — иначе звук не слышно!
-      audio.muted     = false;
-      el('hidden-audios')?.appendChild(audio);
-    }
-
-    if (audio.srcObject !== stream) {
-      audio.srcObject = stream;
-    }
-
-    // На iOS нужен явный .play() после user gesture
-    const playPromise = audio.play();
-    if (playPromise) {
-      playPromise
-        .then(() => {
-          console.log('[audio] playing from', peerId);
-          startVolumeAnalysis(peerId, stream);
-        })
-        .catch(e => {
-          console.warn('[audio] play failed:', e.name, e.message);
-          // Пробуем через небольшой таймаут
-          setTimeout(() => {
-            audio.play()
-              .then(() => startVolumeAnalysis(peerId, stream))
-              .catch(() => {});
-          }, 300);
-        });
-    }
-  };
-
-  peer.onicecandidate = e => {
-    if (e.candidate && socket) {
-      socket.emit('ice-candidate', { to: peerId, candidate: e.candidate });
-    }
-  };
-
-  peer.onconnectionstatechange = () => {
-    console.log('[peer] connectionState with', peerId, ':', peer.connectionState);
-    if (['disconnected', 'failed', 'closed'].includes(peer.connectionState)) {
-      stopVolumeAnalysis(peerId);
-      el('audio-' + peerId)?.remove();
-    }
-  };
-
-  peer.oniceconnectionstatechange = () => {
-    console.log('[peer] iceConnectionState with', peerId, ':', peer.iceConnectionState);
-  };
-
-  if (isInitiator) {
-    peer.onnegotiationneeded = async () => {
+  if (room.has_password && !room.is_private) {
+    const alreadyMember = await checkMembership(room.id);
+    if (!alreadyMember) {
+      const password = prompt(`🔒 Комната "${room.name}" защищена паролем:`);
+      if (password === null) return;
       try {
-        const offer        = await peer.createOffer();
-        const modifiedOffer = { type: offer.type, sdp: forceOpusQuality(offer.sdp) };
-        await peer.setLocalDescription(modifiedOffer);
-        socket.emit('offer', { to: peerId, offer: modifiedOffer });
-      } catch(e) { console.error('[peer] onnegotiationneeded error:', e); }
-    };
+        const r = await fetch(`${API}/api/rooms/${room.id}/join`, {
+          method:  'POST',
+          headers: {
+            'Content-Type':  'application/json',
+            'Authorization': 'Bearer ' + authToken
+          },
+          body: JSON.stringify({ password })
+        });
+        const d = await r.json();
+        if (!d.ok) {
+          toast(d.error === 'wrong_password' ? '❌ Неверный пароль' : '❌ Ошибка входа');
+          return;
+        }
+        room = d.room;
+      } catch { toast('❌ Ошибка сети'); return; }
+    }
+  } else if (!room.is_private && !room.has_password) {
+    try {
+      const r = await fetch(`${API}/api/rooms/${room.id}/join`, {
+        method:  'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          'Authorization': 'Bearer ' + authToken
+        },
+        body: JSON.stringify({})
+      });
+      const d = await r.json();
+      if (d.ok && d.room) room = d.room;
+    } catch {}
   }
 
-  return peer;
+  enterRoom(room);
 }
 
-async function handleOffer(from, offer) {
+async function checkMembership(roomId) {
   try {
-    const peer = createPeer(from, false);
-    peers[from] = peer;
-    addParticipant(from, window._peerNames.get(from) || from.slice(0,6));
-    await peer.setRemoteDescription(new RTCSessionDescription(offer));
-    const answer        = await peer.createAnswer();
-    const modifiedAnswer = { type: answer.type, sdp: forceOpusQuality(answer.sdp) };
-    await peer.setLocalDescription(modifiedAnswer);
-    socket.emit('answer', { to: from, answer: modifiedAnswer });
-  } catch(e) { console.error('[handleOffer] error:', e); }
+    const r = await fetch(`${API}/api/rooms/${roomId}/join`, {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': 'Bearer ' + authToken
+      },
+      body: JSON.stringify({})
+    });
+    const d = await r.json();
+    return d.ok;
+  } catch { return false; }
 }
 
-// ═══════════════════════════════════════════════
-//  ГОЛОСОВОЙ ЧАТ — UI УЧАСТНИКОВ
-// ═══════════════════════════════════════════════
-function addParticipant(userId, label) {
-  const participantsBox  = el('participants');
-  const participantsList = el('participants-list');
-  if (!participantsBox || !participantsList) return;
-  if (el('p-' + userId)) return;  // уже есть
+async function enterRoom(room) {
+  if (currentRoom && currentRoom.id === room.id) return;
 
-  participantsBox.style.display = 'block';
+  if (currentRoom) {
+    leaveCurrentRoom();
+  }
 
-  const div = document.createElement('div');
-  div.className = 'participant';
-  div.id = 'p-' + userId;
+  currentRoom = room;
+  messageCache   = {};
+  reactions      = {};
+  replyTo        = null;
+  editingMsgId   = null;
+  allHistoryLoaded = false;
+  oldestMsgDate  = null;
+  pinnedMsgId    = null;
 
-  const isMe  = socket && userId === socket.id;
-  const avatar = isMe ? null : (window._peerAvatars.get(userId) || null);
-  const avatarHtml = avatar
-    ? `<img src="${avatar}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
-    : `<div class="p-avatar-fallback">${escapeHtml(label.slice(0,1).toUpperCase())}</div>`;
+  cryptoKey = await generateRoomKey(room.name, room.id);
+
+  const chatArea = $('chat-area');
+  if (chatArea) chatArea.style.display = 'flex';
+
+  const roomTitle = $('current-room-name');
+  if (roomTitle) roomTitle.textContent = room.name;
+
+  const msgList = $('message-list');
+  if (msgList) msgList.innerHTML = '';
+
+  hidePinnedBanner();
+
+  if (socket && socket.connected) {
+    socket.emit('join-room', { roomId: room.id, token: authToken });
+  }
+
+  updateRoomItemActive(room.id);
+  highlightActiveRoom(room.id);
+}
+
+function leaveCurrentRoom() {
+  if (!currentRoom) return;
+  if (socket) socket.emit('leave');
+  stopVoice();
+  stopVideo();
+  currentRoom = null;
+  messageCache = {};
+  reactions = {};
+  replyTo = null;
+  editingMsgId = null;
+  cryptoKey = null;
+  const chatArea = $('chat-area');
+  if (chatArea) chatArea.style.display = 'none';
+}
+
+function updateRoomItemActive(roomId) {
+  document.querySelectorAll('.room-item').forEach(el => {
+    el.classList.toggle('active', parseInt(el.dataset.roomId) === parseInt(roomId));
+  });
+}
+
+function highlightActiveRoom(roomId) {
+  document.querySelectorAll('.contact-item').forEach(el => {
+    el.classList.toggle('active', parseInt(el.dataset.roomId) === parseInt(roomId));
+  });
+}
+
+// ── Контакты ─────────────────────────────────────────────
+async function loadContacts() {
+  try {
+    const [cr, rr] = await Promise.all([
+      fetch(`${API}/api/contacts`, { headers: { 'Authorization': 'Bearer ' + authToken } }),
+      fetch(`${API}/api/contacts/requests`, { headers: { 'Authorization': 'Bearer ' + authToken } })
+    ]);
+    const cd = await cr.json();
+    const rd = await rr.json();
+    if (cd.ok) contacts = cd.contacts;
+    if (rd.ok) contactRequests = rd.requests;
+    renderContacts();
+    renderContactRequests();
+  } catch(e) { console.error('[loadContacts]', e); }
+}
+
+function renderContacts() {
+  const list = $('contacts-list');
+  if (!list) return;
+  list.innerHTML = '';
+
+  if (!contacts.length) {
+    list.innerHTML = '<div class="empty-hint">Нет контактов</div>';
+    return;
+  }
+
+  contacts.forEach(c => {
+    const div = el('div', 'contact-item');
+    div.innerHTML = `
+      <div class="contact-avatar">${avatarHtml(c.avatar, c.username, 38)}</div>
+      <div class="contact-info">
+        <div class="contact-name">${escHtml(c.username)}</div>
+        ${c.bio ? `<div class="contact-bio">${escHtml(c.bio)}</div>` : ''}
+      </div>
+      <button class="btn-icon btn-chat-private" title="Написать" data-uid="${c.id}">💬</button>
+    `;
+    div.querySelector('.btn-chat-private').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await openPrivateChat(c.id);
+    });
+    list.appendChild(div);
+  });
+}
+
+function renderContactRequests() {
+  const list = $('contact-requests-list');
+  if (!list) return;
+  list.innerHTML = '';
+
+  if (!contactRequests.length) {
+    const badge = $('requests-badge');
+    if (badge) badge.style.display = 'none';
+    return;
+  }
+
+  const badge = $('requests-badge');
+  if (badge) {
+    badge.textContent = contactRequests.length;
+    badge.style.display = 'inline-block';
+  }
+
+  contactRequests.forEach(c => {
+    const div = el('div', 'request-item');
+    div.innerHTML = `
+      <div class="contact-avatar">${avatarHtml(c.avatar, c.username, 36)}</div>
+      <div class="contact-info">
+        <div class="contact-name">${escHtml(c.username)}</div>
+      </div>
+      <button class="btn-accept" data-uid="${c.id}">✅</button>
+      <button class="btn-decline" data-uid="${c.id}">❌</button>
+    `;
+    div.querySelector('.btn-accept').addEventListener('click', () => respondRequest(c.id, true));
+    div.querySelector('.btn-decline').addEventListener('click', () => respondRequest(c.id, false));
+    list.appendChild(div);
+  });
+}
+
+async function respondRequest(userId, accept) {
+  try {
+    await fetch(`${API}/api/contacts/requests/respond`, {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': 'Bearer ' + authToken
+      },
+      body: JSON.stringify({ id: userId, accept })
+    });
+    toast(accept ? '✅ Контакт добавлен' : '❌ Заявка отклонена');
+    await loadContacts();
+  } catch { toast('❌ Ошибка'); }
+}
+
+async function openPrivateChat(userId) {
+  try {
+    const r = await fetch(`${API}/api/chats/private`, {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': 'Bearer ' + authToken
+      },
+      body: JSON.stringify({ userId })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      enterRoom(d.room);
+      showPanel('rooms-panel');
+    } else {
+      toast('❌ Не удалось открыть чат');
+    }
+  } catch { toast('❌ Ошибка сети'); }
+}
+
+// ── Профиль ──────────────────────────────────────────────
+function setupProfileModal() {
+  const btn   = $('btn-edit-profile');
+  const modal = $('profile-modal');
+  const close = $('btn-close-profile');
+  const form  = $('form-profile');
+
+  btn?.addEventListener('click', async () => {
+    const r = await fetch(`${API}/api/me`, {
+      headers: { 'Authorization': 'Bearer ' + authToken }
+    });
+    const d = await r.json();
+    if (d.ok) {
+      currentUser = { ...currentUser, ...d.user };
+      $('profile-bio-input').value = d.user.bio || '';
+      $('profile-avatar-preview').innerHTML = avatarHtml(d.user.avatar, d.user.username, 64);
+    }
+    modal.style.display = 'flex';
+  });
+
+  close?.addEventListener('click', () => { modal.style.display = 'none'; });
+  modal?.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+
+  $('profile-avatar-input')?.addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) return toast('⚠️ Только изображения');
+    if (file.size > 512 * 1024) return toast('⚠️ Максимум 512 КБ');
+    const reader = new FileReader();
+    reader.onload = ev => {
+      $('profile-avatar-preview').innerHTML = `<img src="${ev.target.result}"
+        style="width:64px;height:64px;border-radius:50%;object-fit:cover">`;
+      $('profile-avatar-preview').dataset.dataUrl = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  form?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const bio    = $('profile-bio-input').value;
+    const avatar = $('profile-avatar-preview').dataset.dataUrl || null;
+    const btn    = form.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try {
+      const r = await fetch(`${API}/api/me`, {
+        method:  'PUT',
+        headers: {
+          'Content-Type':  'application/json',
+          'Authorization': 'Bearer ' + authToken
+        },
+        body: JSON.stringify({ bio, avatar })
+      });
+      const d = await r.json();
+      if (d.ok) {
+        if (avatar) currentUser.avatar = avatar;
+        currentUser.bio = bio;
+        updateProfileUI();
+        modal.style.display = 'none';
+        toast('✅ Профиль сохранён');
+      } else {
+        toast(d.error === 'invalid_avatar' ? '⚠️ Недопустимый аватар' : '❌ Ошибка сохранения');
+      }
+    } catch { toast('❌ Ошибка сети'); }
+    finally  { btn.disabled = false; }
+  });
+}
+
+// ── Утилиты сообщений ────────────────────────────────────
+function escHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatTime(ts) {
+  const d = ts ? new Date(ts) : new Date();
+  return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatBytes(bytes) {
+  if (!bytes) return '';
+  if (bytes < 1024) return bytes + ' Б';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' КБ';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' МБ';
+}
+
+function linkify(text) {
+  const urlRegex = /https?:\/\/[^\s<>"']+/gi;
+  return escHtml(text).replace(urlRegex, url =>
+    `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`
+  );
+}
+
+function setupMessageSearch() {
+  const input = $('msg-search');
+  if (!input) return;
+  input.addEventListener('input', () => {
+    const q = input.value.toLowerCase().trim();
+    document.querySelectorAll('.message-item').forEach(el => {
+      const text = el.querySelector('.msg-text')?.textContent?.toLowerCase() || '';
+      el.style.display = !q || text.includes(q) ? '' : 'none';
+    });
+  });
+}
+// ── Рендер сообщений ─────────────────────────────────────
+async function renderMessage(data, prepend = false) {
+  const msgList = $('message-list');
+  if (!msgList) return;
+
+  const isOwn = data.user_id === currentUser?.userId ||
+                data.userId  === currentUser?.userId;
+
+  let text = '';
+  if (data.deleted) {
+    text = '🗑 Сообщение удалено';
+  } else if (data.type === 'text' || data.type === 'reply') {
+    text = await decryptText(data.encrypted, data.iv);
+  }
+
+  let meta = null;
+  if (!data.deleted && data.meta_enc && data.meta_iv) {
+    meta = await decryptMeta(data.meta_enc, data.meta_iv);
+  } else if (!data.deleted && data.metaEnc && data.metaIv) {
+    meta = await decryptMeta(data.metaEnc, data.metaIv);
+  }
+
+  const msgId    = data.msg_id || data.msgId;
+  const username = data.username || 'Участник';
+  const avatar   = data.avatar   || null;
+  const ts       = data.created_at || data.timestamp;
+  const edited   = data.edited_at  || data.editedAt;
+
+  const div = el('div', `message-item ${isOwn ? 'own' : 'other'}`);
+  div.dataset.msgId = msgId;
+
+  // reply block
+  let replyHtml = '';
+  if (meta?.replyTo && !data.deleted) {
+    replyHtml = `
+      <div class="reply-block" data-reply-id="${escHtml(meta.replyTo.msgId)}">
+        <span class="reply-author">${escHtml(meta.replyTo.username)}</span>
+        <span class="reply-text">${escHtml((meta.replyTo.text || '').slice(0, 80))}</span>
+      </div>`;
+  }
+
+  // file block
+  let fileHtml = '';
+  if ((data.type === 'file' || data.type === 'image') && !data.deleted) {
+    const fname = data.file_name || data.fileName || 'файл';
+    const fsize = data.file_size || data.fileSize || 0;
+    const mime  = data.mime_type || data.mimeType || '';
+
+    if (mime.startsWith('image/') && data.encrypted) {
+      fileHtml = `<div class="msg-image-wrap">
+        <img class="msg-image lazy-decrypt"
+             data-encrypted="${escHtml(data.encrypted)}"
+             data-iv="${escHtml(data.iv)}"
+             src="" alt="${escHtml(fname)}"
+             style="max-width:260px;max-height:200px;border-radius:8px;cursor:pointer">
+      </div>`;
+    } else if (mime.startsWith('audio/') && data.encrypted) {
+      fileHtml = `<div class="msg-audio">
+        <audio class="lazy-decrypt-audio" controls
+               data-encrypted="${escHtml(data.encrypted)}"
+               data-iv="${escHtml(data.iv)}"
+               data-mime="${escHtml(mime)}"></audio>
+      </div>`;
+    } else if (mime.startsWith('video/') && data.encrypted) {
+      fileHtml = `<div class="msg-video">
+        <video class="lazy-decrypt-video" controls
+               data-encrypted="${escHtml(data.encrypted)}"
+               data-iv="${escHtml(data.iv)}"
+               data-mime="${escHtml(mime)}"
+               style="max-width:260px;border-radius:8px"></video>
+      </div>`;
+    } else {
+      fileHtml = `<div class="msg-file">
+        <span class="file-icon">📎</span>
+        <span class="file-name">${escHtml(fname)}</span>
+        <span class="file-size">${formatBytes(fsize)}</span>
+        <button class="btn-download-file"
+                data-encrypted="${escHtml(data.encrypted)}"
+                data-iv="${escHtml(data.iv)}"
+                data-fname="${escHtml(fname)}"
+                data-mime="${escHtml(mime)}">⬇️</button>
+      </div>`;
+    }
+  }
+
+  // text content
+  let textHtml = '';
+  if (!data.deleted && text && data.type !== 'file' && data.type !== 'image') {
+    textHtml = `<div class="msg-text">${linkify(text)}</div>`;
+  } else if (data.deleted) {
+    textHtml = `<div class="msg-text deleted-msg">${escHtml(text)}</div>`;
+  }
+
+  // reactions
+  const msgReactions = reactions[msgId] || {};
+  let reactHtml = renderReactionsHtml(msgId, msgReactions);
+
+  // context menu button
+  const menuBtn = data.deleted ? '' :
+    `<button class="btn-msg-menu" data-msgid="${escHtml(msgId)}" title="Действия">⋯</button>`;
 
   div.innerHTML = `
-    <div class="p-avatar">${avatarHtml}</div>
-    <span class="participant-name" style="flex:1">${escapeHtml(label)}</span>
-    <div class="volume-bar-wrap"><div class="volume-bar" id="vol-${userId}"></div></div>
-    ${isMe ? '' : `<button class="btn-understood" data-uid="${userId}">👍 Понял</button>`}
+    <div class="msg-avatar">${avatarHtml(avatar, username, 32)}</div>
+    <div class="msg-body">
+      <div class="msg-header">
+        <span class="msg-author">${escHtml(username)}</span>
+        <span class="msg-time">${formatTime(ts)}</span>
+        ${edited ? '<span class="msg-edited">ред.</span>' : ''}
+        ${menuBtn}
+      </div>
+      ${replyHtml}
+      ${fileHtml}
+      ${textHtml}
+      <div class="msg-reactions" data-msgid="${escHtml(msgId)}">${reactHtml}</div>
+    </div>
   `;
 
-  participantsList.appendChild(div);
-
-  const btn = div.querySelector('.btn-understood');
-  if (btn) {
-    btn.onclick = () => {
-      socket?.emit('understood');
-      btn.textContent = '✅ Отправлено';
-      btn.disabled = true;
-      setTimeout(() => { btn.textContent = '👍 Понял'; btn.disabled = false; }, 3000);
-    };
-  }
-
-  const nameEl = div.querySelector('.participant-name');
-  if (nameEl && !isMe) {
-    nameEl.style.cursor = 'pointer';
-    nameEl.onclick = () => {
-      const meta = getUserMeta(userId);
-      if (window.showUserProfile) window.showUserProfile(meta);
-    };
-  }
-}
-
-function removeParticipant(userId) {
-  el('p-' + userId)?.remove();
-  const participantsBox  = el('participants');
-  const participantsList = el('participants-list');
-  if (participantsList && participantsBox && participantsList.children.length === 0) {
-    participantsBox.style.display = 'none';
-  }
-}
-
-function setMicStatus(active) {
-  const statusEl = el('mic-status');
-  if (!statusEl) return;
-  statusEl.textContent = active ? '🟢 Микрофон включен' : '🔴 Микрофон выключен';
-  statusEl.className = 'mic-status ' + (active ? 'active' : 'muted');
-}
-
-function resetVoiceUI() {
-  const btnJoin  = el('btn-join');
-  const btnLeave = el('btn-leave');
-  const btnMic   = el('btn-mic');
-  if (btnJoin)  { btnJoin.style.display  = 'block'; btnJoin.disabled = false; }
-  if (btnLeave) btnLeave.style.display = 'none';
-  if (btnMic)   btnMic.style.display   = 'none';
-  setMicStatus(false);
-}
-
-function hangUp() {
-  Object.keys(analysers).forEach(id => stopVolumeAnalysis(id));
-  Object.values(peers).forEach(p => { try { p.close(); } catch(_) {} });
-  peers = {};
-
-  if (localStream) {
-    localStream.getTracks().forEach(t => t.stop());
-    localStream = null;
-  }
-  if (audioCtx) {
-    audioCtx.close().catch(() => {});
-    audioCtx = null;
-  }
-
-  const hiddenAudios = el('hidden-audios');
-  if (hiddenAudios) hiddenAudios.innerHTML = '';
-
-  const participantsList = el('participants-list');
-  if (participantsList) participantsList.innerHTML = '';
-  const participantsBox = el('participants');
-  if (participantsBox) participantsBox.style.display = 'none';
-
-  pendingOffers = [];
-  micEnabled    = true;
-
-  if (window.stopVideo) window.stopVideo();
-}
-
-// ═══════════════════════════════════════════════
-//  АНАЛИЗ ГРОМКОСТИ
-// ═══════════════════════════════════════════════
-function startVolumeAnalysis(userId, stream) {
-  try {
-    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
-    stopVolumeAnalysis(userId);
-
-    const source  = audioCtx.createMediaStreamSource(stream);
-    const analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 512;
-    source.connect(analyser);
-
-    const data = new Uint8Array(analyser.frequencyBinCount);
-
-    function tick() {
-      if (!analysers[userId]) return;
-      analyser.getByteFrequencyData(data);
-      let sum = 0;
-      for (let i = 0; i < data.length; i++) sum += data[i];
-      const pct = Math.min(100, (sum / data.length) * 3);
-      const bar = el('vol-' + userId);
-      if (bar) {
-        bar.style.width = pct + '%';
-        bar.className = 'volume-bar' + (pct > 60 ? ' loud' : '');
+  // lazy decrypt images
+  div.querySelectorAll('.lazy-decrypt').forEach(img => {
+    decryptBlob(img.dataset.encrypted, img.dataset.iv, 'image/jpeg').then(url => {
+      if (url) {
+        img.src = url;
+        img.addEventListener('click', () => openLightbox(url));
       }
-      analysers[userId].animFrame = requestAnimationFrame(tick);
-    }
-
-    analysers[userId] = { analyser, source, animFrame: requestAnimationFrame(tick) };
-  } catch(e) { console.warn('[volume]', e.message); }
-}
-
-function stopVolumeAnalysis(userId) {
-  if (!analysers[userId]) return;
-  cancelAnimationFrame(analysers[userId].animFrame);
-  try { analysers[userId].source.disconnect(); } catch(_) {}
-  delete analysers[userId];
-}
-
-function stopQualityMonitor(id) {
-  if (qualityTimers[id]) { clearInterval(qualityTimers[id]); delete qualityTimers[id]; }
-}
-
-// ═══════════════════════════════════════════════
-//  WAKELOCK + KEEP-ALIVE
-// ═══════════════════════════════════════════════
-async function requestWakeLock() {
-  if (!('wakeLock' in navigator)) return;
-  try { wakeLock = await navigator.wakeLock.request('screen'); } catch(e) {}
-}
-async function releaseWakeLock() {
-  if (wakeLock) { try { await wakeLock.release(); } catch(_) {} wakeLock = null; }
-}
-
-function startKeepAlive() {
-  const keepAliveAudio = el('keep-alive-audio');
-  if (!keepAliveAudio) return;
-  try {
-    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const buf  = audioCtx.createBuffer(1, audioCtx.sampleRate, audioCtx.sampleRate);
-    const src  = audioCtx.createBufferSource();
-    const dest = audioCtx.createMediaStreamDestination();
-    src.buffer = buf; src.loop = true;
-    src.connect(dest); src.start();
-    keepAliveAudio.srcObject = dest.stream;
-    keepAliveAudio.play().catch(() => {});
-  } catch(e) {}
-}
-
-function stopKeepAlive() {
-  const keepAliveAudio = el('keep-alive-audio');
-  if (!keepAliveAudio) return;
-  keepAliveAudio.srcObject = null;
-  keepAliveAudio.pause();
-}
-
-// ═══════════════════════════════════════════════
-//  СИСТЕМНЫЕ ЗВУКИ
-// ═══════════════════════════════════════════════
-function playBeep(type) {
-  try {
-    const ctx  = new (window.AudioContext || window.webkitAudioContext)();
-    const osc  = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain); gain.connect(ctx.destination);
-    gain.gain.setValueAtTime(0.3, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
-    if (type === 'join') {
-      osc.frequency.setValueAtTime(600, ctx.currentTime);
-      osc.frequency.setValueAtTime(900, ctx.currentTime + 0.12);
-    } else {
-      osc.frequency.setValueAtTime(900, ctx.currentTime);
-      osc.frequency.setValueAtTime(500, ctx.currentTime + 0.12);
-    }
-    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.35);
-    osc.onended = () => ctx.close();
-  } catch(e) {}
-}
-
-function playOkSound() {
-  try {
-    const ctx  = new (window.AudioContext || window.webkitAudioContext)();
-    const gain = ctx.createGain();
-    gain.connect(ctx.destination);
-    [{ freq:880, start:0.00 }, { freq:1100, start:0.22 }].forEach(({ freq, start }) => {
-      const osc = ctx.createOscillator();
-      osc.type = 'sine'; osc.connect(gain);
-      osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
-      gain.gain.setValueAtTime(0, ctx.currentTime + start);
-      gain.gain.linearRampToValueAtTime(0.4, ctx.currentTime + start + 0.04);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + 0.20);
-      osc.start(ctx.currentTime + start);
-      osc.stop(ctx.currentTime + start + 0.22);
     });
-    setTimeout(() => ctx.close(), 1500);
-  } catch(e) {}
-}
-
-// ═══════════════════════════════════════════════
-//  ЧАТ — СООБЩЕНИЯ
-// ═══════════════════════════════════════════════
-function setupChatInput() {
-  const chatInput = el('chat-input');
-  const btnSend   = el('btn-send');
-  const replyBar    = el('reply-bar');
-  const replyCancel = el('reply-cancel');
-
-  if (!chatInput) return;
-
-  chatInput.addEventListener('input', () => {
-    chatInput.style.height = 'auto';
-    chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
-    if (!socket) return;
-    if (!typingActive) {
-      typingActive = true;
-      socket.emit('typing', { isTyping: true });
-    }
-    clearTimeout(typingTimer);
-    typingTimer = setTimeout(() => {
-      typingActive = false;
-      socket.emit('typing', { isTyping: false });
-    }, 800);
   });
 
-  chatInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendTextMessage(); }
+  // lazy decrypt audio
+  div.querySelectorAll('.lazy-decrypt-audio').forEach(audio => {
+    decryptBlob(audio.dataset.encrypted, audio.dataset.iv, audio.dataset.mime).then(url => {
+      if (url) audio.src = url;
+    });
   });
 
-  btnSend?.addEventListener('click', sendTextMessage);
-  replyCancel?.addEventListener('click', () => setReplyTarget(null));
-}
-
-async function sendTextMessage() {
-  const chatInput = el('chat-input');
-  const btnSend   = el('btn-send');
-  const text = chatInput?.value.trim();
-  if (!text || !socket) return;
-
-  if (btnSend) btnSend.disabled = true;
-  try {
-    if (editingMsgId) {
-      const { encrypted, iv } = await Crypto.encrypt(text);
-      const meta = { replyTo: replyTarget || null };
-      const { encrypted: metaEnc, iv: metaIv } = await Crypto.encrypt(JSON.stringify(meta));
-      socket.emit('message-edit', { msgId: editingMsgId, encrypted, iv, metaEnc, metaIv });
-      const msg = messageStore.get(editingMsgId);
-      if (msg) updateMessage(msg.domId, { text, editedAt: Date.now(), replyTo: replyTarget || null });
-      editingMsgId = null;
-      setReplyTarget(null);
-      chatInput.value = ''; chatInput.style.height = 'auto';
-      return;
-    }
-
-    const msgId = generateMsgId();
-    const { encrypted, iv } = await Crypto.encrypt(text);
-    const meta = { replyTo: replyTarget || null };
-    const { encrypted: metaEnc, iv: metaIv } = await Crypto.encrypt(JSON.stringify(meta));
-    socket.emit('chat-message', { msgId, encrypted, iv, metaEnc, metaIv, type: 'text' });
-
-    appendMessage({
-      from:      socket.id,
-      userId:    window._currentUserId,
-      msgId,
-      username:  window._currentUsername || 'Вы',
-      text,
-      type:      'text',
-      timestamp: Date.now(),
-      mine:      true,
-      status:    'ok',
-      replyTo:   replyTarget || null
+  // lazy decrypt video
+  div.querySelectorAll('.lazy-decrypt-video').forEach(video => {
+    decryptBlob(video.dataset.encrypted, video.dataset.iv, video.dataset.mime).then(url => {
+      if (url) video.src = url;
     });
-
-    chatInput.value = ''; chatInput.style.height = 'auto';
-    setReplyTarget(null);
-  } catch(e) { console.error('[send]', e); }
-  finally { if (btnSend) btnSend.disabled = false; }
-}
-
-function setupFileInput() {
-  const fileInput = el('file-input');
-  const btnPhoto  = el('btn-photo');
-  const btnVideoFile = el('btn-video-file');
-  const btnFile   = el('btn-file');
-
-  btnPhoto?.addEventListener('click', () => { if (fileInput) { fileInput.accept = 'image/*'; fileInput.click(); } });
-  btnVideoFile?.addEventListener('click', () => { if (fileInput) { fileInput.accept = 'video/*'; fileInput.click(); } });
-  btnFile?.addEventListener('click', () => { if (fileInput) { fileInput.accept = '*/*'; fileInput.click(); } });
-
-  fileInput?.addEventListener('change', async () => {
-    const file = fileInput.files[0]; if (!file) return;
-    fileInput.value = '';
-    if (file.size > 50 * 1024 * 1024) { toast('❌ Файл слишком большой (макс. 50 МБ)'); return; }
-
-    if (file.type.startsWith('image/') && window.MediaEditor) {
-      MediaEditor.openPhoto(file, (blob, mime, name) => sendMediaBlob(blob, mime, name, 'image'));
-      return;
-    }
-    if (file.type.startsWith('video/') && window.MediaEditor) {
-      MediaEditor.openVideo(file, (blob, mime, name) => sendMediaBlob(blob, mime, name, 'video'));
-      return;
-    }
-    const type = file.type.startsWith('image/') ? 'image'
-               : file.type.startsWith('video/') ? 'video' : 'file';
-    await sendMediaBlob(file, file.type, file.name, type);
   });
-}
 
-async function sendMediaBlob(blob, mimeType, fileName, type) {
-  if (!socket) return;
-  try {
-    const arrayBuf = await blob.arrayBuffer();
-    const msgId    = generateMsgId();
-    const { encrypted, iv } = await Crypto.encrypt(arrayBuf);
-    const meta = { replyTo: replyTarget || null };
-    const { encrypted: metaEnc, iv: metaIv } = await Crypto.encrypt(JSON.stringify(meta));
-    const localUrl = URL.createObjectURL(new Blob([arrayBuf], { type: mimeType }));
-
-    socket.emit('chat-message', { msgId, encrypted, iv, metaEnc, metaIv, type, fileName: fileName || 'file', fileSize: blob.size, mimeType });
-    appendMessage({
-      from:      socket.id,
-      userId:    window._currentUserId,
-      msgId,
-      username:  window._currentUsername || 'Вы',
-      type,
-      localUrl,
-      fileName:  fileName || 'file',
-      fileSize:  blob.size,
-      mimeType,
-      timestamp: Date.now(),
-      mine:      true,
-      status:    'ok',
-      replyTo:   replyTarget || null
+  // download file button
+  div.querySelectorAll('.btn-download-file').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const url = await decryptBlob(btn.dataset.encrypted, btn.dataset.iv, btn.dataset.mime);
+      if (url) {
+        const a = document.createElement('a');
+        a.href = url; a.download = btn.dataset.fname;
+        a.click();
+      }
     });
-    setReplyTarget(null);
-  } catch(e) { toast('❌ Ошибка отправки'); }
-}
+  });
 
-async function appendHistoryMessage(data) {
-  const msgId  = data.msg_id || generateMsgId();
-  const meta   = await decryptMeta(data.meta_enc, data.meta_iv);
-  const isMine = data.user_id === window._currentUserId;
+  // context menu
+  div.querySelectorAll('.btn-msg-menu').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      showMessageMenu(e, msgId, isOwn, text);
+    });
+  });
 
-  if (data.deleted) {
-    appendMessage({ from: isMine ? socket?.id : 'peer', userId: data.user_id, msgId, username: data.username, avatar: data.avatar, type: data.type, timestamp: data.created_at, mine: isMine, status: 'ok', deleted: true, replyTo: meta?.replyTo || null });
-    return;
-  }
+  // reply click
+  div.querySelectorAll('.reply-block').forEach(rb => {
+    rb.addEventListener('click', () => {
+      scrollToMessage(rb.dataset.replyId);
+    });
+  });
 
-  if (data.type === 'text') {
-    try {
-      const text = await Crypto.decryptText(data.encrypted, data.iv);
-      appendMessage({ from: isMine ? socket?.id : 'peer', userId: data.user_id, msgId, username: data.username, avatar: data.avatar, type: 'text', text, timestamp: data.created_at, editedAt: data.edited_at, mine: isMine, status: 'ok', replyTo: meta?.replyTo || null });
-    } catch {}
+  messageCache[msgId] = { el: div, data: { ...data, decryptedText: text } };
+
+  if (prepend) {
+    msgList.insertBefore(div, msgList.firstChild);
   } else {
-    try {
-      const mime = data.mime_type || 'application/octet-stream';
-      const blob = await Crypto.decryptBlob(data.encrypted, data.iv, mime);
-      appendMessage({ from: isMine ? socket?.id : 'peer', userId: data.user_id, msgId, username: data.username, avatar: data.avatar, type: data.type, localUrl: URL.createObjectURL(blob), fileName: data.file_name, fileSize: data.file_size, mimeType: mime, timestamp: data.created_at, editedAt: data.edited_at, mine: isMine, status: 'ok', replyTo: meta?.replyTo || null });
-    } catch {}
+    msgList.appendChild(div);
+    scrollToBottom();
   }
 }
 
-function appendMessage(msg) {
-  const chatMessages = el('chat-messages');
-  if (!chatMessages) return null;
-
-  const id  = 'msg-' + (++msgCounter);
-  const div = document.createElement('div');
-  div.id          = id;
-  div.className   = 'msg ' + (msg.mine ? 'mine' : 'theirs');
-  div.dataset.type  = msg.type || 'text';
-  div.dataset.msgId = msg.msgId;
-  div.innerHTML   = buildMsgHTML(msg);
-  chatMessages.appendChild(div);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
-
-  bindMediaEvents(div);
-  bindUserEvents(div);
-  bindMsgActions(div);
-
-  messageStore.set(msg.msgId, {
-    domId:    id,
-    mine:     msg.mine,
-    text:     msg.text  || '',
-    type:     msg.type,
-    userId:   msg.userId,
-    username: msg.username
-  });
-
-  return id;
-}
-
-function updateMessage(id, updates) {
-  const div = el(id); if (!div) return;
-  const content = div.querySelector('.msg-content');
-  if (content) {
-    content.innerHTML = buildContentHTML({ type: div.dataset.type, ...updates });
-    bindMediaEvents(div);
+function renderReactionsHtml(msgId, msgReactions) {
+  let html = '';
+  for (const [emoji, users] of Object.entries(msgReactions)) {
+    if (!users || users.size === 0) continue;
+    const hasMe = users.has(currentUser?.userId);
+    html += `<button class="reaction-btn ${hasMe ? 'reacted' : ''}"
+               data-msgid="${escHtml(msgId)}" data-emoji="${escHtml(emoji)}">
+               ${emoji} <span>${users.size}</span>
+             </button>`;
   }
-  const statusEl = div.querySelector('.msg-decrypt-status');
-  if (statusEl) {
-    if (updates.status === 'ok')    { statusEl.className = 'msg-decrypt-status ok';  statusEl.textContent = '🔓 расшифровано'; }
-    if (updates.status === 'error') { statusEl.className = 'msg-decrypt-status err'; statusEl.textContent = '⚠️ ошибка'; }
-  }
-  if (updates.editedAt) {
-    const metaEl = div.querySelector('.msg-meta');
-    if (metaEl && !metaEl.querySelector('.msg-edited')) {
-      metaEl.innerHTML += ' <span class="msg-edited">(изменено)</span>';
-    }
-  }
-  const chatMessages = el('chat-messages');
-  if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
+  return html;
 }
 
-function markMessageDeleted(domId) {
-  const div = el(domId); if (!div) return;
-  div.classList.add('deleted');
-  const content = div.querySelector('.msg-content');
-  if (content) content.innerHTML = '<i>Сообщение удалено</i>';
-}
-
-function buildMsgHTML(msg) {
-  const time       = new Date(msg.timestamp || Date.now()).toLocaleTimeString('ru', { hour:'2-digit', minute:'2-digit' });
-  const avatarHtml = msg.avatar
-    ? `<img class="msg-avatar-img" src="${msg.avatar}" alt="">`
-    : `<div class="msg-avatar-fallback">${escapeHtml((msg.username||'?').slice(0,1).toUpperCase())}</div>`;
-  const senderHtml = msg.mine ? '' :
-    `<div class="msg-sender" data-socketid="${escapeHtml(msg.from||'')}">
-       <div class="msg-avatar">${avatarHtml}</div>
-       <span>${escapeHtml(msg.username||'??')}</span>
-     </div>`;
-  const statusText = msg.status==='ok' ? '🔓 расшифровано' : msg.status==='error' ? '⚠️ ошибка' : '⏳ расшифровываем…';
-  const statusHtml = msg.mine ? '' : `<div class="msg-decrypt-status ${msg.status==='ok'?'ok':''}">${statusText}</div>`;
-  const editedHtml = msg.editedAt ? ' <span class="msg-edited">(изменено)</span>' : '';
-  return `${senderHtml}${buildReplyHTML(msg.replyTo)}<div class="msg-content">${buildContentHTML(msg)}</div><div class="msg-meta">${time}${editedHtml}</div>${statusHtml}${buildReactionsHTML(msg.msgId)}`;
-}
-
-function buildReplyHTML(replyTo) {
-  if (!replyTo) return '';
-  return `<div class="msg-reply"><span>Ответ:</span> ${escapeHtml(replyTo.preview || 'Ответ')}</div>`;
-}
-
-function buildContentHTML(msg) {
-  if (msg.deleted) return '<i>Сообщение удалено</i>';
-  if (msg.type === 'text') return escapeHtml(msg.text || '');
-  if (msg.type === 'image') return msg.localUrl
-    ? `<img class="msg-media" src="${msg.localUrl}" alt="фото">`
-    : '<span>⏳</span>';
-  if (msg.type === 'video') return msg.localUrl
-    ? `<video class="msg-media" src="${msg.localUrl}" controls playsinline></video>`
-    : '<span>⏳</span>';
-  if (msg.type === 'file') {
-    if (msg.localUrl) return `
-      <div class="msg-file">
-        <span class="msg-file-icon">📄</span>
-        <div class="msg-file-info">
-          <div class="msg-file-name">${escapeHtml(msg.fileName || 'файл')}</div>
-          <div class="msg-file-size">${formatSize(msg.fileSize || 0)}</div>
-        </div>
-        <a class="msg-file-dl" href="${msg.localUrl}" download="${escapeHtml(msg.fileName || 'file')}">⬇️</a>
-      </div>`;
-    return '<div class="msg-file">⏳ Загрузка...</div>';
-  }
-  return '';
-}
-
-function buildReactionsHTML(msgId) {
-  return `<div class="msg-reactions" data-msgid="${msgId}"></div>`;
-}
-
-function bindMediaEvents(container) {
-  container.querySelectorAll('img.msg-media').forEach(img => {
-    img.onclick = () => openLightbox('img', img.src);
-  });
-  container.querySelectorAll('video.msg-media').forEach(vid => {
-    vid.ondblclick = () => openLightbox('video', vid.src);
-  });
-}
-
-function bindUserEvents(container) {
-  container.querySelectorAll('.msg-sender').forEach(el => {
-    el.onclick = () => {
-      const socketId = el.dataset.socketid;
-      if (!socketId) return;
-      if (window.showUserProfile) window.showUserProfile(getUserMeta(socketId));
-    };
-  });
-}
-
-function bindMsgActions(container) {
-  container.addEventListener('contextmenu', e => {
-    e.preventDefault();
-    const msgId = container.dataset.msgId;
-    if (msgId) openMsgMenu(e.clientX, e.clientY, msgId);
-  });
-  // Долгое нажатие для мобильных
-  let longPressTimer = null;
-  container.addEventListener('touchstart', e => {
-    longPressTimer = setTimeout(() => {
-      const msgId = container.dataset.msgId;
-      if (msgId) openMsgMenu(e.touches[0].clientX, e.touches[0].clientY, msgId);
-    }, 500);
-  }, { passive: true });
-  container.addEventListener('touchend', () => clearTimeout(longPressTimer));
-  container.addEventListener('touchmove', () => clearTimeout(longPressTimer));
-}
-
-function openMsgMenu(x, y, msgId) {
-  const msgMenuEl = el('msg-menu');
-  const msg = messageStore.get(msgId);
-  if (!msg || !msgMenuEl) return;
-
-  // Позиционируем в пределах экрана
-  const menuW = 170, menuH = 220;
-  const left  = Math.min(x, window.innerWidth  - menuW - 10);
-  const top   = Math.min(y, window.innerHeight - menuH - 10);
-
-  msgMenuEl.style.display = 'block';
-  msgMenuEl.style.left    = left + 'px';
-  msgMenuEl.style.top     = top  + 'px';
-
-  msgMenuEl.querySelector('[data-action="reply"]').onclick = () => {
-    setReplyTarget({ id: msgId, preview: (msg.text || '').slice(0, 80) });
-    closeMsgMenu();
-  };
-
-  msgMenuEl.querySelector('[data-action="copy"]').onclick = () => {
-    if (msg.text) navigator.clipboard?.writeText(msg.text);
-    closeMsgMenu();
-  };
-
-  const editItem   = msgMenuEl.querySelector('[data-action="edit"]');
-  const deleteItem = msgMenuEl.querySelector('[data-action="delete"]');
-  editItem.style.display   = msg.mine ? 'block' : 'none';
-  deleteItem.style.display = msg.mine ? 'block' : 'none';
-
-  editItem.onclick = () => {
-    if (!msg.text) return;
-    const chatInput = el('chat-input');
-    if (chatInput) { chatInput.value = msg.text; chatInput.focus(); }
-    editingMsgId = msgId;
-    closeMsgMenu();
-  };
-
-  deleteItem.onclick = () => {
-    socket?.emit('message-delete', { msgId });
-    markMessageDeleted(msg.domId);
-    closeMsgMenu();
-  };
-
-  msgMenuEl.querySelector('[data-action="pin"]').onclick = () => {
-    socket?.emit('pin-message', { msgId });
-    closeMsgMenu();
-  };
-
-  msgMenuEl.querySelector('[data-action="react"]').onclick = () => {
-    openReactionPicker(x, y, msgId);
-    closeMsgMenu();
-  };
-}
-
-function closeMsgMenu() {
-  const msgMenuEl = el('msg-menu');
-  if (msgMenuEl) msgMenuEl.style.display = 'none';
-}
-
-function openReactionPicker(x, y, msgId) {
-  const picker = el('reaction-picker');
-  if (!picker) return;
-  picker.style.display = 'flex';
-  picker.style.left    = x + 'px';
-  picker.style.top     = (y - 56) + 'px';
-  picker.querySelectorAll('.reaction-item').forEach(item => {
-    item.onclick = () => {
-      toggleReactionLocal(msgId, item.textContent, window._currentUserId || 'me');
-      socket?.emit('reaction-toggle', { msgId, emoji: item.textContent });
-      picker.style.display = 'none';
-    };
+function updateReactionsEl(msgId) {
+  const el = document.querySelector(`.msg-reactions[data-msgid="${msgId}"]`);
+  if (!el) return;
+  el.innerHTML = renderReactionsHtml(msgId, reactions[msgId] || {});
+  el.querySelectorAll('.reaction-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      socket?.emit('reaction-toggle', { msgId: btn.dataset.msgid, emoji: btn.dataset.emoji });
+      toggleReactionLocal(btn.dataset.msgid, btn.dataset.emoji, currentUser.userId);
+      updateReactionsEl(btn.dataset.msgid);
+    });
   });
 }
 
 function toggleReactionLocal(msgId, emoji, userId) {
-  const box = document.querySelector(`.msg-reactions[data-msgid="${msgId}"]`);
-  if (!box) return;
-  let chip = box.querySelector(`[data-emoji="${emoji}"]`);
-  if (!chip) {
-    chip = document.createElement('span');
-    chip.className    = 'reaction-chip';
-    chip.dataset.emoji = emoji;
-    chip.dataset.users = JSON.stringify([userId]);
-    chip.textContent  = `${emoji} 1`;
-    box.appendChild(chip);
-  } else {
-    let users = JSON.parse(chip.dataset.users || '[]');
-    users = users.includes(userId)
-      ? users.filter(u => u !== userId)
-      : [...users, userId];
-    chip.dataset.users = JSON.stringify(users);
-    if (users.length === 0) chip.remove();
-    else chip.textContent = `${emoji} ${users.length}`;
+  if (!reactions[msgId]) reactions[msgId] = {};
+  if (!reactions[msgId][emoji]) reactions[msgId][emoji] = new Set();
+  const set = reactions[msgId][emoji];
+  if (set.has(userId)) set.delete(userId);
+  else set.add(userId);
+}
+
+async function decryptBlob(encrypted, iv, mime) {
+  if (!cryptoKey || !encrypted || !iv) return null;
+  try {
+    const ivBytes  = Uint8Array.from(atob(iv), c => c.charCodeAt(0));
+    const encBytes = Uint8Array.from(atob(encrypted), c => c.charCodeAt(0));
+    const dec = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: ivBytes }, cryptoKey, encBytes);
+    const blob = new Blob([dec], { type: mime });
+    return URL.createObjectURL(blob);
+  } catch { return null; }
+}
+
+function openLightbox(url) {
+  const overlay = el('div', 'lightbox-overlay');
+  overlay.innerHTML = `<img src="${url}" class="lightbox-img">
+    <button class="lightbox-close">✕</button>`;
+  overlay.addEventListener('click', () => overlay.remove());
+  document.body.appendChild(overlay);
+}
+
+function scrollToBottom() {
+  const list = $('message-list');
+  if (list) list.scrollTop = list.scrollHeight;
+}
+
+function scrollToMessage(msgId) {
+  const cached = messageCache[msgId];
+  if (cached?.el) {
+    cached.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    cached.el.classList.add('highlight');
+    setTimeout(() => cached.el.classList.remove('highlight'), 1500);
   }
 }
 
-function setReplyTarget(target) {
-  replyTarget = target;
-  const replyBar  = el('reply-bar');
-  const replyText = el('reply-text');
-  if (!target) {
-    if (replyBar)  replyBar.style.display  = 'none';
-    if (replyText) replyText.textContent   = '';
-    return;
+// ── Контекстное меню сообщений ───────────────────────────
+function showMessageMenu(e, msgId, isOwn, text) {
+  document.querySelectorAll('.msg-context-menu').forEach(m => m.remove());
+
+  const menu = el('div', 'msg-context-menu');
+
+  const actions = [
+    { label: '↩️ Ответить',   fn: () => setReply(msgId, text) },
+    { label: '😀 Реакция',    fn: () => showEmojiPicker(msgId) }
+  ];
+
+  if (isOwn) {
+    actions.push({ label: '✏️ Редактировать', fn: () => startEdit(msgId, text) });
+    actions.push({ label: '🗑 Удалить',        fn: () => deleteMessage(msgId) });
   }
-  if (replyBar)  replyBar.style.display  = 'flex';
-  if (replyText) replyText.textContent   = target.preview || 'Ответ';
-}
 
-function updateTyping(username, isTyping) {
-  if (isTyping) typingSet.add(username);
-  else typingSet.delete(username);
-  const indicator = el('typing-indicator');
-  if (!indicator) return;
-  if (typingSet.size === 0) {
-    indicator.textContent    = '';
-    indicator.style.display  = 'none';
-  } else {
-    indicator.textContent    = Array.from(typingSet).join(', ') + ' печатает...';
-    indicator.style.display  = 'block';
+  if (currentRoom?.owner_id === currentUser?.userId) {
+    actions.push({ label: '📌 Закрепить', fn: () => pinMessage(msgId) });
   }
-}
 
-function updatePinnedBanner(msgId) {
-  const banner = el('pinned-banner');
-  if (!banner) return;
-  if (!msgId) { banner.style.display = 'none'; banner.textContent = ''; return; }
-  const msg  = messageStore.get(msgId);
-  const text = msg?.text ? msg.text.slice(0, 80) : 'Закреплено сообщение';
-  banner.textContent    = '📌 ' + text;
-  banner.style.display  = 'block';
-  banner.onclick = () => {
-    if (msg?.domId) el(msg.domId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  };
-}
-
-function openLightbox(type, src) {
-  const lightbox        = el('lightbox');
-  const lightboxContent = el('lightbox-content');
-  if (!lightbox || !lightboxContent) return;
-  lightboxContent.innerHTML = type === 'img'
-    ? `<img src="${src}" alt="">`
-    : `<video src="${src}" controls autoplay playsinline style="max-width:95vw;max-height:85vh"></video>`;
-  lightbox.classList.add('open');
-}
-
-// ═══════════════════════════════════════════════
-//  ИНИЦИАЛИЗАЦИЯ
-// ═══════════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', () => {
-  setupVoiceButtons();
-  setupChatInput();
-  setupFileInput();
-
-  // Закрытие меню по клику вне
-  document.addEventListener('click', () => {
-    closeMsgMenu();
-    el('reaction-picker') && (el('reaction-picker').style.display = 'none');
+  actions.forEach(a => {
+    const btn = el('button', 'ctx-menu-item', a.label);
+    btn.addEventListener('click', () => { a.fn(); menu.remove(); });
+    menu.appendChild(btn);
   });
-});
 
-window.initSocket  = initSocket;
-window.socketLeave = socketLeave;
+  document.body.appendChild(menu);
+
+  const x = Math.min(e.clientX, window.innerWidth  - 180);
+  const y = Math.min(e.clientY, window.innerHeight - menu.offsetHeight - 8);
+  menu.style.left = x + 'px';
+  menu.style.top  = y + 'px';
+
+  setTimeout(() => document.addEventListener('click', () => menu.remove(), { once: true }), 50);
+}
+
+function showEmojiPicker(msgId) {
+  document.querySelectorAll('.emoji-picker-popup').forEach(p => p.remove());
+  const emojis = ['👍','❤️','😂','😮','😢','🔥','👏','🎉','😡','💯'];
+  const picker = el('div', 'emoji-picker-popup');
+  emojis.forEach(emoji => {
+    const btn = el('button', 'emoji-pick-btn', emoji);
+    btn.addEventListener('click', () => {
+      socket?.emit('reaction-toggle', { msgId, emoji });
+      toggleReactionLocal(msgId, emoji, currentUser.userId);
+      updateReactionsEl(msgId);
+      picker.remove();
+    });
+    picker.appendChild(btn);
+  });
+  document.body.appendChild(picker);
+  setTimeout(() => document.addEventListener('click', () => picker.remove(), { once: true }), 50);
+}
+
+function setReply(msgId, text) {
+  replyTo = {
+    msgId,
+    username: messageCache[msgId]?.data?.username || '',
+    text:     (text || '').slice(0, 80)
+  };
+  const bar = $('reply-bar');
+  if (bar) {
+    bar.style.display = 'flex';
+    const info = bar.querySelector('.reply-info');
+    if (info) info.textContent = `↩️ ${replyTo.username}: ${replyTo.text}`;
+  }
+  $('chat-input')?.focus();
+}
+
+function clearReply() {
+  replyTo = null;
+  const bar = $('reply-bar');
+  if (bar) bar.style.display = 'none';
+}
+
+function startEdit(msgId, text) {
+  editingMsgId = msgId;
+  const input = $('chat-input');
+  if (input) {
+    input.value = text || '';
+    input.focus();
+  }
+  const bar = $('edit-bar');
+  if (bar) {
+    bar.style.display = 'flex';
+    const info = bar.querySelector('.edit-info');
+    if (info) info.textContent = '✏️ Редактирование сообщения';
+  }
+}
+
+function cancelEdit() {
+  editingMsgId = null;
+  const input = $('chat-input');
+  if (input) input.value = '';
+  const bar = $('edit-bar');
+  if (bar) bar.style.display = 'none';
+}
+
+async function deleteMessage(msgId) {
+  if (!confirm('Удалить сообщение?')) return;
+  socket?.emit('message-delete', { msgId });
+  applyDeleteLocal(msgId);
+}
+
+function applyDeleteLocal(msgId) {
+  const cached = messageCache[msgId];
+  if (!cached) return;
+  const textEl = cached.el.querySelector('.msg-text');
+  if (textEl) {
+    textEl.textContent = '🗑 Сообщение удалено';
+    textEl.classList.add('deleted-msg');
+  }
+  cached.el.querySelector('.btn-msg-menu')?.remove();
+}
+
+function pinMessage(msgId) {
+  socket?.emit('pin-message', { msgId });
+}
+
+function showPinnedBanner(msgId) {
+  pinnedMsgId = msgId;
+  const banner = $('pinned-banner');
+  if (!banner) return;
+  if (!msgId) { hidePinnedBanner(); return; }
+  banner.style.display = 'flex';
+  const cached = messageCache[msgId];
+  const preview = banner.querySelector('.pinned-preview');
+  if (preview) {
+    preview.textContent = cached?.data?.decryptedText
+      ? '📌 ' + cached.data.decryptedText.slice(0, 60)
+      : '📌 Закреплённое сообщение';
+  }
+  banner.onclick = () => scrollToMessage(msgId);
+  const unpinBtn = banner.querySelector('.btn-unpin');
+  if (unpinBtn) {
+    unpinBtn.onclick = e => {
+      e.stopPropagation();
+      socket?.emit('unpin-message');
+    };
+  }
+}
+
+function hidePinnedBanner() {
+  pinnedMsgId = null;
+  const banner = $('pinned-banner');
+  if (banner) banner.style.display = 'none';
+}
+
+// ── Ввод сообщений ───────────────────────────────────────
+function setupChatInput() {
+  const input   = $('chat-input');
+  const sendBtn = $('btn-send');
+  const fileBtn = $('btn-attach-file');
+  const fileInput = $('file-input');
+
+  $('btn-cancel-reply')?.addEventListener('click', clearReply);
+  $('btn-cancel-edit')?.addEventListener('click',  cancelEdit);
+
+  sendBtn?.addEventListener('click', sendMessage);
+
+  input?.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (editingMsgId) sendEdit();
+      else sendMessage();
+    }
+  });
+
+  input?.addEventListener('input', () => {
+    if (!socket || !currentRoom) return;
+    if (!isTyping) {
+      isTyping = true;
+      socket.emit('typing', { isTyping: true });
+    }
+    clearTimeout(typingTimer);
+    typingTimer = setTimeout(() => {
+      isTyping = false;
+      socket.emit('typing', { isTyping: false });
+    }, 2000);
+  });
+
+  fileBtn?.addEventListener('click', () => fileInput?.click());
+
+  fileInput?.addEventListener('change', async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    fileInput.value = '';
+    await sendFile(file);
+  });
+
+  $('btn-emoji')?.addEventListener('click', e => {
+    e.stopPropagation();
+    showChatEmojiPicker();
+  });
+
+  setupInfiniteScroll();
+}
+
+async function sendMessage() {
+  const input = $('chat-input');
+  const text  = input?.value.trim();
+  if (!text || !socket || !currentRoom) return;
+
+  if (editingMsgId) { sendEdit(); return; }
+
+  input.value = '';
+
+  const { encrypted, iv } = await encryptText(text);
+  const msgId = crypto.randomUUID ? crypto.randomUUID() :
+    crypto.randomBytes ? crypto.randomBytes(12).toString('hex') :
+    Math.random().toString(36).slice(2);
+
+  let metaEnc = null, metaIv = null;
+  if (replyTo) {
+    const m = await encryptMeta({ replyTo });
+    metaEnc = m.encrypted;
+    metaIv  = m.iv;
+  }
+
+  const payload = {
+    msgId, type: replyTo ? 'reply' : 'text',
+    encrypted, iv, metaEnc, metaIv
+  };
+
+  socket.emit('chat-message', payload);
+
+  await renderMessage({
+    msg_id:    msgId,
+    type:      payload.type,
+    encrypted, iv,
+    meta_enc:  metaEnc,
+    meta_iv:   metaIv,
+    username:  currentUser.username,
+    avatar:    currentUser.avatar,
+    user_id:   currentUser.userId,
+    timestamp: Date.now()
+  });
+
+  clearReply();
+  isTyping = false;
+  socket.emit('typing', { isTyping: false });
+}
+
+async function sendEdit() {
+  const input = $('chat-input');
+  const text  = input?.value.trim();
+  if (!text || !editingMsgId || !socket) return;
+
+  const { encrypted, iv } = await encryptText(text);
+
+  socket.emit('message-edit', {
+    msgId: editingMsgId, encrypted, iv
+  });
+
+  const cached = messageCache[editingMsgId];
+  if (cached) {
+    const textEl = cached.el.querySelector('.msg-text');
+    if (textEl) textEl.innerHTML = linkify(text);
+    const hdr = cached.el.querySelector('.msg-header');
+    if (hdr && !hdr.querySelector('.msg-edited')) {
+      const span = el('span', 'msg-edited', 'ред.');
+      hdr.appendChild(span);
+    }
+    cached.data.decryptedText = text;
+  }
+
+  cancelEdit();
+}
+
+async function sendFile(file) {
+  if (!socket || !currentRoom) return;
+  const MAX = 20 * 1024 * 1024;
+  if (file.size > MAX) return toast('⚠️ Максимум 20 МБ');
+
+  toast('📤 Отправка файла...');
+
+  const reader = new FileReader();
+  reader.onload = async ev => {
+    try {
+      const arrayBuf = ev.target.result;
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const enc = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv }, cryptoKey, arrayBuf
+      );
+      const encrypted = btoa(String.fromCharCode(...new Uint8Array(enc)));
+      const ivB64     = btoa(String.fromCharCode(...iv));
+
+      const isImage = file.type.startsWith('image/');
+      const msgId   = (crypto.randomUUID ? crypto.randomUUID() :
+        Math.random().toString(36).slice(2));
+
+      const payload = {
+        msgId,
+        type:      isImage ? 'image' : 'file',
+        encrypted, iv: ivB64,
+        fileName:  file.name,
+        fileSize:  file.size,
+        mimeType:  file.type
+      };
+
+      socket.emit('chat-message', payload);
+
+      await renderMessage({
+        msg_id:    msgId,
+        type:      payload.type,
+        encrypted, iv: ivB64,
+        file_name: file.name,
+        file_size: file.size,
+        mime_type: file.type,
+        username:  currentUser.username,
+        avatar:    currentUser.avatar,
+        user_id:   currentUser.userId,
+        timestamp: Date.now()
+      });
+    } catch(e) {
+      console.error('[sendFile]', e);
+      toast('❌ Ошибка отправки файла');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function showChatEmojiPicker() {
+  document.querySelectorAll('.chat-emoji-popup').forEach(p => p.remove());
+  const emojis = ['😀','😂','😍','🤔','😢','😡','👍','👎',
+                  '❤️','🔥','🎉','✨','😎','🤣','🥰','😱'];
+  const picker = el('div', 'chat-emoji-popup');
+  emojis.forEach(emoji => {
+    const btn = el('button', 'emoji-pick-btn', emoji);
+    btn.addEventListener('click', () => {
+      const input = $('chat-input');
+      if (input) { input.value += emoji; input.focus(); }
+      picker.remove();
+    });
+    picker.appendChild(btn);
+  });
+  const wrap = $('chat-input-wrap') || document.body;
+  wrap.appendChild(picker);
+  setTimeout(() => document.addEventListener('click', () => picker.remove(), { once: true }), 50);
+}
+
+function setupInfiniteScroll() {
+  const list = $('message-list');
+  if (!list) return;
+  list.addEventListener('scroll', async () => {
+    if (list.scrollTop < 60 && !loadingHistory && !allHistoryLoaded && currentRoom) {
+      await loadMoreHistory();
+    }
+  });
+}
+
+async function loadMoreHistory() {
+  if (!currentRoom || loadingHistory || allHistoryLoaded) return;
+  loadingHistory = true;
+  try {
+    const before = oldestMsgDate ? `&before=${encodeURIComponent(oldestMsgDate)}` : '';
+    const r = await fetch(
+      `${API}/api/rooms/${currentRoom.id}/history?limit=30${before}`,
+      { headers: { 'Authorization': 'Bearer ' + authToken } }
+    );
+    if (!r.ok) return;
+    const d = await r.json();
+    if (!d.ok || !d.messages?.length) { allHistoryLoaded = true; return; }
+    if (d.messages.length < 30) allHistoryLoaded = true;
+    const list = $('message-list');
+    const prevH = list?.scrollHeight || 0;
+    for (const msg of d.messages) {
+      await renderMessage(msg, true);
+    }
+    oldestMsgDate = d.messages[0]?.created_at;
+    if (list) list.scrollTop = list.scrollHeight - prevH;
+  } catch(e) { console.error('[loadMoreHistory]', e); }
+  finally { loadingHistory = false; }
+}
+// ── Socket.io ────────────────────────────────────────────
+function connectSocket() {
+  if (socket) socket.disconnect();
+
+  socket = io({
+    path:               '/socket.io',
+    transports:         ['websocket', 'polling'],
+    reconnectionAttempts: 10,
+    reconnectionDelay:  2000,
+    timeout:            20000
+  });
+
+  socket.on('connect', () => {
+    console.log('[socket] connected:', socket.id);
+    if (currentRoom) {
+      socket.emit('join-room', { roomId: currentRoom.id, token: authToken });
+    }
+  });
+
+  socket.on('disconnect', reason => {
+    console.log('[socket] disconnected:', reason);
+    toast('⚠️ Соединение прервано, переподключение...');
+  });
+
+  socket.on('reconnect', () => {
+    toast('✅ Соединение восстановлено');
+    if (currentRoom) {
+      socket.emit('join-room', { roomId: currentRoom.id, token: authToken });
+    }
+  });
+
+  socket.on('auth-fail', () => {
+    toast('❌ Ошибка авторизации');
+  });
+
+  socket.on('auth-ok', ({ username }) => {
+    console.log('[socket] auth ok:', username);
+  });
+
+  socket.on('existing-users', users => {
+    peers = {};
+    users.forEach(u => {
+      createPeerConnection(u.socketId, true);
+    });
+    updateUserList(users);
+  });
+
+  socket.on('room-history', async ({ messages, pinned }) => {
+    const list = $('message-list');
+    if (list) list.innerHTML = '';
+    messageCache = {};
+    reactions   = {};
+
+    if (messages.length < MSG_LIMIT) allHistoryLoaded = true;
+    if (messages.length > 0) oldestMsgDate = messages[0].created_at;
+
+    for (const msg of messages) {
+      await renderMessage(msg);
+    }
+
+    if (pinned) showPinnedBanner(pinned);
+    scrollToBottom();
+  });
+
+  socket.on('user-joined', ({ socketId, username, avatar, userId }) => {
+    toast(`👤 ${username} вошёл в комнату`);
+    addUserToList({ socketId, username, avatar, userId });
+    if (mediaStream) {
+      createPeerConnection(socketId, true);
+    }
+  });
+
+  socket.on('user-left', ({ socketId }) => {
+    const meta = getUserMeta(socketId);
+    if (meta) toast(`👋 ${meta.username} покинул комнату`);
+    removeUserFromList(socketId);
+    closePeer(socketId);
+    closeVideoPeer(socketId);
+  });
+
+  socket.on('user-count', count => {
+    const el = $('user-count');
+    if (el) el.textContent = count + ' онлайн';
+  });
+
+  socket.on('chat-message', async data => {
+    await renderMessage(data);
+  });
+
+  socket.on('message-edit', async ({ msgId, encrypted, iv, metaEnc, metaIv, editedAt }) => {
+    const cached = messageCache[msgId];
+    if (!cached) return;
+    const newText = await decryptText(encrypted, iv);
+    const textEl  = cached.el.querySelector('.msg-text');
+    if (textEl) textEl.innerHTML = linkify(newText);
+    const hdr = cached.el.querySelector('.msg-header');
+    if (hdr && !hdr.querySelector('.msg-edited')) {
+      hdr.appendChild(el('span', 'msg-edited', 'ред.'));
+    }
+    cached.data.decryptedText = newText;
+  });
+
+  socket.on('message-delete', ({ msgId }) => {
+    applyDeleteLocal(msgId);
+  });
+
+  socket.on('reaction-toggle', ({ msgId, emoji, userId }) => {
+    toggleReactionLocal(msgId, emoji, userId);
+    updateReactionsEl(msgId);
+  });
+
+  socket.on('room-pinned', ({ msgId }) => {
+    if (msgId) showPinnedBanner(msgId);
+    else hidePinnedBanner();
+  });
+
+  socket.on('typing', ({ userId, username, isTyping }) => {
+    if (userId === currentUser?.userId) return;
+    showTypingIndicator(username, isTyping);
+  });
+
+  // ── WebRTC voice ──────────────────────────────────────
+  socket.on('offer', async ({ from, offer }) => {
+    if (!mediaStream) return;
+    const pc = createPeerConnection(from, false);
+    await pc.setRemoteDescription(new RTCSessionDescription(offer));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    socket.emit('answer', { to: from, answer });
+  });
+
+  socket.on('answer', async ({ from, answer }) => {
+    const pc = peers[from];
+    if (pc) await pc.setRemoteDescription(new RTCSessionDescription(answer));
+  });
+
+  socket.on('ice-candidate', async ({ from, candidate }) => {
+    const pc = peers[from];
+    if (pc && candidate) {
+      try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e) {}
+    }
+  });
+
+  // ── WebRTC video ──────────────────────────────────────
+  socket.on('video-offer', async ({ from, offer }) => {
+    if (!videoStream) return;
+    const pc = createVideoPeer(from, false);
+    await pc.setRemoteDescription(new RTCSessionDescription(offer));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    socket.emit('video-answer', { to: from, answer });
+  });
+
+  socket.on('video-answer', async ({ from, answer }) => {
+    const pc = videopeers[from];
+    if (pc) await pc.setRemoteDescription(new RTCSessionDescription(answer));
+  });
+
+  socket.on('video-ice', async ({ from, candidate }) => {
+    const pc = videopeers[from];
+    if (pc && candidate) {
+      try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e) {}
+    }
+  });
+
+  socket.on('video-start', ({ from, username }) => {
+    toast(`📹 ${username} включил видео`);
+  });
+
+  socket.on('video-stop', ({ from }) => {
+    closeVideoPeer(from);
+    const v = remoteVideoEls[from];
+    if (v) { v.remove(); delete remoteVideoEls[from]; }
+  });
+
+  socket.on('understood', ({ username }) => {
+    toast(`✅ ${username} понял`);
+  });
+}
+
+function disconnectSocket() {
+  if (socket) { socket.disconnect(); socket = null; }
+}
+
+// ── Пользователи в комнате ───────────────────────────────
+const roomUsers = new Map(); // socketId → { username, avatar, userId }
+
+function getUserMeta(socketId) { return roomUsers.get(socketId); }
+
+function addUserToList({ socketId, username, avatar, userId }) {
+  roomUsers.set(socketId, { username, avatar, userId });
+  renderUserList();
+}
+
+function removeUserFromList(socketId) {
+  roomUsers.delete(socketId);
+  renderUserList();
+}
+
+function updateUserList(users) {
+  roomUsers.clear();
+  users.forEach(u => roomUsers.set(u.socketId, {
+    username: u.username, avatar: u.avatar, userId: u.userId
+  }));
+  renderUserList();
+}
+
+function renderUserList() {
+  const list = $('user-list');
+  if (!list) return;
+  list.innerHTML = '';
+
+  // always show self
+  const selfDiv = el('div', 'user-item self');
+  selfDiv.innerHTML = `
+    ${avatarHtml(currentUser?.avatar, currentUser?.username, 28)}
+    <span class="user-name">${escHtml(currentUser?.username)} (вы)</span>
+  `;
+  list.appendChild(selfDiv);
+
+  roomUsers.forEach(({ username, avatar, userId }, socketId) => {
+    const div = el('div', 'user-item');
+    div.innerHTML = `
+      ${avatarHtml(avatar, username, 28)}
+      <span class="user-name">${escHtml(username)}</span>
+      <button class="btn-add-contact btn-icon" data-uid="${userId}" title="Добавить контакт">➕</button>
+    `;
+    div.querySelector('.btn-add-contact')?.addEventListener('click', async () => {
+      try {
+        await fetch(`${API}/api/contacts/send`, {
+          method:  'POST',
+          headers: {
+            'Content-Type':  'application/json',
+            'Authorization': 'Bearer ' + authToken
+          },
+          body: JSON.stringify({ userId })
+        });
+        toast('✅ Заявка отправлена');
+      } catch { toast('❌ Ошибка'); }
+    });
+    list.appendChild(div);
+  });
+}
+
+// ── Индикатор печати ─────────────────────────────────────
+let typingUsers = new Map();
+let typingHideTimers = new Map();
+
+function showTypingIndicator(username, active) {
+  if (active) {
+    typingUsers.set(username, true);
+    clearTimeout(typingHideTimers.get(username));
+    typingHideTimers.set(username, setTimeout(() => {
+      typingUsers.delete(username);
+      renderTyping();
+    }, 3000));
+  } else {
+    typingUsers.delete(username);
+    clearTimeout(typingHideTimers.get(username));
+  }
+  renderTyping();
+}
+
+function renderTyping() {
+  const el = $('typing-indicator');
+  if (!el) return;
+  if (typingUsers.size === 0) { el.style.display = 'none'; return; }
+  const names = [...typingUsers.keys()].join(', ');
+  el.textContent = `${names} печатает...`;
+  el.style.display = 'block';
+}
+
+// ── WebRTC голос ─────────────────────────────────────────
+function setupVoiceButtons() {
+  $('btn-join-voice')?.addEventListener('click',  startVoice);
+  $('btn-leave-voice')?.addEventListener('click', stopVoice);
+  $('btn-mute')?.addEventListener('click',        toggleMute);
+  $('btn-start-video')?.addEventListener('click', startVideo);
+  $('btn-stop-video')?.addEventListener('click',  stopVideo);
+}
+
+async function startVoice() {
+  if (mediaStream) return;
+  if (!currentRoom)  return toast('⚠️ Сначала войдите в комнату');
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    $('btn-join-voice').style.display  = 'none';
+    $('btn-leave-voice').style.display = 'inline-flex';
+    $('btn-mute').style.display        = 'inline-flex';
+    toast('🎙️ Голосовой чат включён');
+
+    roomUsers.forEach((_, socketId) => createPeerConnection(socketId, true));
+  } catch(e) {
+    console.error('[startVoice]', e);
+    toast('❌ Нет доступа к микрофону');
+  }
+}
+
+function stopVoice() {
+  if (!mediaStream) return;
+  mediaStream.getTracks().forEach(t => t.stop());
+  mediaStream = null;
+  isMuted = false;
+
+  Object.keys(peers).forEach(id => closePeer(id));
+  peers = {};
+
+  Object.values(audioEls).forEach(a => a.remove());
+  audioEls = {};
+
+  $('btn-join-voice').style.display  = 'inline-flex';
+  $('btn-leave-voice').style.display = 'none';
+  $('btn-mute').style.display        = 'none';
+  toast('🔇 Голосовой чат отключён');
+}
+
+function toggleMute() {
+  if (!mediaStream) return;
+  isMuted = !isMuted;
+  mediaStream.getAudioTracks().forEach(t => t.enabled = !isMuted);
+  const btn = $('btn-mute');
+  if (btn) btn.textContent = isMuted ? '🔇 Без звука' : '🎙️ Микрофон';
+  toast(isMuted ? '🔇 Микрофон выключен' : '🎙️ Микрофон включён');
+}
+
+function createPeerConnection(socketId, isInitiator) {
+  if (peers[socketId]) { peers[socketId].close(); }
+
+  const pc = new RTCPeerConnection(ICE_CONFIG);
+  peers[socketId] = pc;
+
+  if (mediaStream) {
+    mediaStream.getTracks().forEach(t => pc.addTrack(t, mediaStream));
+  }
+
+  pc.ontrack = e => {
+    if (!audioEls[socketId]) {
+      const audio = document.createElement('audio');
+      audio.autoplay = true;
+      audio.style.display = 'none';
+      document.body.appendChild(audio);
+      audioEls[socketId] = audio;
+    }
+    audioEls[socketId].srcObject = e.streams[0];
+  };
+
+  pc.onicecandidate = e => {
+    if (e.candidate) {
+      socket?.emit('ice-candidate', { to: socketId, candidate: e.candidate });
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    if (['failed','disconnected','closed'].includes(pc.connectionState)) {
+      closePeer(socketId);
+    }
+  };
+
+  if (isInitiator) {
+    pc.onnegotiationneeded = async () => {
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket?.emit('offer', { to: socketId, offer: pc.localDescription });
+      } catch(e) { console.error('[offer]', e); }
+    };
+  }
+
+  return pc;
+}
+
+function closePeer(socketId) {
+  if (peers[socketId]) {
+    peers[socketId].close();
+    delete peers[socketId];
+  }
+  if (audioEls[socketId]) {
+    audioEls[socketId].remove();
+    delete audioEls[socketId];
+  }
+}
+
+// ── WebRTC видео ─────────────────────────────────────────
+async function startVideo() {
+  if (videoStream) return;
+  if (!currentRoom) return toast('⚠️ Сначала войдите в комнату');
+  try {
+    videoStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+
+    if (!localVideoEl) {
+      localVideoEl = document.createElement('video');
+      localVideoEl.autoplay   = true;
+      localVideoEl.muted      = true;
+      localVideoEl.playsInline = true;
+      localVideoEl.className  = 'local-video';
+      $('video-area')?.appendChild(localVideoEl);
+    }
+    localVideoEl.srcObject = videoStream;
+
+    $('btn-start-video').style.display = 'none';
+    $('btn-stop-video').style.display  = 'inline-flex';
+    $('video-area').style.display      = 'flex';
+
+    socket?.emit('video-start');
+    roomUsers.forEach((_, socketId) => createVideoPeer(socketId, true));
+    toast('📹 Видео включено');
+  } catch(e) {
+    console.error('[startVideo]', e);
+    toast('❌ Нет доступа к камере');
+  }
+}
+
+function stopVideo() {
+  if (!videoStream) return;
+  videoStream.getTracks().forEach(t => t.stop());
+  videoStream = null;
+
+  Object.keys(videopeers).forEach(id => closeVideoPeer(id));
+  videopeers = {};
+
+  Object.values(remoteVideoEls).forEach(v => v.remove());
+  remoteVideoEls = {};
+
+  if (localVideoEl) { localVideoEl.remove(); localVideoEl = null; }
+
+  $('btn-start-video').style.display = 'inline-flex';
+  $('btn-stop-video').style.display  = 'none';
+
+  const va = $('video-area');
+  if (va) va.style.display = 'none';
+
+  socket?.emit('video-stop');
+  toast('📹 Видео отключено');
+}
+
+function createVideoPeer(socketId, isInitiator) {
+  if (videopeers[socketId]) { videopeers[socketId].close(); }
+
+  const pc = new RTCPeerConnection(ICE_CONFIG);
+  videopeers[socketId] = pc;
+
+  if (videoStream) {
+    videoStream.getTracks().forEach(t => pc.addTrack(t, videoStream));
+  }
+
+  pc.ontrack = e => {
+    if (!remoteVideoEls[socketId]) {
+      const video = document.createElement('video');
+      video.autoplay    = true;
+      video.playsInline = true;
+      video.className   = 'remote-video';
+      $('video-area')?.appendChild(video);
+      remoteVideoEls[socketId] = video;
+    }
+    remoteVideoEls[socketId].srcObject = e.streams[0];
+  };
+
+  pc.onicecandidate = e => {
+    if (e.candidate) {
+      socket?.emit('video-ice', { to: socketId, candidate: e.candidate });
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    if (['failed','disconnected','closed'].includes(pc.connectionState)) {
+      closeVideoPeer(socketId);
+    }
+  };
+
+  if (isInitiator) {
+    pc.onnegotiationneeded = async () => {
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket?.emit('video-offer', { to: socketId, offer: pc.localDescription });
+      } catch(e) { console.error('[video-offer]', e); }
+    };
+  }
+
+  return pc;
+}
+
+function closeVideoPeer(socketId) {
+  if (videopeers[socketId]) {
+    videopeers[socketId].close();
+    delete videopeers[socketId];
+  }
+  if (remoteVideoEls[socketId]) {
+    remoteVideoEls[socketId].remove();
+    delete remoteVideoEls[socketId];
+  }
+}
+
+// ── Финал ────────────────────────────────────────────────
+console.log('✅ VoiceChat app.js loaded');
