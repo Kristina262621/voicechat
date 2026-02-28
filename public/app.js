@@ -164,6 +164,67 @@ function connectSocket() {
 /* ══════════════════════════════════════════════
    АВТОРИЗАЦИЯ
 ══════════════════════════════════════════════ */
+
+window.switchAuthTab = function(tab) {
+  document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.auth-form').forEach(f => f.classList.add('hidden'));
+  if (tab === 'login') {
+    document.querySelectorAll('.auth-tab')[0].classList.add('active');
+    $('tab-login').classList.remove('hidden');
+  } else {
+    document.querySelectorAll('.auth-tab')[1].classList.add('active');
+    $('tab-register').classList.remove('hidden');
+  }
+};
+
+window.doLogin = async function() {
+  const username = $('login-username').value.trim();
+  const password = $('login-password').value;
+  $('login-err').textContent = '';
+  if (!username || !password) {
+    $('login-err').textContent = 'Заполните все поля';
+    return;
+  }
+  try {
+    const { hash, salt } = await E2E.hashPassword(password);
+    App.socket.emit('auth:login', { username, passwordHash: hash, salt });
+  } catch(e) {
+    $('login-err').textContent = 'Ошибка: ' + e.message;
+    console.error(e);
+  }
+};
+
+window.doRegister = async function() {
+  const username  = $('reg-username').value.trim();
+  const password  = $('reg-password').value;
+  const password2 = $('reg-password2').value;
+  $('reg-err').textContent = '';
+  if (!username || !password) {
+    $('reg-err').textContent = 'Заполните все поля';
+    return;
+  }
+  if (password !== password2) {
+    $('reg-err').textContent = 'Пароли не совпадают';
+    return;
+  }
+  if (password.length < 6) {
+    $('reg-err').textContent = 'Минимум 6 символов';
+    return;
+  }
+  try {
+    const { hash, salt } = await E2E.hashPassword(password);
+    App.socket.emit('auth:register', { username, passwordHash: hash, salt });
+  } catch(e) {
+    $('reg-err').textContent = 'Ошибка: ' + e.message;
+    console.error(e);
+  }
+};
+
+window.doLogout = function() {
+  App.socket.emit('auth:logout');
+  showAuth();
+};
+
 async function onAuthOk(data) {
   App.currentUser = data;
   sessionStorage.setItem('chat_session', JSON.stringify(data));
@@ -341,7 +402,6 @@ function showChatPlaceholder() {
   DOM.chatPlaceholder.classList.remove('hidden');
   DOM.backBtn.classList.add('hidden');
 }
-
 /* ══════════════════════════════════════════════
    ШАПКА ЧАТА
 ══════════════════════════════════════════════ */
