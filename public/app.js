@@ -56,7 +56,24 @@ window._peerNames = new Map();
 window._peerAvatars = new Map();
 window._peerIds = new Map();
 
-function initSocket(token, roomId, username) {
+const DEFAULT_SERVER_URL = 'https://voicechat-production-3d23.up.railway.app';
+
+function normalizeServerUrl(input) {
+  let url = (input && String(input).trim()) || DEFAULT_SERVER_URL;
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+  try {
+    const u = new URL(url);
+    u.hash = '';
+    u.search = '';
+    // Railway публичный домен — без :8080
+    if (u.hostname.endsWith('.up.railway.app')) u.port = '';
+    return u.origin;
+  } catch {
+    return DEFAULT_SERVER_URL;
+  }
+}
+
+function initSocket(token, roomId, username, serverUrl) {
   if (socket) {
     socket.removeAllListeners();
     socket.disconnect();
@@ -70,25 +87,52 @@ function initSocket(token, roomId, username) {
 
   Crypto.deriveKey(String(roomId)).catch(e => console.error(e));
 
-  socket = io({
-    reconnection:         true,
+  const url = normalizeServerUrl(serverUrl);
+  console.log('[socket] connecting to:', url);
+
+  socket = io(url, {
+    path: '/socket.io',
+    transports: ['websocket', 'polling'],
+    upgrade: true,
+    rememberUpgrade: true,
+    reconnection: true,
     reconnectionAttempts: Infinity,
-    reconnectionDelay:    1000,
+    reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
-    timeout:              20000,
-    transports:           ['websocket', 'polling'],
+    timeout: 20000,
+    withCredentials: false
   });
 
   window._socket = socket;
 
+  // Диагностика менеджера socket.io
+  if (socket.io) {
+    socket.io.on('reconnect_attempt', (attempt) => console.warn('[socket] reconnect_attempt:', attempt));
+    socket.io.on('reconnect_error', (err) => console.error('[socket] reconnect_error:', err?.message || err));
+    socket.io.on('reconnect_failed', () => console.error('[socket] reconnect_failed'));
+  }
+
   socket.on('connect', () => {
-    document.getElementById('reconnect-banner').classList.remove('visible');
+    console.log('[socket] connected:', socket.id);
+    document.getElementById('reconnect-banner')?.classList.remove('visible');
     socket.emit('join-room', { token, roomId });
+  });
+
+  socket.on('connect_error', (err) => {
+    console.error('[socket] connect_error:', err?.message || err, err);
+  });
+
+  socket.on('error', (err) => {
+    console.error('[socket] error:', err);
   });
 
   socket.on('auth-ok', ({ username: uname }) => { joined = false; });
   socket.on('auth-fail', () => { showScreen('screen-rooms'); toast('❌ Ошибка авторизации'); });
-  socket.on('disconnect', () => { if (joined) document.getElementById('reconnect-banner').classList.add('visible'); });
+
+  socket.on('disconnect', (reason) => {
+    console.warn('[socket] disconnect:', reason);
+    if (joined) document.getElementById('reconnect-banner')?.classList.add('visible');
+  });
 
   socket.on('user-count', count => {
     const el = document.getElementById('user-count');
@@ -104,7 +148,7 @@ function initSocket(token, roomId, username) {
       window._peerNames.set(socketId, uname);
       window._peerAvatars.set(socketId, u.avatar || null);
       window._peerIds.set(socketId, u.userId || null);
-      
+
       if (joined && localStream) {
         addParticipant(socketId, uname);
         peers[socketId] = createPeer(socketId, true);
@@ -130,7 +174,7 @@ function initSocket(token, roomId, username) {
     window._peerAvatars.set(socketId, data.avatar || null);
     window._peerIds.set(socketId, data.userId || null);
     playBeep('join');
-    
+
     if (joined) addParticipant(socketId, uname);
     showToastJoin(uname);
 
@@ -140,17 +184,17 @@ function initSocket(token, roomId, username) {
   socket.on('user-left', (data) => {
     const socketId = typeof data === 'string' ? data : data.socketId;
     const uname = window._peerNames.get(socketId) || socketId.slice(0,6);
-    
+
     window._roomPeers.delete(socketId);
     window._peerNames.delete(socketId);
     window._peerAvatars.delete(socketId);
     window._peerIds.delete(socketId);
-    
+
     playBeep('leave');
     removeParticipant(socketId);
     stopVolumeAnalysis(socketId);
     stopQualityMonitor(socketId);
-    
+
     if (peers[socketId]) { peers[socketId].close(); delete peers[socketId]; }
     document.getElementById('audio-' + socketId)?.remove();
     showToastLeave(uname);
@@ -402,15 +446,15 @@ async function sendTextMessage() {
     const { encrypted: metaEnc, iv: metaIv } = await Crypto.encrypt(JSON.stringify(meta));
 
     socket.emit('chat-message', { msgId, encrypted, iv, metaEnc, metaIv, type: 'text' });
-    appendMessage({ 
-      from: socket.id, 
+    appendMessage({
+      from: socket.id,
       userId: window._currentUserId,
       msgId,
-      username: window._currentUsername || 'Вы', 
-      text, 
-      type: 'text', 
-      timestamp: Date.now(), 
-      mine: true, 
+      username: window._currentUsername || 'Вы',
+      text,
+      type: 'text',
+      timestamp: Date.now(),
+      mine: true,
       status: 'ok',
       replyTo: replyTarget || null
     });
@@ -426,7 +470,7 @@ btnFile?.addEventListener('click',  () => { fileInput.accept = '*/*'; fileInput.
 
 fileInput?.addEventListener('change', async () => {
   const file = fileInput.files[0];
-  if (!file) return; 
+  if (!file) return;
   fileInput.value = '';
   if (file.size > 50 * 1024 * 1024) return toast('❌ Файл слишком большой. Максимум 50 МБ.');
 
@@ -439,7 +483,7 @@ fileInput?.addEventListener('change', async () => {
     MediaEditor.openVideo(file, (blob, mime, name) => sendMediaBlob(blob, mime, name, 'video'));
     return;
   }
-  
+
   const type = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file';
   await sendMediaBlob(file, file.type, file.name, type);
 });
@@ -455,18 +499,18 @@ async function sendMediaBlob(blob, mimeType, fileName, type) {
     const localUrl = URL.createObjectURL(new Blob([arrayBuf], { type: mimeType }));
 
     socket.emit('chat-message', { msgId, encrypted, iv, metaEnc, metaIv, type, fileName: fileName || 'file', fileSize: blob.size, mimeType });
-    appendMessage({ 
-      from: socket.id, 
+    appendMessage({
+      from: socket.id,
       userId: window._currentUserId,
       msgId,
-      username: window._currentUsername || 'Вы', 
-      type, 
-      localUrl, 
-      fileName: fileName || 'file', 
-      fileSize: blob.size, 
-      mimeType, 
-      timestamp: Date.now(), 
-      mine: true, 
+      username: window._currentUsername || 'Вы',
+      type,
+      localUrl,
+      fileName: fileName || 'file',
+      fileSize: blob.size,
+      mimeType,
+      timestamp: Date.now(),
+      mine: true,
       status: 'ok',
       replyTo: replyTarget || null
     });
@@ -570,7 +614,7 @@ function updateMessage(id, updates) {
   if (!div) return;
   const content = div.querySelector('.msg-content');
   if (content) { content.innerHTML = buildContentHTML({ type: div.dataset.type, ...updates }); bindMediaEvents(div); }
-  
+
   const statusEl = div.querySelector('.msg-decrypt-status');
   if (statusEl) {
     if (updates.status === 'ok') { statusEl.className = 'msg-decrypt-status ok'; statusEl.textContent = '🔓 расшифровано'; }
@@ -592,7 +636,7 @@ function markMessageDeleted(domId) {
 
 function buildMsgHTML(msg) {
   const time = new Date(msg.timestamp || Date.now()).toLocaleTimeString('ru', { hour:'2-digit', minute:'2-digit' });
-  const avatarHtml = msg.avatar 
+  const avatarHtml = msg.avatar
     ? `<img class="msg-avatar-img" src="${msg.avatar}" alt="">`
     : `<div class="msg-avatar-fallback">${escapeHtml((msg.username || '?').slice(0,1).toUpperCase())}</div>`;
   const senderName = msg.mine ? '' : `<div class="msg-sender" data-socketid="${escapeHtml(msg.from || '')}"><div class="msg-avatar">${avatarHtml}</div><span>${escapeHtml(msg.username || '??')}</span></div>`;
@@ -815,7 +859,7 @@ btnJoin?.addEventListener('click', async () => {
   try {
     localStream = await navigator.mediaDevices.getUserMedia({
       video: false,
-      audio: { 
+      audio: {
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
@@ -823,17 +867,17 @@ btnJoin?.addEventListener('click', async () => {
         channelCount: 1
       }
     });
-    
-    await requestWakeLock(); 
-    startKeepAlive(); 
+
+    await requestWakeLock();
+    startKeepAlive();
     setMicStatus(true);
-    
+
     btnJoin.style.display = 'none'; btnLeave.style.display = 'block'; btnMic.style.display = 'block';
     joined = true;
-    
+
     addParticipant(socket.id, 'Вы');
     startVolumeAnalysis(socket.id, localStream);
-    
+
     socket.emit('join');
 
     for (const peerId of window._roomPeers) {
@@ -842,7 +886,7 @@ btnJoin?.addEventListener('click', async () => {
         peers[peerId] = createPeer(peerId, true);
       }
     }
-    
+
     for (const { from, offer } of pendingOffers) await handleOffer(from, offer);
     pendingOffers = [];
 
@@ -906,12 +950,12 @@ function addParticipant(userId, label) {
   participantsBox.style.display = 'block';
   const div = document.createElement('div'); div.className = 'participant'; div.id = 'p-' + userId;
   const isMe = socket && userId === socket.id;
-  const avatar = isMe 
-    ? null 
+  const avatar = isMe
+    ? null
     : (window._peerAvatars.get(userId) || null);
 
-  const avatarHtml = avatar 
-    ? `<img class="p-avatar-img" src="${avatar}" alt="">` 
+  const avatarHtml = avatar
+    ? `<img class="p-avatar-img" src="${avatar}" alt="">`
     : `<div class="p-avatar-fallback">${escapeHtml(label.slice(0,1).toUpperCase())}</div>`;
 
   div.innerHTML = `
@@ -921,13 +965,13 @@ function addParticipant(userId, label) {
     ${isMe ? '' : `<button class="btn-understood" data-uid="${userId}">👍 Понял</button>`}
   `;
   participantsList.appendChild(div);
-  
+
   const btn = div.querySelector('.btn-understood');
-  if (btn) btn.onclick = () => { 
-    socket?.emit('understood'); 
-    btn.textContent = '✅ Отправлено'; 
-    btn.disabled = true; 
-    setTimeout(() => { btn.textContent = '👍 Понял'; btn.disabled = false; }, 3000); 
+  if (btn) btn.onclick = () => {
+    socket?.emit('understood');
+    btn.textContent = '✅ Отправлено';
+    btn.disabled = true;
+    setTimeout(() => { btn.textContent = '👍 Понял'; btn.disabled = false; }, 3000);
   };
 
   const nameEl = div.querySelector('.participant-name');
@@ -1002,7 +1046,7 @@ function playBeep(type) {
     osc.connect(gain); gain.connect(ctx.destination);
     gain.gain.setValueAtTime(0.3, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
-    if (type === 'join') { osc.frequency.setValueAtTime(600, ctx.currentTime); osc.frequency.setValueAtTime(900, ctx.currentTime + 0.12); } 
+    if (type === 'join') { osc.frequency.setValueAtTime(600, ctx.currentTime); osc.frequency.setValueAtTime(900, ctx.currentTime + 0.12); }
     else { osc.frequency.setValueAtTime(900, ctx.currentTime); osc.frequency.setValueAtTime(500, ctx.currentTime + 0.12); }
     osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.35);
     osc.onended = () => ctx.close();
@@ -1045,7 +1089,7 @@ function hangUp() {
   if (participantsBox) participantsBox.style.display = 'none';
   micEnabled = true;
 
-  if (window.stopVideo) window.stopVideo(); 
+  if (window.stopVideo) window.stopVideo();
 }
 
 document.addEventListener('click', () => closeMsgMenu());
