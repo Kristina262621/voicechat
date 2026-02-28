@@ -4,6 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>SecureChat</title>
+  <link rel="manifest" href="/manifest.json"/>
   <link rel="stylesheet" href="style.css"/>
   <meta name="mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
@@ -281,8 +282,6 @@
 
 <!-- Скрытый input для файлов -->
 <input type="file" id="file-input" style="display:none" onchange="onFileSelected()"/>
-<input type="file" id="avatar-input" style="display:none"
-       accept="image/*" onchange="onAvatarSelected()"/>
 
 <!-- Оверлей для закрытия меню -->
 <div class="overlay hidden" id="overlay" onclick="closeOverlay()"></div>
@@ -293,7 +292,7 @@
 <!-- Скрипты -->
 <script src="/socket.io/socket.io.js"></script>
 <script src="crypto.js"></script>
-<script src="app.js?v=5"></script>
+<script src="app.js?v=6"></script>
 
 </body>
 </html>
