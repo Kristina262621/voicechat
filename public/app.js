@@ -2220,7 +2220,222 @@ function initSettings() {
     });
   });
 }
+/* ══════════════════════════════════════════════
+   ГЛОБАЛЬНЫЕ ФУНКЦИИ ДЛЯ onclick В HTML
+══════════════════════════════════════════════ */
 
+function switchAuthTab(tab) {
+  document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.auth-form').forEach(f => f.classList.add('hidden'));
+  document.querySelector(`.auth-tab[onclick*="${tab}"]`)?.classList.add('active');
+  document.getElementById(`tab-${tab}`)?.classList.remove('hidden');
+}
+
+function doLogin() {
+  const username = document.getElementById('login-username').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl    = document.getElementById('login-err');
+  errEl.textContent = '';
+  if (!username || !password) {
+    errEl.textContent = 'Заполните все поля';
+    return;
+  }
+  E2E.hashPassword(password).then(({ hash, salt }) => {
+    App.socket.emit('auth:login', { username, passwordHash: hash, salt });
+  });
+}
+
+function doRegister() {
+  const username  = document.getElementById('reg-username').value.trim();
+  const password  = document.getElementById('reg-password').value;
+  const password2 = document.getElementById('reg-password2').value;
+  const errEl     = document.getElementById('reg-err');
+  errEl.textContent = '';
+  if (!username || !password) {
+    errEl.textContent = 'Заполните все поля';
+    return;
+  }
+  if (password !== password2) {
+    errEl.textContent = 'Пароли не совпадают';
+    return;
+  }
+  if (password.length < 6) {
+    errEl.textContent = 'Минимум 6 символов';
+    return;
+  }
+  E2E.hashPassword(password).then(({ hash, salt }) => {
+    App.socket.emit('auth:register', { username, passwordHash: hash, salt });
+  });
+}
+
+function doLogout() {
+  closeModal('modal-profile');
+  App.socket.emit('auth:logout');
+  showAuth();
+}
+
+function openMyProfile() {
+  openProfileModal();
+}
+
+function closeModal(id) {
+  document.getElementById(id)?.classList.add('hidden');
+}
+
+function onSearchInput() {
+  const val = document.getElementById('search-input').value.trim();
+  App.searchQuery = val;
+  document.getElementById('search-clear').classList.toggle('hidden', !val);
+  renderChatList();
+}
+
+function clearSearch() {
+  document.getElementById('search-input').value = '';
+  App.searchQuery = '';
+  document.getElementById('search-clear').classList.add('hidden');
+  renderChatList();
+}
+
+function openNewChat() {
+  openNewChatModal();
+}
+
+function switchTab(tab) {
+  App.activeTab = tab;
+  document.querySelectorAll('.stab').forEach(t => t.classList.remove('active'));
+  document.getElementById(`stab-${tab}`)?.classList.add('active');
+  renderSidebarTab();
+}
+
+function goBack() {
+  document.querySelector('.sidebar')?.classList.remove('hidden-mobile');
+  App.currentChat = null;
+  showChatPlaceholder();
+  renderChatList();
+}
+
+function openChatInfo() {
+  openChatInfoModal();
+}
+
+function toggleAttachMenu() {
+  document.getElementById('attach-menu')?.classList.toggle('hidden');
+}
+
+function pickFile(accept) {
+  const input = document.getElementById('file-input');
+  input.accept = accept;
+  input.click();
+  document.getElementById('attach-menu')?.classList.add('hidden');
+}
+
+function onMsgInput() {
+  autoResizeInput();
+  sendTyping();
+}
+
+function onMsgKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
+
+function cancelReply() {
+  clearReplyBar();
+}
+
+function cancelEdit() {
+  clearEditBar();
+}
+
+function onMessagesScroll() {
+  // Можно добавить подгрузку истории при скролле вверх
+}
+
+function searchUsers() {
+  const val = document.getElementById('nc-user-search')?.value.trim();
+  if (!val || val.length < 2) {
+    document.getElementById('nc-user-list').innerHTML = '';
+    return;
+  }
+  App.socket.emit('users:search', { query: val });
+}
+
+function switchNewChatTab(tab) {
+  document.querySelectorAll('.nctab').forEach(t => t.classList.remove('active'));
+  document.querySelector(`.nctab[onclick*="${tab}"]`)?.classList.add('active');
+  document.getElementById('nctab-private').classList.toggle('hidden', tab !== 'private');
+  document.getElementById('nctab-group').classList.toggle('hidden',   tab !== 'group');
+}
+
+function createGroup() {
+  const name = document.getElementById('nc-group-name')?.value.trim();
+  if (!name) { showNotif('Введите название группы', 'error'); return; }
+  App.socket.emit('chat:create', { type: 'group', name });
+  closeModal('modal-new-chat');
+}
+
+function saveProfile() {
+  const bio = document.getElementById('profile-bio')?.value.trim();
+  App.socket.emit('user:update', { bio, avatar: App.currentUser.avatar });
+  App.currentUser.bio = bio;
+  sessionStorage.setItem('chat_session', JSON.stringify(App.currentUser));
+  closeModal('modal-profile');
+  showNotif('Профиль сохранён', 'success');
+}
+
+function changeAvatar() {
+  document.getElementById('avatar-input')?.click();
+}
+
+function onAvatarSelected() {
+  const input = document.getElementById('avatar-input');
+  const file  = input.files[0];
+  if (!file) return;
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('type', 'avatar');
+  fetch('/upload', {
+    method:  'POST',
+    headers: { 'x-user-id': App.currentUser.id, 'x-token': App.currentUser.token },
+    body:    formData
+  }).then(r => r.json()).then(data => {
+    if (data.ok) {
+      App.currentUser.avatar = data.file.url;
+      renderMyAvatar();
+      showNotif('Фото обновлено', 'success');
+    }
+  }).catch(() => showNotif('Ошибка загрузки фото', 'error'));
+}
+
+function leaveChat() {
+  closeModal('modal-chat-info');
+  if (!App.currentChat) return;
+  openConfirmModal(
+    'Покинуть чат?',
+    'Вы покинете этот чат.',
+    () => App.socket.emit('chat:leave', { chatId: App.currentChat })
+  );
+}
+
+function searchGroups() {
+  const val = document.getElementById('explore-input')?.value.trim();
+  App.socket.emit('groups:explore', { query: val });
+}
+
+function closeOverlay() {
+  closeAllOverlays();
+  document.getElementById('overlay')?.classList.add('hidden');
+}
+
+function ctxReply()  { /* обрабатывается через контекстное меню */ }
+function ctxCopy()   { /* обрабатывается через контекстное меню */ }
+function ctxEdit()   { /* обрабатывается через контекстное меню */ }
+function ctxReact()  { /* обрабатывается через контекстное меню */ }
+function ctxDelete() { /* обрабатывается через контекстное меню */ }
+function pickReaction(emoji) { /* обрабатывается через пикер */ }
+function changeChatAvatar()  { /* заглушка */ }
 /* ══════════════════════════════════════════════
    ТОЧКА ВХОДА
 ══════════════════════════════════════════════ */
