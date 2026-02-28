@@ -1405,4 +1405,54 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
     } catch {}
   }
+  /* ══════════════════════════════════════════════
+   ГЛОБАЛЬНЫЙ ЭКСПОРТ для onclick в HTML
+══════════════════════════════════════════════ */
+window.doLogin          = doLogin;
+window.doRegister       = doRegister;
+window.doLogout         = doLogout;
+window.switchAuthTab    = switchAuthTab;
+window.switchTab        = switchTab;
+window.goBack           = goBack;
+window.openChatInfo     = openChatInfo;
+window.openNewChat      = openNewChat;
+window.openMyProfile    = openMyProfile;
+window.cancelReply      = cancelReply;
+window.cancelEdit       = cancelEdit;
+window.closeOverlay     = closeOverlay;
+window.closeModal       = closeModal;
+window.toggleAttachMenu = toggleAttachMenu;
+window.pickFile         = pickFile;
+window.onMsgInput       = onMsgInput;
+window.onMsgKeydown     = onMsgKeydown;
+window.onSearchInput    = onSearchInput;
+window.clearSearch      = clearSearch;
+window.searchGroups     = searchGroups;
+window.searchUsers      = searchUsers;
+window.openImageModal   = openImageModal;
+window.ctxReply         = ctxReply;
+window.ctxCopy          = ctxCopy;
+window.ctxEdit          = ctxEdit;
+window.ctxReact         = ctxReact;
+window.ctxDelete        = ctxDelete;
+window.pickReaction     = pickReaction;
+window.sendReaction     = sendReaction;
+window.startDirectChat  = startDirectChat;
+window.createGroup      = createGroup;
+window.switchNewChatTab = switchNewChatTab;
+window.leaveChat        = leaveChat;
+window.changeChatAvatar = changeChatAvatar;
+window.changeAvatar     = changeAvatar;
+window.saveProfile      = saveProfile;
+window.onAvatarSelected = onAvatarSelected;
+window.onFileSelected   = onFileSelected;
+window.acceptContact    = acceptContact;
+window.declineContact   = declineContact;
+window.addContact       = addContact;
+window.addContactById   = addContactById;
+window.openUserProfile  = openUserProfile;
+window.joinGroup        = joinGroup;
+window.sendMessage      = sendMessage;
+window.openChat         = openChat;
+window.onMessagesScroll = onMessagesScroll;
 });
