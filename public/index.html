@@ -1,987 +1,297 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-theme="dark">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="mobile-web-app-capable" content="yes">
-  <title>Secure Chat</title>
-  <style>
-    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
-    :root {
-      --bg: #0f172a; --surface:#162033; --surface2:#0f1a2b; --header:#0b1424;
-      --bubble-in:#1a2637; --bubble-me:#2b5278; --accent:#5b8cff; --accent2:#64b5f6;
-      --green:#4caf50; --red:#ef5350; --text:#e8eaed; --sub:#9aaac0; --divider:#0d1821;
-      --radius:12px; --glass:rgba(255,255,255,0.06); --glass-border:rgba(255,255,255,0.08);
-      --accent-grad:linear-gradient(135deg,#4facfe 0%,#00f2fe 100%);
-      --accent-grad-2:linear-gradient(135deg,#7b61ff 0%,#5edfff 100%);
-      --shadow-lg:0 24px 60px rgba(0,0,0,0.55); --shadow-md:0 12px 30px rgba(0,0,0,0.35);
-      --radius-lg:18px; --radius-xl:24px;
-    }
-    html, body { height:100%; width:100%; font-family:-apple-system,'Segoe UI',Roboto,sans-serif; background:radial-gradient(1200px 800px at 20% -10%,#233248 0%,var(--bg) 40%); color:var(--text); overflow:hidden; }
-    .screen { position:fixed; inset:0; display:flex; flex-direction:column; background:transparent; transition:opacity 0.2s; }
-    .screen.hidden { display:none; }
-    input, textarea, button { font-family:inherit; }
-
-    .field { width:100%; padding:13px 16px; background:var(--bg); border:2px solid #2a3a4e; border-radius:var(--radius); color:var(--text); font-size:15px; outline:none; transition:0.2s; }
-    .field:focus { border-color:var(--accent); }
-    .field.error { border-color:var(--red); animation:shake 0.35s; }
-
-    .btn-primary { width:100%; padding:14px; background:var(--accent); color:white; border:none; border-radius:var(--radius); font-size:15px; font-weight:600; cursor:pointer; transition:0.2s; }
-    .btn-primary:active { transform:scale(0.98); }
-    .btn-ghost { background:none; border:none; color:var(--accent2); font-size:14px; cursor:pointer; padding:6px 0; }
-    .error-msg { font-size:12px; color:var(--red); min-height:18px; text-align:center; }
-    @keyframes shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-8px)} 40%{transform:translateX(8px)} 60%{transform:translateX(-5px)} 80%{transform:translateX(5px)} }
-
-    #screen-auth { align-items:center; justify-content:center; padding:20px; }
-    .auth-card { width:100%; max-width:380px; background:var(--surface); border-radius:20px; padding:40px 28px 32px; box-shadow:0 16px 48px rgba(0,0,0,0.6); display:flex; flex-direction:column; align-items:center; backdrop-filter:blur(6px); }
-    .auth-logo { font-size:56px; margin-bottom:14px; }
-    .auth-title { font-size:22px; font-weight:700; margin-bottom:6px; }
-    .auth-sub { font-size:13px; color:var(--sub); text-align:center; margin-bottom:28px; }
-    .auth-tabs { display:flex; width:100%; background:var(--bg); border-radius:10px; padding:3px; margin-bottom:22px; }
-    .auth-tab { flex:1; padding:9px; border:none; border-radius:8px; font-size:14px; font-weight:600; background:none; color:var(--sub); cursor:pointer; transition:0.2s; }
-    .auth-tab.active { background:var(--accent); color:white; }
-    .auth-form { width:100%; display:flex; flex-direction:column; gap:10px; }
-    .pw-wrap { position:relative; width:100%; }
-    .pw-wrap .field { padding-right:46px; }
-    .toggle-pw { position:absolute; right:13px; top:50%; transform:translateY(-50%); background:none; border:none; font-size:18px; color:var(--sub); cursor:pointer; }
-    .e2e-note { margin-top:16px; font-size:11px; color:var(--sub); text-align:center; }
-
-    .rooms-header, .tg-header { display:flex; align-items:center; gap:12px; padding:12px 16px; padding-top:max(12px, env(safe-area-inset-top)); background:rgba(23,33,43,0.85); backdrop-filter:blur(14px); border-bottom:1px solid var(--divider); min-height:56px; flex-shrink:0; }
-    .rooms-header-title { flex:1; font-size:18px; font-weight:700; }
-    .icon-btn { width:38px; height:38px; border:none; border-radius:50%; background:none; color:var(--sub); font-size:20px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
-    .header-user { display:flex; align-items:center; gap:10px; padding:6px 10px; border-radius:14px; background:rgba(255,255,255,0.04); cursor:pointer; }
-    .header-user img { width:30px; height:30px; border-radius:50%; object-fit:cover; }
-    .header-user .fallback { width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:#1d2b40; color:#fff; font-weight:600; }
-
-    .rooms-search { padding:10px 14px; border-bottom:1px solid var(--divider); }
-    .rooms-search input { width:100%; padding:10px 16px; background:var(--surface); border:none; border-radius:22px; color:var(--text); }
-    .rooms-list { flex:1; overflow-y:auto; padding:8px 0; }
-
-    .room-item { display:flex; align-items:center; gap:14px; padding:12px 16px; cursor:pointer; border-bottom:1px solid rgba(255,255,255,0.03); border-radius:16px; margin:6px 12px; background:rgba(255,255,255,0.03); transition:0.2s; }
-    .room-item:hover { background:rgba(255,255,255,0.05); border-color:rgba(255,255,255,0.05); }
-    .room-avatar, .tg-avatar { width:46px; height:46px; border-radius:50%; background:linear-gradient(135deg,#1e3a5a,#5288c1); display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0; overflow:hidden; }
-    .room-avatar img, .tg-avatar img { width:100%; height:100%; object-fit:cover; }
-    .tg-avatar { width:40px; height:40px; font-size:20px; cursor:pointer; }
-    .room-info { flex:1; min-width:0; }
-    .room-name { font-size:15px; font-weight:600; }
-    .room-meta { font-size:12px; color:var(--sub); margin-top:2px; opacity:.7; }
-
-    .rooms-layout { display:flex; height:calc(100% - 56px); overflow:hidden; }
-    .sidebar { width:88px; background:rgba(20,28,37,0.95); border-right:1px solid var(--divider); display:flex; flex-direction:column; align-items:center; padding:12px 0; gap:12px; }
-    .sidebar-btn { width:52px; height:52px; border-radius:16px; background:var(--glass); border:1px solid var(--glass-border); display:flex; align-items:center; justify-content:center; font-size:20px; color:var(--text); cursor:pointer; transition:0.2s; }
-    .sidebar-btn.active { background:var(--accent-grad); color:white; box-shadow:0 8px 18px rgba(0,155,255,0.35); }
-    .sidebar-btn:hover { transform:translateY(-2px); }
-    .rooms-main { flex:1; display:flex; flex-direction:column; background:rgba(23,33,43,0.6); backdrop-filter:blur(10px); }
-
-    .segment-tabs { display:flex; background:rgba(255,255,255,0.04); border:1px solid var(--glass-border); margin:12px; padding:4px; border-radius:14px; }
-    .segment-tab { flex:1; padding:8px 10px; text-align:center; font-size:13px; border-radius:10px; cursor:pointer; color:var(--sub); }
-    .segment-tab.active { background:var(--accent-grad-2); color:#fff; }
-
-    .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); backdrop-filter:blur(4px); z-index:1000; display:flex; align-items:center; justify-content:center; padding:20px; opacity:0; pointer-events:none; transition:0.2s; }
-    .modal-overlay.open { opacity:1; pointer-events:all; }
-    .modal { width:100%; max-width:360px; background:var(--surface); border-radius:20px; padding:28px 24px; box-shadow:0 20px 60px rgba(0,0,0,0.7); display:flex; flex-direction:column; gap:14px; transform:translateY(20px); transition:0.2s; }
-    .modal-overlay.open .modal { transform:translateY(0); }
-    .modal-title { font-size:18px; font-weight:700; text-align:center; }
-    .modal-sub { font-size:13px; color:var(--sub); text-align:center; }
-    .modal-row { display:flex; gap:10px; }
-    .btn-cancel { flex:1; padding:14px; background:rgba(255,255,255,0.06); color:var(--sub); border:none; border-radius:var(--radius); font-size:15px; font-weight:600; cursor:pointer; }
-
-    .tg-header-info { flex:1; min-width:0; }
-    .tg-header-name { font-size:15px; font-weight:600; }
-    .tg-header-sub { font-size:12px; color:var(--sub); }
-    #reconnect-banner { display:none; padding:7px; background:rgba(239,83,80,0.12); color:#ff6b6b; text-align:center; }
-    #reconnect-banner.visible { display:block; animation:blink 1.5s infinite; }
-    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.5} }
-
-    .main-body { flex:1; display:flex; flex-direction:column; overflow:hidden; }
-    #chat-messages { flex:1; overflow-y:auto; padding:10px 10px 6px; display:flex; flex-direction:column; gap:6px; }
-    .pinned-banner { margin:8px 12px; background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.08); padding:8px 12px; border-radius:12px; font-size:13px; cursor:pointer; display:none; }
-
-    #participants { background:var(--surface); border-radius:14px; padding:12px 14px; margin-bottom:6px; }
-    .participant { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.05); }
-    .participant .p-avatar { width:28px; height:28px; border-radius:50%; overflow:hidden; background:#1d2b40; display:flex; align-items:center; justify-content:center; }
-    .participant .p-avatar img { width:100%; height:100%; object-fit:cover; }
-    .participant .p-avatar-fallback { color:#fff; font-weight:600; font-size:12px; }
-    .volume-bar-wrap { width:36px; height:4px; background:rgba(255,255,255,0.08); border-radius:2px; overflow:hidden; }
-    .volume-bar { height:100%; width:0%; border-radius:2px; background:var(--green); transition:0.08s; }
-    .volume-bar.loud { background:var(--red); }
-
-    .msg { max-width:78%; padding:8px 12px 6px; border-radius:14px; font-size:14px; line-height:1.5; word-break:break-word; border:1px solid rgba(255,255,255,0.03); position:relative; }
-    .msg.mine { align-self:flex-end; background:linear-gradient(135deg,#2b5278,#295a86); border-bottom-right-radius:3px; }
-    .msg.theirs { align-self:flex-start; background:var(--bubble-in); border-bottom-left-radius:3px; }
-    .msg-sender { display:flex; align-items:center; gap:8px; margin-bottom:4px; cursor:pointer; }
-    .msg-avatar { width:22px; height:22px; border-radius:50%; overflow:hidden; background:#1d2b40; display:flex; align-items:center; justify-content:center; }
-    .msg-avatar-img { width:100%; height:100%; object-fit:cover; }
-    .msg-avatar-fallback { color:#fff; font-size:11px; font-weight:600; }
-    .msg-reply { font-size:12px; color:var(--sub); margin-bottom:6px; padding-left:8px; border-left:2px solid var(--accent); }
-    .msg-meta { font-size:11px; color:var(--sub); margin-top:2px; }
-    .msg-edited { font-size:11px; color:#8ca2bf; }
-    .msg-reactions { display:flex; gap:6px; margin-top:6px; flex-wrap:wrap; }
-    .reaction-chip { background:rgba(255,255,255,0.08); padding:3px 8px; border-radius:999px; font-size:12px; cursor:pointer; }
-
-    .tg-bottom { background:var(--header); border-top:1px solid var(--divider); padding-bottom:max(6px, env(safe-area-inset-bottom)); }
-    .voice-bar { display:flex; gap:8px; padding:8px 12px 6px; }
-    .tg-input-row { display:flex; align-items:flex-end; gap:6px; padding:6px 10px 8px; position:relative; }
-    #chat-input { flex:1; padding:10px 14px; background:var(--surface); border:none; border-radius:22px; color:var(--text); resize:none; outline:none; }
-    #btn-send { width:38px; height:38px; border-radius:50%; background:var(--accent); color:white; border:none; display:flex; align-items:center; justify-content:center; }
-
-    #btn-join, #btn-mic, #btn-leave { flex:1; padding:9px 0; border:none; border-radius:22px; font-size:13px; font-weight:600; cursor:pointer; }
-    #btn-join { background:var(--accent); color:white; }
-    #btn-mic { background:rgba(255,255,255,.07); color:var(--text); }
-    #btn-leave { background:rgba(239,83,80,.13); color:var(--red); border:1px solid rgba(239,83,80,.3); }
-
-    .mic-status { font-size:11px; text-align:center; padding:0 0 4px; display:none; }
-    .mic-status.active { display:block; color:var(--green); }
-    .mic-status.muted { display:block; color:var(--red); }
-
-    .btn-attach-tg { width:38px; height:38px; border:none; background:none; color:var(--sub); font-size:22px; cursor:pointer; }
-    .attach-popup { position:absolute; bottom:58px; left:10px; background:var(--surface); border-radius:14px; box-shadow:0 8px 32px rgba(0,0,0,.5); padding:6px; display:none; flex-direction:column; z-index:200; }
-    .attach-popup.open { display:flex; }
-    .attach-item { padding:10px 14px; border:none; background:none; color:var(--text); text-align:left; cursor:pointer; }
-
-    .toast { position:fixed; bottom:90px; left:50%; transform:translateX(-50%); background:rgba(30,40,55,.97); padding:10px 20px; border-radius:20px; font-size:13px; z-index:9999; animation:toastAnim 2.5s ease forwards; white-space:nowrap; }
-    @keyframes toastAnim { 0%{opacity:0;transform:translate(-50%,10px)} 15%,75%{opacity:1;transform:translate(-50%,0)} 100%{opacity:0} }
-
-    #lightbox { display:none; position:fixed; inset:0; background:rgba(0,0,0,.95); z-index:3000; align-items:center; justify-content:center; }
-    #lightbox.open { display:flex; }
-    #lightbox img, #lightbox video { max-width:96vw; max-height:88vh; border-radius:6px; }
-    #lightbox-close { position:absolute; top:14px; right:18px; font-size:30px; color:rgba(255,255,255,.65); cursor:pointer; }
-
-    #btn-video-call { width:38px; height:38px; border-radius:50%; background:linear-gradient(135deg,#00C6FF,#0072FF); color:white; border:none; font-size:18px; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 4px 15px rgba(0,114,255,0.3); transition:transform 0.2s; }
-    #btn-video-call:active { transform:scale(0.9); }
-
-    .video-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:radial-gradient(800px 600px at 20% -10%, rgba(30,60,90,0.6), rgba(15,15,15,0.95)); backdrop-filter:blur(15px); -webkit-backdrop-filter:blur(15px); z-index:99999; display:flex; flex-direction:column; opacity:1; transition:opacity 0.3s ease, transform 0.3s ease; }
-    .video-overlay.hidden { opacity:0; pointer-events:none; transform:translateY(20px); }
-    .video-header { padding:20px; color:#fff; display:flex; justify-content:space-between; align-items:center; background:linear-gradient(to bottom, rgba(0,0,0,0.8), transparent); flex-shrink:0; }
-    .video-title { font-weight:600; font-size:16px; display:flex; align-items:center; gap:8px; }
-    .video-title::after { content:'🔒'; font-size:12px; opacity:0.8; }
-    .video-grid { flex:1; display:grid; gap:10px; padding:10px; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); align-content:center; justify-content:center; align-items:center; }
-    .video-tile { position:relative; width:100%; height:100%; max-height:75vh; border-radius:16px; overflow:hidden; background:#222; box-shadow:0 8px 30px rgba(0,0,0,0.4); display:flex; }
-    .video-tile video { width:100%; height:100%; object-fit:cover; display:block; }
-    .video-tile-name { position:absolute; bottom:12px; left:12px; font-size:13px; font-weight:600; color:white; background:rgba(0,0,0,0.6); backdrop-filter:blur(4px); padding:4px 10px; border-radius:10px; }
-
-    .video-controls-bar { padding:30px 20px; display:flex; justify-content:center; gap:20px; background:linear-gradient(to top, rgba(0,0,0,0.95), transparent); flex-shrink:0; }
-    .v-control { width:60px; height:60px; border-radius:50%; border:none; font-size:24px; background:rgba(255,255,255,0.2); color:white; cursor:pointer; backdrop-filter:blur(10px); transition:0.2s; display:flex; align-items:center; justify-content:center; }
-    .v-control:active { transform:scale(0.9); }
-    .v-control.off { background:rgba(255,255,255,0.4); color:#333; }
-    .v-control.hangup { background:#FF3B30; width:60px; transform:rotate(135deg); }
-    .v-control.hangup:active { background:#D32F2F; transform:rotate(135deg) scale(0.9); }
-
-    .contact-row { display:flex; align-items:center; gap:12px; padding:10px 14px; border-bottom:1px solid rgba(255,255,255,0.04); }
-    .contact-actions { margin-left:auto; display:flex; gap:8px; }
-    .btn-mini { padding:6px 10px; font-size:12px; border:none; border-radius:10px; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text); }
-    .btn-mini.primary { background:var(--accent-grad); color:white; }
-
-    .profile-drawer { position:fixed; right:-360px; top:0; bottom:0; width:360px; max-width:92vw; background:rgba(24,34,46,0.98); border-left:1px solid var(--divider); box-shadow:var(--shadow-lg); transition:0.25s ease; z-index:5000; display:flex; flex-direction:column; }
-    .profile-drawer.open { right:0; }
-    .profile-header { padding:20px; display:flex; align-items:center; gap:12px; }
-    .profile-avatar { width:56px; height:56px; border-radius:50%; background:var(--accent-grad); display:flex; align-items:center; justify-content:center; font-size:24px; overflow:hidden; }
-    .profile-avatar img { width:100%; height:100%; object-fit:cover; }
-    .profile-body { padding:0 20px 20px; display:flex; flex-direction:column; gap:12px; }
-    .profile-actions { display:grid; gap:10px; }
-    .profile-close { margin-left:auto; cursor:pointer; color:var(--sub); }
-
-    #reply-bar { display:none; align-items:center; gap:10px; padding:6px 12px; background:rgba(255,255,255,0.06); margin:6px 10px 0; border-radius:12px; }
-    #reply-text { font-size:12px; color:var(--sub); flex:1; }
-    #reply-cancel { cursor:pointer; color:var(--sub); }
-
-    #typing-indicator { font-size:12px; color:var(--sub); padding:0 14px 6px; display:none; }
-
-    #msg-menu { position:fixed; background:var(--surface); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:6px; display:none; z-index:9999; min-width:160px; }
-    .msg-menu-item { padding:8px 12px; cursor:pointer; border-radius:8px; font-size:13px; color:var(--text); }
-    .msg-menu-item:hover { background:rgba(255,255,255,0.06); }
-
-    #reaction-picker { position:fixed; background:var(--surface); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:6px; display:none; z-index:9999; gap:4px; }
-    .reaction-item { font-size:18px; cursor:pointer; padding:4px; border-radius:8px; }
-    .reaction-item:hover { background:rgba(255,255,255,0.06); }
-
-    .msg-media { max-width:100%; max-height:260px; border-radius:10px; display:block; cursor:pointer; }
-    .msg-file { display:flex; align-items:center; gap:10px; background:rgba(255,255,255,0.06); padding:10px 12px; border-radius:10px; }
-    .msg-file-icon { font-size:22px; }
-    .msg-file-info { flex:1; min-width:0; }
-    .msg-file-name { font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .msg-file-size { font-size:11px; color:var(--sub); }
-    .msg-file-dl { font-size:20px; text-decoration:none; }
-    .msg-decrypt-status { font-size:10px; color:var(--sub); margin-top:2px; }
-    .msg-decrypt-status.ok { color:var(--green); }
-    .msg-decrypt-status.err { color:var(--red); }
-
-    .btn-understood { padding:4px 10px; border:none; border-radius:10px; background:rgba(91,140,255,0.15); color:var(--accent); font-size:11px; cursor:pointer; }
-    .understood-banner { position:fixed; bottom:120px; left:50%; transform:translateX(-50%); background:rgba(76,175,80,0.2); border:1px solid rgba(76,175,80,0.4); color:#a5d6a7; padding:8px 20px; border-radius:20px; font-size:13px; z-index:9000; pointer-events:none; }
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="VoiceChat — защищённый мессенджер с голосовым и видео чатом">
+  <title>VoiceChat</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎙️</text></svg>">
 </head>
 <body>
 
-<!-- ЭКРАН АВТОРИЗАЦИИ -->
-<div id="screen-auth" class="screen">
+<!-- ═══════════════════════════════════════
+     ЭКРАН АВТОРИЗАЦИИ
+════════════════════════════════════════ -->
+<div id="auth-screen">
+
   <div class="auth-card">
-    <div class="auth-logo">🔐</div>
-    <div class="auth-title">Secure Chat</div>
-    <div class="auth-sub">Сквозное шифрование · Нет логов · Нет следов</div>
-    <div class="auth-tabs">
-      <button class="auth-tab active" id="tab-login" onclick="switchTab('login')">Войти</button>
-      <button class="auth-tab" id="tab-reg" onclick="switchTab('reg')">Регистрация</button>
+    <div class="auth-logo">🎙️</div>
+    <h1 class="auth-title">VoiceChat</h1>
+    <p class="auth-subtitle">Защищённый мессенджер</p>
+
+    <!-- Вход -->
+    <div id="auth-login">
+      <form id="form-login" autocomplete="on">
+        <div class="form-group">
+          <label for="login-username">Имя пользователя</label>
+          <input id="login-username" type="text" placeholder="Введите имя"
+                 autocomplete="username" required maxlength="24">
+        </div>
+        <div class="form-group">
+          <label for="login-password">Пароль</label>
+          <input id="login-password" type="password" placeholder="Введите пароль"
+                 autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="btn-primary btn-full">Войти</button>
+      </form>
+      <p class="auth-switch">
+        Нет аккаунта?
+        <a href="#" id="link-to-register">Зарегистрироваться</a>
+      </p>
     </div>
-    <form class="auth-form" id="form-login" onsubmit="doLogin(event)">
-      <input class="field" id="login-username" type="text" placeholder="Имя пользователя" autocomplete="username" maxlength="24"/>
-      <div class="pw-wrap">
-        <input class="field" id="login-password" type="password" placeholder="Пароль" autocomplete="current-password" maxlength="64"/>
-        <button type="button" class="toggle-pw" onclick="togglePw('login-password',this)">👁</button>
+
+    <!-- Регистрация -->
+    <div id="auth-register" style="display:none">
+      <form id="form-register" autocomplete="on">
+        <div class="form-group">
+          <label for="reg-username">Имя пользователя</label>
+          <input id="reg-username" type="text" placeholder="От 2 до 24 символов"
+                 autocomplete="username" required minlength="2" maxlength="24">
+        </div>
+        <div class="form-group">
+          <label for="reg-password">Пароль</label>
+          <input id="reg-password" type="password" placeholder="Минимум 4 символа"
+                 autocomplete="new-password" required minlength="4">
+        </div>
+        <button type="submit" class="btn-primary btn-full">Зарегистрироваться</button>
+      </form>
+      <p class="auth-switch">
+        Уже есть аккаунт?
+        <a href="#" id="link-to-login">Войти</a>
+      </p>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     ГЛАВНЫЙ ЭКРАН ПРИЛОЖЕНИЯ
+════════════════════════════════════════ -->
+<div id="app-screen" style="display:none">
+
+  <!-- ── Левая панель (сайдбар) ─────────── -->
+  <aside class="sidebar">
+
+    <!-- Шапка профиля -->
+    <div class="sidebar-profile">
+      <div id="profile-avatar" class="sidebar-avatar"></div>
+      <div class="sidebar-profile-info">
+        <span id="profile-username" class="sidebar-username"></span>
       </div>
-      <div class="error-msg" id="login-error"></div>
-      <button class="btn-primary" type="submit" id="btn-login">🔑 Войти</button>
+      <button id="btn-edit-profile" class="btn-icon" title="Редактировать профиль">⚙️</button>
+    </div>
+
+    <!-- Кнопки навигации -->
+    <div class="sidebar-nav">
+      <button id="btn-show-rooms"    class="btn-nav active" title="Комнаты">💬 Комнаты</button>
+      <button id="btn-show-contacts" class="btn-nav"        title="Контакты">
+        👥 Контакты
+        <span id="requests-badge" class="badge" style="display:none">0</span>
+      </button>
+    </div>
+
+    <!-- Панель комнат -->
+    <div id="rooms-panel" class="sidebar-panel">
+
+      <!-- Поиск комнат -->
+      <div class="search-wrap">
+        <input id="room-search" type="search" placeholder="🔍 Поиск комнат" class="input-search">
+      </div>
+
+      <!-- Список комнат -->
+      <div id="room-list" class="room-list"></div>
+
+      <!-- Создание комнаты -->
+      <button id="btn-create-room" class="btn-secondary btn-full">➕ Новая комната</button>
+      <div id="create-room-form" style="display:none">
+        <form id="form-create-room" class="create-room-form">
+          <input id="new-room-name" type="text"     placeholder="Название комнаты"
+                 maxlength="64" required class="input-text">
+          <input id="new-room-pass" type="password" placeholder="Пароль (необязательно)"
+                 class="input-text">
+          <label class="checkbox-label">
+            <input id="new-room-group" type="checkbox">
+            <span>Групповой чат</span>
+          </label>
+          <div class="form-row">
+            <button type="submit"             class="btn-primary">Создать</button>
+            <button type="button" id="btn-cancel-create" class="btn-ghost">Отмена</button>
+          </div>
+        </form>
+      </div>
+
+    </div>
+
+    <!-- Панель контактов -->
+    <div id="contacts-panel" class="sidebar-panel" style="display:none">
+
+      <!-- Заявки -->
+      <div class="contacts-section">
+        <div class="section-title">📨 Заявки</div>
+        <div id="contact-requests-list" class="contacts-list"></div>
+      </div>
+
+      <!-- Контакты -->
+      <div class="contacts-section">
+        <div class="section-title">👥 Мои контакты</div>
+        <div id="contacts-list" class="contacts-list"></div>
+      </div>
+
+    </div>
+
+    <!-- Нижние кнопки -->
+    <div class="sidebar-footer">
+      <button id="btn-theme"  class="btn-icon" title="Сменить тему">🌙</button>
+      <button id="btn-logout" class="btn-icon btn-danger" title="Выйти">🚪</button>
+    </div>
+
+  </aside>
+
+  <!-- ── Правая часть (чат) ─────────────── -->
+  <main class="chat-main">
+
+    <!-- Пустой экран -->
+    <div id="empty-screen" class="empty-screen">
+      <div class="empty-icon">💬</div>
+      <div class="empty-title">Выберите комнату</div>
+      <div class="empty-sub">чтобы начать общение</div>
+    </div>
+
+    <!-- Чат-область -->
+    <div id="chat-area" class="chat-area" style="display:none">
+
+      <!-- Шапка чата -->
+      <header class="chat-header">
+        <div class="chat-header-left">
+          <span id="current-room-name" class="chat-room-name"></span>
+          <span id="user-count" class="user-count">0 онлайн</span>
+        </div>
+        <div class="chat-header-right">
+          <input id="msg-search" type="search" placeholder="🔍 Поиск сообщений"
+                 class="input-search input-search-sm">
+        </div>
+      </header>
+
+      <!-- Закреплённое сообщение -->
+      <div id="pinned-banner" class="pinned-banner" style="display:none">
+        <span class="pinned-preview">📌 Закреплённое сообщение</span>
+        <button class="btn-unpin btn-icon" title="Открепить">✕</button>
+      </div>
+
+      <!-- Основная область -->
+      <div class="chat-body">
+
+        <!-- Список участников -->
+        <div class="users-sidebar">
+          <div class="users-title">Участники</div>
+          <div id="user-list" class="user-list"></div>
+
+          <!-- Голосовые кнопки -->
+          <div class="voice-controls">
+            <button id="btn-join-voice"  class="btn-voice">🎙️ Голос</button>
+            <button id="btn-leave-voice" class="btn-voice btn-danger" style="display:none">📴 Выйти</button>
+            <button id="btn-mute"        class="btn-voice btn-mute"   style="display:none">🎙️ Микрофон</button>
+            <button id="btn-start-video" class="btn-voice">📹 Видео</button>
+            <button id="btn-stop-video"  class="btn-voice btn-danger" style="display:none">📹 Стоп</button>
+          </div>
+
+          <!-- Видео область -->
+          <div id="video-area" class="video-area" style="display:none"></div>
+        </div>
+
+        <!-- Сообщения -->
+        <div class="messages-wrap">
+          <div id="message-list" class="message-list"></div>
+          <div id="typing-indicator" class="typing-indicator" style="display:none"></div>
+        </div>
+
+      </div>
+
+      <!-- Панель ввода -->
+      <footer class="chat-footer">
+
+        <!-- Reply bar -->
+        <div id="reply-bar" class="reply-bar" style="display:none">
+          <span class="reply-info"></span>
+          <button id="btn-cancel-reply" class="btn-icon">✕</button>
+        </div>
+
+        <!-- Edit bar -->
+        <div id="edit-bar" class="edit-bar" style="display:none">
+          <span class="edit-info"></span>
+          <button id="btn-cancel-edit" class="btn-icon">✕</button>
+        </div>
+
+        <!-- Ввод -->
+        <div id="chat-input-wrap" class="chat-input-wrap">
+          <button id="btn-emoji"       class="btn-icon" title="Эмодзи">😀</button>
+          <button id="btn-attach-file" class="btn-icon" title="Прикрепить файл">📎</button>
+          <input  id="file-input" type="file" style="display:none"
+                  accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.txt,.zip">
+          <textarea id="chat-input" class="chat-input"
+                    placeholder="Написать сообщение..."
+                    rows="1" maxlength="4000"></textarea>
+          <button id="btn-send" class="btn-send" title="Отправить">➤</button>
+        </div>
+
+      </footer>
+
+    </div>
+  </main>
+
+</div>
+
+<!-- ═══════════════════════════════════════
+     МОДАЛЬНОЕ ОКНО ПРОФИЛЯ
+════════════════════════════════════════ -->
+<div id="profile-modal" class="modal-overlay" style="display:none">
+  <div class="modal-card">
+
+    <div class="modal-header">
+      <h2 class="modal-title">✏️ Редактировать профиль</h2>
+      <button id="btn-close-profile" class="btn-icon">✕</button>
+    </div>
+
+    <form id="form-profile" class="modal-body">
+
+      <!-- Аватар -->
+      <div class="avatar-upload">
+        <div id="profile-avatar-preview" class="avatar-preview"></div>
+        <label class="btn-secondary btn-sm" for="profile-avatar-input">
+          📷 Сменить фото
+        </label>
+        <input id="profile-avatar-input" type="file"
+               accept="image/*" style="display:none">
+      </div>
+
+      <!-- Имя (readonly) -->
+      <div class="form-group">
+        <label>Имя пользователя</label>
+        <input type="text" class="input-text"
+               value="" id="profile-username-display"
+               disabled style="opacity:.6">
+      </div>
+
+      <!-- Биография -->
+      <div class="form-group">
+        <label for="profile-bio-input">О себе</label>
+        <textarea id="profile-bio-input" class="input-text"
+                  placeholder="Расскажите о себе..."
+                  rows="3" maxlength="200"></textarea>
+      </div>
+
+      <button type="submit" class="btn-primary btn-full">💾 Сохранить</button>
+
     </form>
-    <form class="auth-form" id="form-reg" style="display:none" onsubmit="doRegister(event)">
-      <input class="field" id="reg-username" type="text" placeholder="Придумай имя (2–24 символа)" autocomplete="username" maxlength="24"/>
-      <div class="pw-wrap">
-        <input class="field" id="reg-password" type="password" placeholder="Пароль (мин. 4 символа)" autocomplete="new-password" maxlength="64"/>
-        <button type="button" class="toggle-pw" onclick="togglePw('reg-password',this)">👁</button>
-      </div>
-      <div class="pw-wrap">
-        <input class="field" id="reg-password2" type="password" placeholder="Повтори пароль" autocomplete="new-password" maxlength="64"/>
-        <button type="button" class="toggle-pw" onclick="togglePw('reg-password2',this)">👁</button>
-      </div>
-      <div class="error-msg" id="reg-error"></div>
-      <button class="btn-primary" type="submit" id="btn-reg">✅ Зарегистрироваться</button>
-    </form>
-    <div class="e2e-note"><b>🔒 AES-256-GCM</b> · Ключ не покидает устройство<br>Сервер видит только зашифрованный набор байт</div>
   </div>
 </div>
 
-<!-- ЭКРАН КОМНАТ -->
-<div id="screen-rooms" class="screen hidden">
-  <div class="rooms-header">
-    <div class="rooms-header-title">💬 Secure</div>
-    <div class="header-user" onclick="openMyProfile()">
-      <span id="header-user-avatar" class="fallback">U</span>
-      <div id="header-username"></div>
-    </div>
-    <button class="icon-btn" title="Создать" onclick="openCreateRoom()">➕</button>
-    <button class="icon-btn" title="Выход" onclick="doLogout()">🚪</button>
-  </div>
-  <div class="rooms-layout">
-    <div class="sidebar">
-      <button class="sidebar-btn active" id="sb-chats" onclick="switchSection('chats')">💬</button>
-      <button class="sidebar-btn" id="sb-groups" onclick="switchSection('groups')">👥</button>
-      <button class="sidebar-btn" id="sb-contacts" onclick="switchSection('contacts')">👤</button>
-      <button class="sidebar-btn" id="sb-requests" onclick="switchSection('requests')">📩</button>
-    </div>
-    <div class="rooms-main">
-      <div class="rooms-search">
-        <input type="text" placeholder="🔍 Поиск…" id="rooms-search-input" oninput="filterRooms()"/>
-      </div>
-      <div class="segment-tabs">
-        <div class="segment-tab active" id="tab-all" onclick="setSegment('all')">Все</div>
-        <div class="segment-tab" id="tab-priv" onclick="setSegment('priv')">Приватные</div>
-        <div class="segment-tab" id="tab-group" onclick="setSegment('group')">Группы</div>
-      </div>
-      <div class="rooms-list" id="rooms-list"></div>
-      <div class="rooms-list" id="contacts-list" style="display:none"></div>
-      <div class="rooms-list" id="requests-list" style="display:none"></div>
-    </div>
-  </div>
-</div>
-
-<!-- Модалка: Создать комнату -->
-<div class="modal-overlay" id="modal-create">
-  <div class="modal">
-    <div class="modal-title">🏠 Новая комната</div>
-    <input class="field" id="create-room-name" type="text" placeholder="Название комнаты" maxlength="32"/>
-    <label style="display:flex;gap:10px;color:var(--sub)"><input type="checkbox" id="create-pw-check" onchange="toggleCreatePw()"/>🔒 Защитить паролем</label>
-    <label style="display:flex;gap:10px;color:var(--sub)"><input type="checkbox" id="create-group-check"/>👥 Групповая</label>
-    <div class="pw-wrap" id="create-pw-wrap" style="display:none">
-      <input class="field" id="create-room-pw" type="password" placeholder="Пароль комнаты"/>
-    </div>
-    <div class="error-msg" id="create-room-error"></div>
-    <div class="modal-row">
-      <button class="btn-cancel" onclick="closeModal('modal-create')">Отмена</button>
-      <button class="btn-primary" onclick="doCreateRoom()">Создать</button>
-    </div>
-  </div>
-</div>
-
-<!-- Модалка: Пароль комнаты -->
-<div class="modal-overlay" id="modal-room-pw">
-  <div class="modal">
-    <div class="modal-title">🔒 Введи пароль</div>
-    <div class="modal-sub" id="modal-room-pw-name"></div>
-    <div class="pw-wrap"><input class="field" id="room-pw-input" type="password" placeholder="Пароль"/></div>
-    <div class="error-msg" id="room-pw-error"></div>
-    <div class="modal-row">
-      <button class="btn-cancel" onclick="closeModal('modal-room-pw')">Отмена</button>
-      <button class="btn-primary" id="btn-room-pw-enter" onclick="doRoomPwEnter()">Войти</button>
-    </div>
-  </div>
-</div>
-
-<!-- Модалка: Профиль -->
-<div class="modal-overlay" id="modal-profile">
-  <div class="modal">
-    <div class="modal-title">👤 Мой профиль</div>
-    <div style="display:flex;align-items:center;gap:12px;">
-      <div class="profile-avatar" id="my-avatar-preview">U</div>
-      <button class="btn-cancel" onclick="document.getElementById('profile-avatar-input').click()">Сменить фото</button>
-    </div>
-    <input class="field" id="profile-bio" type="text" placeholder="О себе (до 140 символов)"/>
-    <div class="modal-row">
-      <button class="btn-cancel" onclick="closeModal('modal-profile')">Закрыть</button>
-      <button class="btn-primary" onclick="saveProfile()">Сохранить</button>
-    </div>
-  </div>
-</div>
-<input type="file" id="profile-avatar-input" accept="image/*" style="display:none"/>
-
-<!-- Модалка: Настройки комнаты -->
-<div class="modal-overlay" id="modal-room-settings">
-  <div class="modal">
-    <div class="modal-title">⚙️ Настройки комнаты</div>
-    <div style="display:flex;align-items:center;gap:12px;">
-      <div class="profile-avatar" id="room-avatar-preview">💬</div>
-      <button class="btn-cancel" onclick="document.getElementById('room-avatar-input').click()">Сменить фото</button>
-    </div>
-    <div class="modal-row">
-      <button class="btn-cancel" onclick="closeModal('modal-room-settings')">Закрыть</button>
-      <button class="btn-primary" onclick="saveRoomAvatar()">Сохранить</button>
-    </div>
-  </div>
-</div>
-<input type="file" id="room-avatar-input" accept="image/*" style="display:none"/>
-
-<!-- ЭКРАН ЧАТА -->
-<div id="screen-chat" class="screen hidden">
-  <div class="tg-header">
-    <button class="icon-btn" style="margin-left:-6px" onclick="leaveRoom()">←</button>
-    <div class="tg-avatar" id="chat-avatar" onclick="openRoomSettings()">💬</div>
-    <div class="tg-header-info">
-      <div class="tg-header-name" id="chat-room-name">Комната</div>
-      <div class="tg-header-sub">🔒 E2E · <span style="color:var(--green)"><span id="user-count">0</span> онлайн</span></div>
-    </div>
-    <button id="btn-video-call" title="Видеозвонок">📹</button>
-  </div>
-
-  <div id="reconnect-banner">🔄 Переподключаемся…</div>
-  <div id="pinned-banner" class="pinned-banner"></div>
-
-  <div class="main-body">
-    <div id="chat-messages">
-      <div id="participants" style="display:none">
-        <div style="font-size:11px;color:var(--sub);margin-bottom:8px">🎙 ГОЛОСОВОЙ ЧАТ</div>
-        <div id="participants-list"></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="tg-bottom">
-    <div id="typing-indicator"></div>
-    <div id="reply-bar">
-      <div id="reply-text"></div>
-      <div id="reply-cancel">✕</div>
-    </div>
-    <div class="voice-bar">
-      <button id="btn-join">🎙 Войти в голосовой</button>
-      <button id="btn-mic" style="display:none">🔇 Выкл. микрофон</button>
-      <button id="btn-leave" style="display:none">📵 Выйти</button>
-    </div>
-    <div id="mic-status" class="mic-status"></div>
-    <div class="tg-input-row">
-      <div class="attach-popup" id="attach-popup">
-        <button class="attach-item" id="btn-photo">🖼 Фото</button>
-        <button class="attach-item" id="btn-video-file">🎬 Видео</button>
-        <button class="attach-item" id="btn-file">📎 Файл</button>
-      </div>
-      <button class="btn-attach-tg" id="btn-attach-toggle">📎</button>
-      <textarea id="chat-input" placeholder="Сообщение…" rows="1"></textarea>
-      <button id="btn-send"><svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>
-    </div>
-  </div>
-</div>
-
-<!-- Профильный drawer -->
-<div id="profile-drawer" class="profile-drawer">
-  <div class="profile-header">
-    <div class="profile-avatar" id="profile-avatar">👤</div>
-    <div>
-      <div id="profile-name" style="font-weight:600">User</div>
-      <div id="profile-status" style="font-size:12px;color:var(--sub)">онлайн</div>
-      <div id="profile-bio-text" style="font-size:12px;color:var(--sub);margin-top:6px"></div>
-    </div>
-    <div class="profile-close" onclick="toggleProfileDrawer(false)">✕</div>
-  </div>
-  <div class="profile-body">
-    <div style="font-size:13px;color:var(--sub)">Действия</div>
-    <div class="profile-actions">
-      <button class="btn-primary" onclick="startPrivateChatFromProfile()">💬 Начать приватный чат</button>
-      <button class="btn-primary" onclick="sendFriendRequestFromProfile()">➕ Добавить в контакты</button>
-      <button class="btn-cancel" onclick="muteUserFromProfile()">🔕 Отключить уведомления</button>
-      <button class="btn-cancel" onclick="blockUserFromProfile()">⛔ Заблокировать</button>
-    </div>
-  </div>
-</div>
-
-<!-- ВИДЕОЗВОНОК -->
-<div id="video-call-overlay" class="video-overlay hidden">
-  <div class="video-header">
-    <span class="video-title">Видеозвонок</span>
-    <span id="video-timer">Активен</span>
-  </div>
-  <div id="video-grid" class="video-grid"></div>
-  <div class="video-controls-bar">
-    <button id="v-btn-cam" class="v-control">📹</button>
-    <button id="v-btn-mic" class="v-control">🎙️</button>
-    <button id="v-btn-hangup" class="v-control hangup">📞</button>
-  </div>
-</div>
-
-<div id="lightbox"><span id="lightbox-close">✕</span><div id="lightbox-content"></div></div>
-
-<div id="msg-menu">
-  <div class="msg-menu-item" data-action="reply">↩ Ответить</div>
-  <div class="msg-menu-item" data-action="copy">📋 Копировать</div>
-  <div class="msg-menu-item" data-action="react">😊 Реакция</div>
-  <div class="msg-menu-item" data-action="pin">📌 Закрепить</div>
-  <div class="msg-menu-item" data-action="edit">✏️ Редактировать</div>
-  <div class="msg-menu-item" data-action="delete">🗑 Удалить</div>
-</div>
-
-<div id="reaction-picker">
-  <span class="reaction-item">👍</span>
-  <span class="reaction-item">❤️</span>
-  <span class="reaction-item">😂</span>
-  <span class="reaction-item">🔥</span>
-  <span class="reaction-item">😮</span>
-</div>
-
-<input type="file" id="file-input" accept="*/*" style="display:none">
-<audio id="keep-alive-audio" loop playsinline></audio>
-<div id="hidden-audios"></div>
-
+<!-- ═══════════════════════════════════════
+     СКРИПТЫ
+════════════════════════════════════════ -->
 <script src="/socket.io/socket.io.js"></script>
-<script src="editor.js"></script>
-<script src="app.js"></script>
+<script src="/app.js"></script>
 
-<script>
-let currentUser = null, currentRoom = null, pendingRoom = null, allRooms = [];
-let currentSection = 'chats';
-let currentSegment = 'all';
-let selectedProfile = null;
-let pendingRoomAvatar = null;
-let pendingProfileAvatar = null;
-
-function showScreen(id) { document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden')); document.getElementById(id).classList.remove('hidden'); }
-function openModal(id) { document.getElementById(id).classList.add('open'); }
-function closeModal(id) { document.getElementById(id).classList.remove('open'); }
-function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2600); }
-function setError(id, msg) { document.getElementById(id).textContent = msg; }
-function clearError(id) { document.getElementById(id).textContent = ''; }
-function togglePw(id, btn) { const i = document.getElementById(id); if(i.type==='password'){i.type='text';btn.textContent='🙈'}else{i.type='password';btn.textContent='👁'} }
-function switchTab(t) {
-  const isL = t==='login';
-  document.getElementById('tab-login').classList.toggle('active', isL);
-  document.getElementById('tab-reg').classList.toggle('active', !isL);
-  document.getElementById('form-login').style.display = isL ? '' : 'none';
-  document.getElementById('form-reg').style.display = isL ? 'none' : '';
-}
-function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-
-async function doLogin(e) {
-  e.preventDefault();
-  const u = document.getElementById('login-username').value.trim();
-  const p = document.getElementById('login-password').value;
-  clearError('login-error');
-  if (!u || !p) { setError('login-error','Заполни поля'); return; }
-  const btn = document.getElementById('btn-login'); btn.disabled = true; btn.textContent = 'Входим…';
-  try {
-    const r = await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p})});
-    const d = await r.json();
-    if (d.ok) { saveSession(d.token,d.username,d.userId); enterApp(d.token,d.username,d.userId); }
-    else setError('login-error','Неверное имя или пароль');
-  } catch { setError('login-error','Ошибка сети'); }
-  finally { btn.disabled = false; btn.textContent = '🔑 Войти'; }
-}
-
-async function doRegister(e) {
-  e.preventDefault();
-  const u = document.getElementById('reg-username').value.trim();
-  const p = document.getElementById('reg-password').value;
-  const p2 = document.getElementById('reg-password2').value;
-  clearError('reg-error');
-  if (!u || !p) { setError('reg-error','Заполни поля'); return; }
-  if (p !== p2) { setError('reg-error','Пароли не совпадают'); return; }
-  if (p.length < 4) { setError('reg-error','Нужно 4+ символа'); return; }
-  const btn = document.getElementById('btn-reg'); btn.disabled = true; btn.textContent = 'Создаём…';
-  try {
-    const r = await fetch('/api/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p})});
-    const d = await r.json();
-    if (d.ok) { saveSession(d.token,d.username,d.userId); enterApp(d.token,d.username,d.userId); }
-    else setError('reg-error','Имя занято');
-  } catch { setError('reg-error','Ошибка сети'); }
-  finally { btn.disabled = false; btn.textContent = '✅ Зарегистрироваться'; }
-}
-
-function saveSession(tok, un, uid) {
-  localStorage.setItem('chat_token', tok);
-  localStorage.setItem('chat_username', un);
-  localStorage.setItem('chat_user_id', uid);
-}
-function doLogout() {
-  localStorage.removeItem('chat_token');
-  localStorage.removeItem('chat_username');
-  localStorage.removeItem('chat_user_id');
-  currentUser = null;
-  showScreen('screen-auth');
-}
-function enterApp(tok, un, uid) {
-  currentUser = { token:tok, username:un, id:uid };
-  window._currentUsername = un;
-  window._currentUserId = uid;
-  document.getElementById('header-username').textContent = un;
-  const av = document.getElementById('header-user-avatar');
-  av.innerHTML = '';
-  av.textContent = un.slice(0,1).toUpperCase();
-  showScreen('screen-rooms');
-  loadRooms();
-}
-async function tryAutoLogin() {
-  const tok = localStorage.getItem('chat_token'); if (!tok) return;
-  try {
-    const r = await fetch('/api/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:tok})});
-    const d = await r.json();
-    if (d.ok) enterApp(tok, d.username, d.userId); else doLogout();
-  } catch {}
-}
-
-async function loadRooms() {
-  try {
-    const r = await fetch('/api/rooms',{headers:{'Authorization':'Bearer '+currentUser.token}});
-    const d = await r.json();
-    if (d.ok) { allRooms = d.rooms; filterRooms(); }
-  } catch {}
-}
-
-function setSegment(seg) {
-  currentSegment = seg;
-  document.getElementById('tab-all').classList.toggle('active', seg==='all');
-  document.getElementById('tab-priv').classList.toggle('active', seg==='priv');
-  document.getElementById('tab-group').classList.toggle('active', seg==='group');
-  filterRooms();
-}
-
-function filterRooms() {
-  const q = document.getElementById('rooms-search-input').value.toLowerCase();
-  const list = document.getElementById('rooms-list'); list.innerHTML = '';
-  let filtered = allRooms.filter(r => r.name.toLowerCase().includes(q));
-  if (currentSection === 'groups') filtered = filtered.filter(r => r.is_group);
-  if (currentSection === 'chats') filtered = filtered.filter(r => !r.is_group);
-  if (currentSegment === 'priv') filtered = filtered.filter(r => r.is_private || r.ephemeral);
-  if (currentSegment === 'group') filtered = filtered.filter(r => r.is_group);
-  filtered.forEach(room => {
-    const el = document.createElement('div'); el.className = 'room-item';
-    const avatarHtml = room.avatar ? `<img src="${room.avatar}" alt="">` : '💬';
-    el.innerHTML = `
-      <div class="room-avatar">${avatarHtml}</div>
-      <div class="room-info">
-        <div class="room-name">${escHtml(room.name)}</div>
-        <div class="room-meta">Создал ${escHtml(room.owner||'admin')}</div>
-      </div>
-      ${room.has_password ? '<div style="font-size:16px;color:var(--sub)">🔒</div>' : ''}`;
-    el.onclick = () => selectRoom(room);
-    list.appendChild(el);
-  });
-}
-
-function switchSection(sec) {
-  currentSection = sec;
-  ['chats','groups','contacts','requests'].forEach(s => {
-    document.getElementById('sb-'+s).classList.toggle('active', s===sec);
-  });
-  document.getElementById('rooms-list').style.display = (sec==='chats'||sec==='groups') ? '' : 'none';
-  document.getElementById('contacts-list').style.display = (sec==='contacts') ? '' : 'none';
-  document.getElementById('requests-list').style.display = (sec==='requests') ? '' : 'none';
-  if (sec==='contacts') loadContacts();
-  if (sec==='requests') loadRequests();
-  if (sec==='chats'||sec==='groups') loadRooms();
-}
-
-function selectRoom(r) {
-  if (r.has_password) {
-    pendingRoom = r;
-    document.getElementById('modal-room-pw-name').textContent = r.name;
-    document.getElementById('room-pw-input').value = '';
-    openModal('modal-room-pw');
-  } else { joinRoom(r); }
-}
-
-async function doRoomPwEnter() {
-  const pw = document.getElementById('room-pw-input').value;
-  clearError('room-pw-error');
-  if (!pw) { setError('room-pw-error','Введи пароль'); return; }
-  try {
-    const r = await fetch(`/api/rooms/${pendingRoom.id}/join`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentUser.token},body:JSON.stringify({password:pw})});
-    const d = await r.json();
-    if (d.ok) { closeModal('modal-room-pw'); joinRoom(d.room); }
-    else setError('room-pw-error','Неверный пароль');
-  } catch { setError('room-pw-error','Ошибка'); }
-}
-
-function joinRoom(r) {
-  currentRoom = r;
-  document.getElementById('chat-room-name').textContent = r.name;
-  document.getElementById('chat-avatar').innerHTML = r.avatar ? `<img src="${r.avatar}" alt="">` : '💬';
-  document.getElementById('pinned-banner').style.display = 'none';
-  document.getElementById('chat-messages').innerHTML = '<div id="participants" style="display:none"><div style="font-size:11px;color:var(--sub);margin-bottom:8px">🎙 ГОЛОСОВОЙ ЧАТ</div><div id="participants-list"></div></div>';
-  showScreen('screen-chat');
-  if (window.initSocket) window.initSocket(currentUser.token, r.id, currentUser.username);
-}
-
-function leaveRoom() {
-  if (window.socketLeave) window.socketLeave();
-  currentRoom = null;
-  showScreen('screen-rooms');
-  loadRooms();
-}
-
-function openCreateRoom() {
-  document.getElementById('create-room-name').value = '';
-  document.getElementById('create-room-pw').value = '';
-  document.getElementById('create-pw-check').checked = false;
-  document.getElementById('create-group-check').checked = false;
-  toggleCreatePw();
-  openModal('modal-create');
-}
-function toggleCreatePw() {
-  document.getElementById('create-pw-wrap').style.display = document.getElementById('create-pw-check').checked ? '' : 'none';
-}
-async function doCreateRoom() {
-  const n = document.getElementById('create-room-name').value.trim();
-  const has = document.getElementById('create-pw-check').checked;
-  const pw = has ? document.getElementById('create-room-pw').value : null;
-  const isGroup = document.getElementById('create-group-check').checked;
-  clearError('create-room-error');
-  if (!n) { setError('create-room-error','Введи название'); return; }
-  if (has && !pw) { setError('create-room-error','Введи пароль'); return; }
-  try {
-    const r = await fetch('/api/rooms',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentUser.token},body:JSON.stringify({name:n,password:pw,isGroup})});
-    const d = await r.json();
-    if (d.ok) { closeModal('modal-create'); toast('✅ Создано'); loadRooms(); }
-    else setError('create-room-error','Ошибка');
-  } catch { setError('create-room-error','Сеть'); }
-}
-
-/* Профиль drawer */
-function toggleProfileDrawer(open) { document.getElementById('profile-drawer').classList.toggle('open', open); }
-window.showUserProfile = function(user) {
-  selectedProfile = user;
-  document.getElementById('profile-name').textContent = user.username || 'User';
-  document.getElementById('profile-status').textContent = 'онлайн';
-  document.getElementById('profile-bio-text').textContent = user.bio || '';
-  const avatarBox = document.getElementById('profile-avatar');
-  if (user.avatar) avatarBox.innerHTML = `<img src="${user.avatar}" alt="">`;
-  else avatarBox.textContent = (user.username||'U').slice(0,1).toUpperCase();
-  toggleProfileDrawer(true);
-};
-
-function startPrivateChatFromProfile() { if (selectedProfile) createPrivateChat(selectedProfile); }
-async function sendFriendRequestFromProfile() {
-  if (!selectedProfile) return;
-  await fetch('/api/contacts/send',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentUser.token},body:JSON.stringify({userId: selectedProfile.userId || selectedProfile.id})});
-  toast('Запрос отправлен');
-}
-function muteUserFromProfile() { toast('Пользователь отключён'); }
-function blockUserFromProfile() { toast('Пользователь заблокирован'); }
-
-async function loadContacts() {
-  const list = document.getElementById('contacts-list'); list.innerHTML = '';
-  try {
-    const r = await fetch('/api/contacts',{headers:{'Authorization':'Bearer '+currentUser.token}});
-    const d = await r.json();
-    if (!d.ok) return;
-    d.contacts.forEach(c => {
-      const row = document.createElement('div'); row.className = 'contact-row';
-      row.innerHTML = `
-        <div class="tg-avatar">${c.avatar ? `<img src="${c.avatar}" alt="">` : '👤'}</div>
-        <div><div>${escHtml(c.username)}</div><div style="font-size:12px;color:var(--sub)">${c.bio||'офлайн'}</div></div>
-        <div class="contact-actions">
-          <button class="btn-mini primary">Чат</button>
-          <button class="btn-mini">Профиль</button>
-        </div>`;
-      row.querySelector('.btn-mini.primary').onclick = () => createPrivateChat(c);
-      row.querySelector('.btn-mini').onclick = () => window.showUserProfile(c);
-      list.appendChild(row);
-    });
-  } catch {}
-}
-
-async function loadRequests() {
-  const list = document.getElementById('requests-list'); list.innerHTML = '';
-  try {
-    const r = await fetch('/api/contacts/requests',{headers:{'Authorization':'Bearer '+currentUser.token}});
-    const d = await r.json();
-    if (!d.ok) return;
-    d.requests.forEach(u => {
-      const row = document.createElement('div'); row.className = 'contact-row';
-      row.innerHTML = `
-        <div class="tg-avatar">${u.avatar ? `<img src="${u.avatar}" alt="">` : '👤'}</div>
-        <div><div>${escHtml(u.username)}</div><div style="font-size:12px;color:var(--sub)">хочет в контакты</div></div>
-        <div class="contact-actions">
-          <button class="btn-mini primary">Принять</button>
-          <button class="btn-mini">Отклонить</button>
-        </div>`;
-      row.querySelector('.btn-mini.primary').onclick = () => respondRequest(u.id, true);
-      row.querySelector('.btn-mini').onclick = () => respondRequest(u.id, false);
-      list.appendChild(row);
-    });
-  } catch {}
-}
-
-async function respondRequest(id, accept) {
-  await fetch('/api/contacts/requests/respond',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentUser.token},body:JSON.stringify({id, accept})});
-  loadRequests();
-}
-
-async function createPrivateChat(contact) {
-  const r = await fetch('/api/chats/private',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentUser.token},body:JSON.stringify({userId: contact.id})});
-  const d = await r.json();
-  if (d.ok) { joinRoom(d.room); }
-}
-
-async function openMyProfile() {
-  try {
-    const r = await fetch('/api/me',{headers:{'Authorization':'Bearer '+currentUser.token}});
-    const d = await r.json();
-    if (!d.ok) return;
-    pendingProfileAvatar = d.user.avatar || null;
-    const preview = document.getElementById('my-avatar-preview');
-    preview.innerHTML = d.user.avatar ? `<img src="${d.user.avatar}" alt="">` : (d.user.username||'U').slice(0,1).toUpperCase();
-    document.getElementById('profile-bio').value = d.user.bio || '';
-    openModal('modal-profile');
-  } catch {}
-}
-
-document.getElementById('profile-avatar-input').addEventListener('change', async (e) => {
-  const file = e.target.files[0]; if (!file) return;
-  pendingProfileAvatar = await fileToDataUrl(file);
-  document.getElementById('my-avatar-preview').innerHTML = `<img src="${pendingProfileAvatar}" alt="">`;
-});
-
-async function saveProfile() {
-  const bio = document.getElementById('profile-bio').value.trim();
-  try {
-    const r = await fetch('/api/me',{method:'PUT',headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentUser.token},body:JSON.stringify({avatar:pendingProfileAvatar, bio})});
-    const d = await r.json();
-    if (d.ok) { toast('✅ Профиль обновлён'); closeModal('modal-profile'); }
-    else toast('❌ Ошибка профиля');
-  } catch {}
-}
-
-function openRoomSettings() {
-  if (!currentRoom) return;
-  if (currentRoom.owner_id !== currentUser.id) { toast('❌ Только владелец может менять аватар'); return; }
-  pendingRoomAvatar = currentRoom.avatar || null;
-  const preview = document.getElementById('room-avatar-preview');
-  preview.innerHTML = currentRoom.avatar ? `<img src="${currentRoom.avatar}" alt="">` : '💬';
-  openModal('modal-room-settings');
-}
-
-document.getElementById('room-avatar-input').addEventListener('change', async (e) => {
-  const file = e.target.files[0]; if (!file) return;
-  pendingRoomAvatar = await fileToDataUrl(file);
-  document.getElementById('room-avatar-preview').innerHTML = `<img src="${pendingRoomAvatar}" alt="">`;
-});
-
-async function saveRoomAvatar() {
-  if (!currentRoom) return;
-  try {
-    const r = await fetch(`/api/rooms/${currentRoom.id}/avatar`,{method:'PUT',headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentUser.token},body:JSON.stringify({avatar:pendingRoomAvatar})});
-    const d = await r.json();
-    if (d.ok) {
-      toast('✅ Аватар обновлён');
-      currentRoom.avatar = pendingRoomAvatar;
-      document.getElementById('chat-avatar').innerHTML = pendingRoomAvatar ? `<img src="${pendingRoomAvatar}" alt="">` : '💬';
-      closeModal('modal-room-settings');
-      loadRooms();
-    } else toast('❌ Ошибка');
-  } catch {}
-}
-
-async function fileToDataUrl(file) {
-  return new Promise((res, rej) => {
-    const fr = new FileReader();
-    fr.onload = () => res(fr.result);
-    fr.onerror = rej;
-    fr.readAsDataURL(file);
-  });
-}
-
-/* ===== ВИДЕО ===== */
-const videoOverlay = document.getElementById('video-call-overlay');
-const videoGrid    = document.getElementById('video-grid');
-let videoActive    = false;
-let localVidStream = null;
-let vidCamMuted    = false;
-let vidMicMuted    = false;
-const videoPeers   = new Map();
-
-function addVideoTile(id, stream, label, isLocal) {
-  let tile = document.getElementById('vtile-' + id);
-  if (!tile) {
-    tile = document.createElement('div');
-    tile.className = 'video-tile';
-    tile.id = 'vtile-' + id;
-    const vid = document.createElement('video');
-    vid.autoplay = true; vid.playsinline = true;
-    if (isLocal) { vid.muted = true; vid.style.transform = 'scaleX(-1)'; }
-    const name = document.createElement('div');
-    name.className = 'video-tile-name'; name.textContent = label;
-    tile.appendChild(vid); tile.appendChild(name);
-    videoGrid.appendChild(tile);
-  }
-  const videoObj = tile.querySelector('video');
-  if (videoObj.srcObject !== stream) videoObj.srcObject = stream;
-}
-
-function removeVideoTile(id) { document.getElementById('vtile-' + id)?.remove(); }
-
-function getOrCreateVideoPeer(peerId) {
-  if (videoPeers.has(peerId)) return videoPeers.get(peerId);
-  const pc = new RTCPeerConnection({
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun.relay.metered.ca:80' }
-    ]
-  });
-  videoPeers.set(peerId, pc);
-  pc.ontrack = (event) => {
-    const label = window._peerNames?.get(peerId) || 'Мембер';
-    addVideoTile(peerId, event.streams[0], label, false);
-  };
-  pc.onicecandidate = (event) => {
-    if (event.candidate && window._socket) window._socket.emit('video-ice', { to: peerId, candidate: event.candidate });
-  };
-  pc.onconnectionstatechange = () => {
-    if (['disconnected','failed','closed'].includes(pc.connectionState)) {
-      removeVideoTile(peerId); pc.close(); videoPeers.delete(peerId);
-    }
-  };
-  return pc;
-}
-
-document.getElementById('btn-video-call').addEventListener('click', async () => {
-  if (videoActive) return;
-  videoOverlay.classList.remove('hidden');
-  videoActive = true; vidCamMuted = false; vidMicMuted = false;
-  try {
-    localVidStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:'user' }, audio: true });
-    addVideoTile('local', localVidStream, 'Вы', true);
-    if (window._socket) window._socket.emit('video-start');
-    if (window._roomPeers) {
-      for (const peerId of window._roomPeers) {
-        if (peerId === window._socket?.id) continue;
-        const pc = getOrCreateVideoPeer(peerId);
-        localVidStream.getTracks().forEach(track => pc.addTrack(track, localVidStream));
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        window._socket.emit('video-offer', { to: peerId, offer: pc.localDescription });
-      }
-    }
-  } catch {
-    toast('❌ Нет доступа к камере');
-    videoOverlay.classList.add('hidden');
-    videoActive = false;
-  }
-});
-
-document.getElementById('v-btn-cam').addEventListener('click', function() {
-  vidCamMuted = !vidCamMuted;
-  if (localVidStream) localVidStream.getVideoTracks().forEach(t => t.enabled = !vidCamMuted);
-  this.classList.toggle('off', vidCamMuted);
-});
-
-document.getElementById('v-btn-mic').addEventListener('click', function() {
-  vidMicMuted = !vidMicMuted;
-  if (localVidStream) localVidStream.getAudioTracks().forEach(t => t.enabled = !vidMicMuted);
-  this.classList.toggle('off', vidMicMuted);
-});
-
-document.getElementById('v-btn-hangup').addEventListener('click', () => { window.stopVideo(); });
-
-window.stopVideo = function() {
-  if (!videoActive) return;
-  videoOverlay.classList.add('hidden'); videoActive = false;
-  if (localVidStream) { localVidStream.getTracks().forEach(t => t.stop()); localVidStream = null; }
-  removeVideoTile('local');
-  videoPeers.forEach((pc, id) => { pc.close(); removeVideoTile(id); });
-  videoPeers.clear();
-  if (window._socket) window._socket.emit('video-stop');
-};
-
-window.onVideoOffer = async function(socketId, offer) {
-  try {
-    if (!videoActive) {
-      videoOverlay.classList.remove('hidden'); videoActive = true;
-      try {
-        localVidStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        addVideoTile('local', localVidStream, 'Вы', true);
-      } catch(e) { toast('Видео без вашей камеры'); }
-    }
-    const pc = getOrCreateVideoPeer(socketId);
-    if (pc.signalingState !== 'stable') {
-      const isPolite = (window._socket?.id || '') > socketId;
-      if (!isPolite) return;
-      await Promise.all([pc.setLocalDescription({ type:'rollback' }), pc.setRemoteDescription(new RTCSessionDescription(offer))]);
-    } else {
-      await pc.setRemoteDescription(new RTCSessionDescription(offer));
-    }
-    if (localVidStream) {
-      const senders = pc.getSenders();
-      localVidStream.getTracks().forEach(t => { if (!senders.find(s => s.track === t)) pc.addTrack(t, localVidStream); });
-    }
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    window._socket?.emit('video-answer', { to: socketId, answer: pc.localDescription });
-  } catch(e) {}
-};
-
-window.onVideoAnswer = async function(socketId, answer) {
-  const pc = videoPeers.get(socketId);
-  if (pc && pc.signalingState !== 'stable') await pc.setRemoteDescription(new RTCSessionDescription(answer));
-};
-
-window.onVideoIce = async function(socketId, candidate) {
-  const pc = videoPeers.get(socketId);
-  if (pc) { try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e) {} }
-};
-
-window.onUserLeft = window.onVideoStop = function(socketId) {
-  const pc = videoPeers.get(socketId);
-  if (pc) { pc.close(); videoPeers.delete(socketId); }
-  removeVideoTile(socketId);
-};
-
-/* UI */
-document.getElementById('btn-attach-toggle').addEventListener('click', (e) => {
-  e.stopPropagation();
-  document.getElementById('attach-popup').classList.toggle('open');
-});
-document.addEventListener('click', () => document.getElementById('attach-popup').classList.remove('open'));
-document.getElementById('attach-popup').addEventListener('click', e => e.stopPropagation());
-['btn-photo','btn-video-file','btn-file'].forEach(id => {
-  document.getElementById(id)?.addEventListener('click', () => document.getElementById('attach-popup').classList.remove('open'));
-});
-
-document.getElementById('lightbox-close').onclick = () => {
-  document.getElementById('lightbox').classList.remove('open');
-  document.getElementById('lightbox-content').innerHTML = '';
-};
-document.getElementById('lightbox').addEventListener('click', (e) => {
-  if (e.target === document.getElementById('lightbox')) {
-    document.getElementById('lightbox').classList.remove('open');
-    document.getElementById('lightbox-content').innerHTML = '';
-  }
-});
-
-tryAutoLogin();
-</script>
 </body>
 </html>
