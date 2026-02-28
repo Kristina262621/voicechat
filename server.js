@@ -9,6 +9,8 @@ const bcrypt     = require('bcryptjs');
 const jwt        = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const path       = require('path');
+const multer     = require('multer');
+const fs         = require('fs');
 
 // ══════════════════════════════════════════════
 //  КОНФИГ
@@ -16,6 +18,10 @@ const path       = require('path');
 const PORT       = process.env.PORT       || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'change_me_in_production';
 const DB_URL     = process.env.DATABASE_URL;
+const UPLOAD_DIR = process.env.UPLOAD_DIR || 'uploads';
+
+// Создаём папку uploads если нет
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 // ══════════════════════════════════════════════
 //  БД
@@ -80,16 +86,42 @@ async function initDB() {
     );
 
     CREATE TABLE IF NOT EXISTS contacts (
-      id        SERIAL PRIMARY KEY,
-      from_id   INTEGER REFERENCES users(id),
-      to_id     INTEGER REFERENCES users(id),
-      status    TEXT DEFAULT 'pending' CHECK(status IN ('pending','accepted')),
+      id         SERIAL PRIMARY KEY,
+      from_id    INTEGER REFERENCES users(id),
+      to_id      INTEGER REFERENCES users(id),
+      status     TEXT DEFAULT 'pending' CHECK(status IN ('pending','accepted')),
       created_at TIMESTAMPTZ DEFAULT NOW(),
       UNIQUE(from_id, to_id)
     );
   `);
   console.log('БД инициализирована');
 }
+
+// ══════════════════════════════════════════════
+//  MULTER — загрузка файлов
+// ══════════════════════════════════════════════
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  filename:    (req, file, cb) => {
+    const ext  = path.extname(file.originalname);
+    const name = `${uuidv4()}${ext}`;
+    cb(null, name);
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+  fileFilter: (req, file, cb) => {
+    // Блокируем опасные типы
+    const blocked = ['.exe', '.bat', '.sh', '.cmd', '.msi'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (blocked.includes(ext)) {
+      return cb(new Error('file_type_blocked'));
+    }
+    cb(null, true);
+  }
+});
 
 // ══════════════════════════════════════════════
 //  APP
@@ -101,8 +133,9 @@ const io     = new Server(server, {
   cors: { origin: '*' }
 });
 
-app.use(express.json({ limit: '20mb' }));
+app.use(express.json({ limit: '5mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/uploads', express.static(path.join(__dirname, UPLOAD_DIR)));
 
 // ══════════════════════════════════════════════
 //  ХЕЛПЕРЫ
@@ -125,7 +158,7 @@ function authMiddleware(req, res, next) {
   next();
 }
 
-// Rate limiter простой
+// Rate limiter
 const rateLimitMap = new Map();
 function rateLimit(key, max, windowMs) {
   const now  = Date.now();
@@ -178,9 +211,7 @@ app.post('/api/login', async (req, res) => {
     return res.json({ ok: false, error: 'missing_fields' });
 
   try {
-    const r = await pool.query(
-      'SELECT * FROM users WHERE username=$1', [username]
-    );
+    const r    = await pool.query('SELECT * FROM users WHERE username=$1', [username]);
     const user = r.rows[0];
     if (!user) return res.json({ ok: false, error: 'wrong_credentials' });
 
@@ -239,12 +270,37 @@ app.get('/api/users/search', authMiddleware, async (req, res) => {
   res.json({ ok: true, users: r.rows });
 });
 
+app.get('/api/users/:id/status', authMiddleware, async (req, res) => {
+  const r = await pool.query(
+    'SELECT online, last_seen FROM users WHERE id=$1',
+    [+req.params.id]
+  );
+  if (!r.rows[0]) return res.json({ ok: false });
+  res.json({ ok: true, ...r.rows[0] });
+});
+
+// ══════════════════════════════════════════════
+//  UPLOAD ROUTE
+// ══════════════════════════════════════════════
+app.post('/api/upload', authMiddleware, upload.single('file'), (req, res) => {
+  if (!req.file) return res.json({ ok: false, error: 'no_file' });
+  res.json({
+    ok:       true,
+    url:      `/uploads/${req.file.filename}`,
+    fileName: req.file.originalname,
+    fileSize: req.file.size,
+    mimeType: req.file.mimetype
+  });
+}, (err, req, res, next) => {
+  res.json({ ok: false, error: err.message });
+});
+
 // ══════════════════════════════════════════════
 //  CONTACTS ROUTES
 // ══════════════════════════════════════════════
 app.get('/api/contacts', authMiddleware, async (req, res) => {
   const r = await pool.query(
-    `SELECT u.id, u.username, u.avatar, u.bio
+    `SELECT u.id, u.username, u.avatar, u.bio, u.online, u.last_seen
      FROM contacts c
      JOIN users u ON (
        CASE WHEN c.from_id=$1 THEN c.to_id ELSE c.from_id END = u.id
@@ -268,13 +324,25 @@ app.get('/api/contacts/requests', authMiddleware, async (req, res) => {
 
 app.post('/api/contacts/send', authMiddleware, async (req, res) => {
   const { userId } = req.body;
-  if (!userId || userId === req.userId)
+  if (!userId || +userId === req.userId)
     return res.json({ ok: false, error: 'invalid' });
   try {
     await pool.query(
       'INSERT INTO contacts(from_id,to_id) VALUES($1,$2) ON CONFLICT DO NOTHING',
       [req.userId, userId]
     );
+
+    // Оповещаем получателя через сокет
+    const senderR = await pool.query(
+      'SELECT username, avatar FROM users WHERE id=$1', [req.userId]
+    );
+    const sender = senderR.rows[0];
+    emitToUser(+userId, 'contact:request', {
+      fromId:   req.userId,
+      username: sender.username,
+      avatar:   sender.avatar
+    });
+
     res.json({ ok: true });
   } catch (e) {
     res.json({ ok: false, error: 'server_error' });
@@ -285,10 +353,11 @@ app.post('/api/contacts/respond', authMiddleware, async (req, res) => {
   const { fromId, accept } = req.body;
   if (accept) {
     await pool.query(
-      `UPDATE contacts SET status='accepted'
-       WHERE from_id=$1 AND to_id=$2`,
+      `UPDATE contacts SET status='accepted' WHERE from_id=$1 AND to_id=$2`,
       [fromId, req.userId]
     );
+    // Оповещаем отправителя
+    emitToUser(+fromId, 'contact:accepted', { userId: req.userId });
   } else {
     await pool.query(
       'DELETE FROM contacts WHERE from_id=$1 AND to_id=$2',
@@ -297,6 +366,18 @@ app.post('/api/contacts/respond', authMiddleware, async (req, res) => {
   }
   res.json({ ok: true });
 });
+
+app.delete('/api/contacts/:id', authMiddleware, async (req, res) => {
+  const contactId = +req.params.id;
+  await pool.query(
+    `DELETE FROM contacts
+     WHERE ((from_id=$1 AND to_id=$2) OR (from_id=$2 AND to_id=$1))
+     AND status='accepted'`,
+    [req.userId, contactId]
+  );
+  res.json({ ok: true });
+});
+
 // ══════════════════════════════════════════════
 //  CHATS ROUTES
 // ══════════════════════════════════════════════
@@ -347,7 +428,6 @@ app.post('/api/chats/private', authMiddleware, async (req, res) => {
   if (!userId || +userId === req.userId)
     return res.json({ ok: false, error: 'invalid' });
 
-  // Проверяем существующий приватный чат
   const existing = await pool.query(
     `SELECT c.id FROM chats c
      JOIN chat_members cm1 ON cm1.chat_id=c.id AND cm1.user_id=$1
@@ -362,8 +442,8 @@ app.post('/api/chats/private', authMiddleware, async (req, res) => {
   const myRes = await pool.query('SELECT username FROM users WHERE id=$1', [req.userId]);
   if (!uRes.rows[0]) return res.json({ ok: false, error: 'user_not_found' });
 
-  const name   = `${myRes.rows[0].username} & ${uRes.rows[0].username}`;
-  const chatR  = await pool.query(
+  const name  = `${myRes.rows[0].username} & ${uRes.rows[0].username}`;
+  const chatR = await pool.query(
     'INSERT INTO chats(type,name,owner_id) VALUES($1,$2,$3) RETURNING *',
     ['private', name, req.userId]
   );
@@ -372,6 +452,10 @@ app.post('/api/chats/private', authMiddleware, async (req, res) => {
     'INSERT INTO chat_members(chat_id,user_id) VALUES($1,$2),($1,$3)',
     [chat.id, req.userId, userId]
   );
+
+  // Оповещаем второго участника
+  emitToUser(+userId, 'chat:new', { chat });
+
   res.json({ ok: true, chat });
 });
 
@@ -397,18 +481,27 @@ app.post('/api/chats/:id/join', authMiddleware, async (req, res) => {
   const chatId = +req.params.id;
   const { password } = req.body;
 
-  const r = await pool.query('SELECT * FROM chats WHERE id=$1', [chatId]);
+  const r    = await pool.query('SELECT * FROM chats WHERE id=$1', [chatId]);
   const chat = r.rows[0];
   if (!chat) return res.json({ ok: false, error: 'not_found' });
 
   if (chat.password) {
     if (!password) return res.json({ ok: false, error: 'password_required' });
     const ok = await bcrypt.compare(password, chat.password);
-    if (!ok) return res.json({ ok: false, error: 'wrong_password' });
+    if (!ok)  return res.json({ ok: false, error: 'wrong_password' });
   }
 
   await pool.query(
     'INSERT INTO chat_members(chat_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING',
+    [chatId, req.userId]
+  );
+  res.json({ ok: true, chat });
+});
+
+app.delete('/api/chats/:id/leave', authMiddleware, async (req, res) => {
+  const chatId = +req.params.id;
+  await pool.query(
+    'DELETE FROM chat_members WHERE chat_id=$1 AND user_id=$2',
     [chatId, req.userId]
   );
   res.json({ ok: true });
@@ -424,6 +517,24 @@ app.put('/api/chats/:id/avatar', authMiddleware, async (req, res) => {
   res.json({ ok: true });
 });
 
+app.get('/api/chats/:id/members', authMiddleware, async (req, res) => {
+  const chatId = +req.params.id;
+  const member = await pool.query(
+    'SELECT 1 FROM chat_members WHERE chat_id=$1 AND user_id=$2',
+    [chatId, req.userId]
+  );
+  if (!member.rows[0]) return res.json({ ok: false, error: 'forbidden' });
+
+  const r = await pool.query(
+    `SELECT u.id, u.username, u.avatar, u.online, u.last_seen
+     FROM chat_members cm
+     JOIN users u ON u.id = cm.user_id
+     WHERE cm.chat_id=$1`,
+    [chatId]
+  );
+  res.json({ ok: true, members: r.rows });
+});
+
 // ══════════════════════════════════════════════
 //  MESSAGES ROUTES
 // ══════════════════════════════════════════════
@@ -432,26 +543,34 @@ app.get('/api/chats/:id/messages', authMiddleware, async (req, res) => {
   const limit  = Math.min(+req.query.limit || 50, 100);
   const before = req.query.before;
 
-  // Проверяем что пользователь в чате
   const member = await pool.query(
     'SELECT 1 FROM chat_members WHERE chat_id=$1 AND user_id=$2',
     [chatId, req.userId]
   );
   if (!member.rows[0]) return res.json({ ok: false, error: 'forbidden' });
 
+  const params = before ? [chatId, limit, before] : [chatId, limit];
   const r = await pool.query(
     `SELECT m.id, m.msg_id, m.chat_id, m.user_id, m.type,
             m.content, m.iv, m.file_name, m.file_size,
             m.mime_type, m.reply_to, m.deleted,
             m.edited_at, m.created_at,
-            u.username, u.avatar
+            u.username, u.avatar,
+            COALESCE(
+              json_agg(
+                json_build_object('emoji', r.emoji, 'userId', r.user_id)
+              ) FILTER (WHERE r.emoji IS NOT NULL),
+              '[]'
+            ) as reactions
      FROM messages m
      JOIN users u ON u.id = m.user_id
+     LEFT JOIN reactions r ON r.msg_id = m.msg_id
      WHERE m.chat_id=$1
        ${before ? 'AND m.created_at < $3' : ''}
+     GROUP BY m.id, u.username, u.avatar
      ORDER BY m.created_at ASC
      LIMIT $2`,
-    before ? [chatId, limit, before] : [chatId, limit]
+    params
   );
   res.json({ ok: true, messages: r.rows });
 });
@@ -461,40 +580,73 @@ app.get('/api/chats/:id/messages', authMiddleware, async (req, res) => {
 // ══════════════════════════════════════════════
 const userSockets = new Map(); // userId → Set<socketId>
 
+// Хелпер — отправить событие конкретному юзеру
+function emitToUser(userId, event, data) {
+  const sockets = userSockets.get(userId);
+  if (sockets) {
+    sockets.forEach(socketId => {
+      io.to(socketId).emit(event, data);
+    });
+  }
+}
+
 io.on('connection', (socket) => {
 
-  socket.on('join-chat', async ({ token, chatId }) => {
+  // ── Аутентификация сокета ──────────────────
+  socket.on('auth', async ({ token }) => {
     const data = verifyToken(token);
-    if (!data) { socket.emit('auth-fail'); return; }
+    if (!data) { socket.emit('auth:error', { error: 'invalid_token' }); return; }
 
     socket.userId = data.userId;
-    socket.chatId = chatId;
 
-    // Добавляем в map
     if (!userSockets.has(data.userId))
       userSockets.set(data.userId, new Set());
     userSockets.get(data.userId).add(socket.id);
 
-    // Помечаем онлайн
     await pool.query(
       'UPDATE users SET online=true WHERE id=$1', [data.userId]
     );
 
-    socket.join(`chat_${chatId}`);
-    socket.emit('auth-ok', {
-      userId:   data.userId,
-      username: data.username
-    });
+    const userR = await pool.query(
+      'SELECT id, username, avatar, bio FROM users WHERE id=$1', [data.userId]
+    );
 
-    // Оповещаем всех об онлайне
-    io.emit('user-online', { userId: data.userId, online: true });
+    socket.emit('auth:ok', userR.rows[0]);
+    io.emit('user:online', { userId: data.userId, online: true });
   });
 
-  socket.on('send-message', async (payload) => {
+  // ── Присоединиться к чату ──────────────────
+  socket.on('chat:join', async ({ chatId }) => {
+    if (!socket.userId) return;
+
+    const member = await pool.query(
+      'SELECT 1 FROM chat_members WHERE chat_id=$1 AND user_id=$2',
+      [chatId, socket.userId]
+    );
+    if (!member.rows[0]) return;
+
+    // Выходим из предыдущего чата
+    if (socket.chatId) socket.leave(`chat_${socket.chatId}`);
+
+    socket.chatId = chatId;
+    socket.join(`chat_${chatId}`);
+    socket.emit('chat:joined', { chatId });
+  });
+
+  // ── Выйти из чата ─────────────────────────
+  socket.on('chat:leave', ({ chatId }) => {
+    socket.leave(`chat_${chatId}`);
+    if (socket.chatId === chatId) socket.chatId = null;
+  });
+
+  // ── Отправить сообщение ───────────────────
+  socket.on('msg:send', async (payload) => {
     if (!socket.userId || !socket.chatId) return;
 
     const { msgId, type, content, iv, fileName,
             fileSize, mimeType, replyTo } = payload;
+
+    if (!msgId || !content) return;
 
     // Проверяем членство
     const member = await pool.query(
@@ -503,15 +655,21 @@ io.on('connection', (socket) => {
     );
     if (!member.rows[0]) return;
 
-    await pool.query(
-      `INSERT INTO messages
-         (msg_id, chat_id, user_id, type, content, iv,
-          file_name, file_size, mime_type, reply_to)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-      [msgId, socket.chatId, socket.userId, type || 'text',
-       content, iv || null, fileName || null,
-       fileSize || null, mimeType || null, replyTo || null]
-    );
+    try {
+      await pool.query(
+        `INSERT INTO messages
+           (msg_id, chat_id, user_id, type, content, iv,
+            file_name, file_size, mime_type, reply_to)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [msgId, socket.chatId, socket.userId, type || 'text',
+         content, iv || null, fileName || null,
+         fileSize || null, mimeType || null, replyTo || null]
+      );
+    } catch (e) {
+      // Дубликат msgId
+      if (e.code === '23505') return;
+      throw e;
+    }
 
     const userR = await pool.query(
       'SELECT username, avatar FROM users WHERE id=$1', [socket.userId]
@@ -520,29 +678,33 @@ io.on('connection', (socket) => {
 
     const fullMsg = {
       msgId,
-      msg_id:   msgId,
-      chatId:   socket.chatId,
-      type:     type || 'text',
+      msg_id:    msgId,
+      chatId:    socket.chatId,
+      chat_id:   socket.chatId,
+      type:      type || 'text',
       content,
-      iv:       iv || null,
-      file_name: fileName || null,
-      file_size: fileSize || null,
-      reply_to:  replyTo  || null,
+      iv:        iv        || null,
+      file_name: fileName  || null,
+      file_size: fileSize  || null,
+      mime_type: mimeType  || null,
+      reply_to:  replyTo   || null,
       user_id:   socket.userId,
-      senderId:  socket.userId,
       username:  user.username,
       avatar:    user.avatar,
+      reactions: [],
       created_at: new Date().toISOString()
     };
 
-    io.to(`chat_${socket.chatId}`).emit('new-message', fullMsg);
-    socket.emit('message-sent', { msgId, timestamp: fullMsg.created_at });
+    io.to(`chat_${socket.chatId}`).emit('msg:new', fullMsg);
+    socket.emit('msg:sent', { msgId, timestamp: fullMsg.created_at });
   });
 
-  socket.on('edit-message', async ({ msgId, content, iv }) => {
+  // ── Редактировать сообщение ───────────────
+  socket.on('msg:edit', async ({ msgId, content, iv }) => {
     if (!socket.userId) return;
+
     const r = await pool.query(
-      'SELECT user_id FROM messages WHERE msg_id=$1', [msgId]
+      'SELECT user_id, chat_id FROM messages WHERE msg_id=$1', [msgId]
     );
     if (!r.rows[0] || r.rows[0].user_id !== socket.userId) return;
 
@@ -551,59 +713,108 @@ io.on('connection', (socket) => {
       'UPDATE messages SET content=$1, iv=$2, edited_at=$3 WHERE msg_id=$4',
       [content, iv || null, now, msgId]
     );
-    io.to(`chat_${socket.chatId}`).emit('message-edited', {
+
+    io.to(`chat_${r.rows[0].chat_id}`).emit('msg:edited', {
       msgId, content, iv, editedAt: now
     });
   });
 
-  socket.on('delete-message', async ({ msgId }) => {
+  // ── Удалить сообщение ─────────────────────
+  socket.on('msg:delete', async ({ msgId }) => {
     if (!socket.userId) return;
+
     const r = await pool.query(
-      'SELECT user_id FROM messages WHERE msg_id=$1', [msgId]
+      'SELECT user_id, chat_id FROM messages WHERE msg_id=$1', [msgId]
     );
     if (!r.rows[0] || r.rows[0].user_id !== socket.userId) return;
 
     await pool.query(
       'UPDATE messages SET deleted=true WHERE msg_id=$1', [msgId]
     );
-    io.to(`chat_${socket.chatId}`).emit('message-deleted', { msgId });
+
+    io.to(`chat_${r.rows[0].chat_id}`).emit('msg:deleted', { msgId });
   });
 
-  socket.on('reaction', async ({ msgId, emoji }) => {
+    // ── Реакция ───────────────────────────────
+  socket.on('msg:react', async ({ msgId, emoji }) => {
     if (!socket.userId) return;
-    try {
+
+    const r = await pool.query(
+      'SELECT chat_id FROM messages WHERE msg_id=$1', [msgId]
+    );
+    if (!r.rows[0]) return;
+
+    // Если уже поставил — убираем (toggle)
+    const existing = await pool.query(
+      'SELECT 1 FROM reactions WHERE msg_id=$1 AND user_id=$2 AND emoji=$3',
+      [msgId, socket.userId, emoji]
+    );
+
+    if (existing.rows[0]) {
+      await pool.query(
+        'DELETE FROM reactions WHERE msg_id=$1 AND user_id=$2 AND emoji=$3',
+        [msgId, socket.userId, emoji]
+      );
+    } else {
       await pool.query(
         'INSERT INTO reactions(msg_id,user_id,emoji) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',
         [msgId, socket.userId, emoji]
       );
-    } catch {}
+    }
+
     const userR = await pool.query(
       'SELECT username FROM users WHERE id=$1', [socket.userId]
     );
-    io.to(`chat_${socket.chatId}`).emit('reaction', {
-      msgId, emoji,
+
+    io.to(`chat_${r.rows[0].chat_id}`).emit('msg:reaction', {
+      msgId,
+      emoji,
       userId:   socket.userId,
-      username: userR.rows[0]?.username
+      username: userR.rows[0]?.username,
+      removed:  !!existing.rows[0]
     });
   });
 
-  socket.on('typing', ({ isTyping }) => {
-    if (!socket.userId || !socket.chatId) return;
-    socket.to(`chat_${socket.chatId}`).emit('typing', {
+  // ── Печатает ──────────────────────────────
+  socket.on('chat:typing', ({ chatId, isTyping }) => {
+    if (!socket.userId) return;
+    socket.to(`chat_${chatId}`).emit('chat:typing', {
       userId:   socket.userId,
       isTyping
     });
   });
 
-  socket.on('read-message', async ({ msgId }) => {
+  // ── Прочитано ─────────────────────────────
+  socket.on('msg:read', async ({ msgId, chatId }) => {
     if (!socket.userId) return;
-    io.to(`chat_${socket.chatId}`).emit('message-read', {
-      msgId, userId: socket.userId
+    io.to(`chat_${chatId}`).emit('msg:read', {
+      msgId,
+      userId: socket.userId
     });
   });
 
+  // ── Исследовать группы ────────────────────
+  socket.on('groups:explore', async ({ query = '' }) => {
+    if (!socket.userId) return;
+    const r = await pool.query(
+      `SELECT c.id, c.name, c.avatar,
+              (c.password IS NOT NULL) as has_password,
+              COUNT(cm.user_id) as member_count
+       FROM chats c
+       LEFT JOIN chat_members cm ON cm.chat_id = c.id
+       WHERE c.type='group' AND ($1 = '' OR c.name ILIKE $2)
+       GROUP BY c.id
+       ORDER BY member_count DESC
+       LIMIT 30`,
+      [query, `%${query}%`]
+    );
+    socket.emit('groups:list', { chats: r.rows });
+  });
+
+  // ── Отключение ────────────────────────────
   socket.on('disconnect', async () => {
     if (!socket.userId) return;
+
     const sockets = userSockets.get(socket.userId);
     if (sockets) {
       sockets.delete(socket.id);
@@ -613,7 +824,7 @@ io.on('connection', (socket) => {
           'UPDATE users SET online=false, last_seen=NOW() WHERE id=$1',
           [socket.userId]
         );
-        io.emit('user-online', { userId: socket.userId, online: false });
+        io.emit('user:online', { userId: socket.userId, online: false });
       }
     }
   });
