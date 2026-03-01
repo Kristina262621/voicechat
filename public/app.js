@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════
-//  CRYPTO — AES-256-GCM + ECDH Forward Secrecy
+//  CRYPTO
 // ═══════════════════════════════════════════════
 const Crypto = (() => {
   let roomKey = null;
@@ -60,8 +60,8 @@ const Crypto = (() => {
     return hex.match(/.{4}/g).slice(0, 8).join(' ').toUpperCase();
   }
 
-  function getSessionKey(peerId)  { return sessionKeys[peerId] || null; }
-  function clearSessionKey(peerId){ delete sessionKeys[peerId]; }
+  function getSessionKey(peerId)   { return sessionKeys[peerId] || null; }
+  function clearSessionKey(peerId) { delete sessionKeys[peerId]; }
 
   async function encrypt(data, key) {
     const useKey  = key || roomKey;
@@ -119,27 +119,45 @@ const screenLobby = document.getElementById('screen-lobby');
 const screenMain  = document.getElementById('screen-main');
 
 // Auth
-const tabLogin      = document.getElementById('tab-login');
-const tabRegister   = document.getElementById('tab-register');
-const formLogin     = document.getElementById('form-login');
-const formRegister  = document.getElementById('form-register');
-const loginNick     = document.getElementById('login-nick');
-const loginPw       = document.getElementById('login-pw');
-const loginError    = document.getElementById('login-error');
-const btnLogin      = document.getElementById('btn-login');
-const btnShowHint   = document.getElementById('btn-show-hint');
-const regNick       = document.getElementById('reg-nick');
-const regPw         = document.getElementById('reg-pw');
-const regHint       = document.getElementById('reg-hint');
-const regError      = document.getElementById('reg-error');
-const btnRegister   = document.getElementById('btn-register');
+const tabLogin     = document.getElementById('tab-login');
+const tabRegister  = document.getElementById('tab-register');
+const formLogin    = document.getElementById('form-login');
+const formRegister = document.getElementById('form-register');
+const loginNick    = document.getElementById('login-nick');
+const loginPw      = document.getElementById('login-pw');
+const loginError   = document.getElementById('login-error');
+const btnLogin     = document.getElementById('btn-login');
+const btnShowHint  = document.getElementById('btn-show-hint');
+const regNick      = document.getElementById('reg-nick');
+const regPw        = document.getElementById('reg-pw');
+const regHint      = document.getElementById('reg-hint');
+const regError     = document.getElementById('reg-error');
+const btnRegister  = document.getElementById('btn-register');
+
+// Drawer
+const drawer        = document.getElementById('drawer');
+const drawerOverlay = document.getElementById('drawer-overlay');
+const drawerAvatar  = document.getElementById('drawer-avatar');
+const drawerName    = document.getElementById('drawer-name');
+const drawerNick    = document.getElementById('drawer-nick');
 
 // Lobby
 const btnOpenProfile = document.getElementById('btn-open-profile');
 const roomsList      = document.getElementById('rooms-list');
+const privateList    = document.getElementById('private-list');
 const btnCreateRoom  = document.getElementById('btn-create-room');
 
-// Create room modal
+// Lobby tabs
+const lobbyTabGroups  = document.getElementById('lobby-tab-groups');
+const lobbyTabPrivate = document.getElementById('lobby-tab-private');
+
+// Chat sidebar (desktop)
+const chatRoomsList   = document.getElementById('chat-rooms-list');
+const chatPrivateList = document.getElementById('chat-private-list');
+const chatTabGroups   = document.getElementById('chat-tab-groups');
+const chatTabPrivate  = document.getElementById('chat-tab-private');
+
+// Modals
 const modalCreate       = document.getElementById('modal-create-room');
 const btnCloseCreate    = document.getElementById('btn-close-create');
 const roomPhotoBtn      = document.getElementById('room-photo-btn');
@@ -149,8 +167,9 @@ const createRoomPw      = document.getElementById('create-room-pw');
 const btnToggleCreatePw = document.getElementById('btn-toggle-create-pw');
 const createRoomError   = document.getElementById('create-room-error');
 const btnSubmitCreate   = document.getElementById('btn-submit-create');
+const createAutoDelete  = document.getElementById('create-room-autodelete');
+const createJoinMode    = document.getElementById('create-room-joinmode');
 
-// Room password modal
 const modalRoomPw     = document.getElementById('modal-room-password');
 const btnClosePwModal = document.getElementById('btn-close-pw-modal');
 const pwModalRoomName = document.getElementById('pw-modal-room-name');
@@ -159,36 +178,59 @@ const btnToggleRoomPw = document.getElementById('btn-toggle-room-pw');
 const roomPwError     = document.getElementById('room-pw-error');
 const btnSubmitRoomPw = document.getElementById('btn-submit-room-pw');
 
-// Profile modal
-const modalProfile          = document.getElementById('modal-profile');
-const btnCloseProfile       = document.getElementById('btn-close-profile');
-const profileAvatarDisplay  = document.getElementById('profile-avatar-display');
-const profileAvatarWrap     = document.getElementById('profile-avatar-wrap');
-const profileNameDisplay    = document.getElementById('profile-name-display');
-const friendsListContainer  = document.getElementById('friends-list-container');
-const friendReqContainer    = document.getElementById('friend-requests-container');
-const friendSearchInput     = document.getElementById('friend-search-input');
-const btnFriendSearch       = document.getElementById('btn-friend-search');
-const friendSearchResult    = document.getElementById('friend-search-result');
-const btnLogout             = document.getElementById('btn-logout');
-const avatarInput           = document.getElementById('avatar-input');
-const lobbyAvatarBtn        = document.getElementById('btn-open-profile');
+const modalProfile         = document.getElementById('modal-profile');
+const btnCloseProfile      = document.getElementById('btn-close-profile');
+const profileAvatarDisplay = document.getElementById('profile-avatar-display');
+const profileAvatarWrap    = document.getElementById('profile-avatar-wrap');
+const profileNameDisplay   = document.getElementById('profile-name-display');
+const profileEditName      = document.getElementById('profile-edit-name');
+const profileEditBio       = document.getElementById('profile-edit-bio');
+const btnSaveProfile       = document.getElementById('btn-save-profile');
+const friendsListContainer = document.getElementById('friends-list-container');
+const friendReqContainer   = document.getElementById('friend-requests-container');
+const friendSearchInput    = document.getElementById('friend-search-input');
+const btnFriendSearch      = document.getElementById('btn-friend-search');
+const friendSearchResult   = document.getElementById('friend-search-result');
+const btnLogout            = document.getElementById('btn-logout');
+const avatarInput          = document.getElementById('avatar-input');
 
-// Members modal
-const modalMembers        = document.getElementById('modal-members');
-const btnCloseMembers     = document.getElementById('btn-close-members');
-const membersModalTitle   = document.getElementById('members-modal-title');
-const renameSection       = document.getElementById('rename-section');
-const renameInput         = document.getElementById('rename-input');
-const btnRenameRoom       = document.getElementById('btn-rename-room');
-const renameError         = document.getElementById('rename-error');
-const membersListContainer= document.getElementById('members-list-container');
+const modalSettings     = document.getElementById('modal-settings');
+const btnCloseSettings  = document.getElementById('btn-close-settings');
 
-// Invite modal
+const modalContacts       = document.getElementById('modal-contacts');
+const btnCloseContacts    = document.getElementById('btn-close-contacts');
+const contactsFriendsList = document.getElementById('contacts-friends-list');
+const contactsReqList     = document.getElementById('contacts-requests-list');
+const contactsSearchInput = document.getElementById('contacts-search-input');
+const btnContactsSearch   = document.getElementById('btn-contacts-search');
+const contactsSearchResult= document.getElementById('contacts-search-result');
+
+const modalPrivateChats   = document.getElementById('modal-private-chats');
+const btnClosePrivChats   = document.getElementById('btn-close-private-chats');
+const pcSearchInput       = document.getElementById('pc-search-input');
+const btnPcSearch         = document.getElementById('btn-pc-search');
+const pcListContainer     = document.getElementById('pc-list-container');
+
+const modalMembers         = document.getElementById('modal-members');
+const btnCloseMembers      = document.getElementById('btn-close-members');
+const membersModalTitle    = document.getElementById('members-modal-title');
+const renameSection        = document.getElementById('rename-section');
+const renameInput          = document.getElementById('rename-input');
+const btnRenameRoom        = document.getElementById('btn-rename-room');
+const renameError          = document.getElementById('rename-error');
+const membersListContainer = document.getElementById('members-list-container');
+const groupSettingsSection = document.getElementById('group-settings-section');
+const groupAutodelSelect   = document.getElementById('group-autodelete-select');
+const groupJoinmodeSelect  = document.getElementById('group-joinmode-select');
+const btnSaveGroupSettings = document.getElementById('btn-save-group-settings');
+const btnDeleteGroup       = document.getElementById('btn-delete-group');
+const joinRequestsSection  = document.getElementById('join-requests-section');
+const joinRequestsCount    = document.getElementById('join-requests-count');
+const joinRequestsList     = document.getElementById('join-requests-list');
+
 const modalInvite       = document.getElementById('modal-invite');
 const btnCloseInvite    = document.getElementById('btn-close-invite');
 const inviteFriendsList = document.getElementById('invite-friends-list');
-const btnInviteFriend   = document.getElementById('btn-invite-friend');
 
 // Chat
 const chatRoomAvatar  = document.getElementById('chat-room-avatar');
@@ -217,6 +259,7 @@ const lightboxContent = document.getElementById('lightbox-content');
 const lightboxClose   = document.getElementById('lightbox-close');
 const noiseIndicator  = document.getElementById('noise-indicator');
 const btnRoomMembers  = document.getElementById('btn-room-members');
+const btnInviteFriend = document.getElementById('btn-invite-friend');
 
 // ═══════════════════════════════════════════════
 //  СОСТОЯНИЕ
@@ -231,6 +274,8 @@ let pendingJoinRoom = null;
 let roomPhotoData   = null;
 let memberCount     = 0;
 let isRoomOwner     = false;
+let currentChatType = 'group'; // 'group' | 'private'
+let currentChatId   = null;    // для личных чатов
 
 let localStream     = null;
 let processedStream = null;
@@ -241,7 +286,6 @@ let pendingOffers   = [];
 let joined          = false;
 let audioCtx        = null;
 let wakeLock        = null;
-let pendingFileType = 'image/*';
 let msgCounter      = 0;
 let outgoingSeq     = 0;
 
@@ -283,8 +327,13 @@ function showScreen(name) {
   if (name === 'chat')  screenMain.classList.add('active');
 }
 
+function avatarHtml(avatar, fallback = '👤', size = '100%') {
+  if (avatar) return `<img src="${avatar}" alt="" style="width:${size};height:${size};object-fit:cover">`;
+  return fallback;
+}
+
 // ═══════════════════════════════════════════════
-//  ТОСТ-УВЕДОМЛЕНИЯ
+//  TOAST
 // ═══════════════════════════════════════════════
 function showToast(text, duration = 3000, onClick = null) {
   const container = document.getElementById('toast-container');
@@ -297,9 +346,6 @@ function showToast(text, duration = 3000, onClick = null) {
   return el;
 }
 
-// ═══════════════════════════════════════════════
-//  ЗВУК НОВОГО СООБЩЕНИЯ
-// ═══════════════════════════════════════════════
 function playMsgSound() {
   try {
     const ctx  = new (window.AudioContext || window.webkitAudioContext)();
@@ -317,9 +363,6 @@ function playMsgSound() {
   } catch (_) {}
 }
 
-// ═══════════════════════════════════════════════
-//  БРАУЗЕРНЫЕ УВЕДОМЛЕНИЯ
-// ═══════════════════════════════════════════════
 function requestNotifPermission() {
   if ('Notification' in window && Notification.permission === 'default')
     Notification.requestPermission();
@@ -335,29 +378,70 @@ function showBrowserNotif(title, body) {
 }
 
 // ═══════════════════════════════════════════════
-//  АВАТАР-УТИЛИТЫ
+//  DRAWER (боковое меню)
 // ═══════════════════════════════════════════════
-function avatarHtml(avatar, fallback = '👤', size = '100%') {
-  if (avatar) return `<img src="${avatar}" alt="" style="width:${size};height:${size};object-fit:cover">`;
-  return fallback;
+function openDrawer() {
+  drawer.classList.add('open');
+  drawerOverlay.classList.add('open');
+}
+function closeDrawer() {
+  drawer.classList.remove('open');
+  drawerOverlay.classList.remove('open');
 }
 
-function updateLobbyAvatarBtn() {
+document.getElementById('btn-open-drawer').addEventListener('click', openDrawer);
+document.getElementById('btn-open-drawer-chat').addEventListener('click', openDrawer);
+drawerOverlay.addEventListener('click', closeDrawer);
+
+function updateDrawer() {
+  drawerName.textContent = myNickname || '—';
+  drawerNick.textContent = myNickname ? '@' + myNickname.toLowerCase() : '';
   if (myAvatar) {
-    lobbyAvatarBtn.innerHTML = `<img src="${myAvatar}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
+    drawerAvatar.innerHTML = `<img src="${myAvatar}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
   } else {
-    lobbyAvatarBtn.textContent = '👤';
+    drawerAvatar.textContent = '👤';
   }
 }
 
-// ═══════════════════════════════════════════════
-//  АВТОРИЗАЦИЯ
-// ═══════════════════════════════════════════════
+// Меню пункты
+document.getElementById('dm-profile').addEventListener('click', () => {
+  closeDrawer(); openProfileModal();
+});
+document.getElementById('dm-contacts').addEventListener('click', () => {
+  closeDrawer(); openContactsModal();
+});
+document.getElementById('dm-private-chats').addEventListener('click', () => {
+  closeDrawer(); openPrivateChatsModal();
+});
+document.getElementById('dm-create-group').addEventListener('click', () => {
+  closeDrawer(); openCreateRoomModal();
+});
+document.getElementById('dm-settings').addEventListener('click', () => {
+  closeDrawer(); modalSettings.classList.add('open');
+});
+document.getElementById('dm-invite').addEventListener('click', () => {
+  closeDrawer();
+  showToast('🔗 Пригласить: поделись ссылкой на сайт!', 4000);
+});
+drawerAvatar.addEventListener('click', () => { closeDrawer(); openProfileModal(); });
 
-// Переключение вкладок
+// ═══════════════════════════════════════════════
+//  LOBBY AVATAR BUTTON
+// ═══════════════════════════════════════════════
+function updateLobbyAvatarBtn() {
+  if (myAvatar) {
+    btnOpenProfile.innerHTML = `<img src="${myAvatar}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
+  } else {
+    btnOpenProfile.textContent = '👤';
+  }
+  updateDrawer();
+}
+
+// ═══════════════════════════════════════════════
+//  AUTH
+// ═══════════════════════════════════════════════
 tabLogin.addEventListener('click',    () => switchTab('login'));
 tabRegister.addEventListener('click', () => switchTab('register'));
-
 function switchTab(tab) {
   if (tab === 'login') {
     tabLogin.classList.add('active'); tabRegister.classList.remove('active');
@@ -368,12 +452,12 @@ function switchTab(tab) {
   }
 }
 
-// Автовход по токену
+// Авто-вход
 (function tryAutoLogin() {
   try {
     const token = localStorage.getItem('chat_token');
     if (!token) return;
-    socket.once('connect', () => {
+    const doAuth = () => {
       socket.emit('auth-token', { token }, res => {
         if (res.ok) {
           authToken  = token;
@@ -382,25 +466,15 @@ function switchTab(tab) {
           onAuthSuccess();
         }
       });
-    });
-    if (socket.connected) {
-      socket.emit('auth-token', { token }, res => {
-        if (res.ok) {
-          authToken  = token;
-          myNickname = res.nickname;
-          myAvatar   = res.avatar || null;
-          onAuthSuccess();
-        }
-      });
-    }
+    };
+    if (socket.connected) doAuth();
+    else socket.once('connect', doAuth);
   } catch (_) {}
 })();
 
-// Вход
 btnLogin.addEventListener('click', doLogin);
 loginNick.addEventListener('keydown', e => { if (e.key === 'Enter') loginPw.focus(); });
 loginPw.addEventListener('keydown',  e => { if (e.key === 'Enter') doLogin(); });
-
 function doLogin() {
   const nick = loginNick.value.trim();
   const pw   = loginPw.value;
@@ -410,16 +484,11 @@ function doLogin() {
   socket.emit('auth-login', { nickname: nick, password: pw }, res => {
     btnLogin.disabled = false; btnLogin.textContent = 'Войти';
     if (res.ok) {
-      authToken  = res.token;
-      myNickname = res.nickname;
-      myAvatar   = res.avatar || null;
+      authToken  = res.token; myNickname = res.nickname; myAvatar = res.avatar || null;
       try { localStorage.setItem('chat_token', authToken); } catch (_) {}
       onAuthSuccess();
     } else {
-      const msgs = {
-        wrong_creds:  '❌ Неверный ник или пароль',
-        rate_limited: `⛔ Слишком много попыток. Подождите ${res.secsLeft} сек.`
-      };
+      const msgs = { wrong_creds: '❌ Неверный ник или пароль', rate_limited: `⛔ Подождите ${res.secsLeft} сек.` };
       loginError.textContent = msgs[res.error] || '⚠️ Ошибка входа';
       loginPw.style.animation = 'shake 0.35s';
       setTimeout(() => { loginPw.style.animation = ''; }, 400);
@@ -427,12 +496,10 @@ function doLogin() {
   });
 }
 
-// Регистрация
 btnRegister.addEventListener('click', doRegister);
 regNick.addEventListener('keydown', e => { if (e.key === 'Enter') regPw.focus(); });
 regPw.addEventListener('keydown',   e => { if (e.key === 'Enter') regHint.focus(); });
 regHint.addEventListener('keydown', e => { if (e.key === 'Enter') doRegister(); });
-
 function doRegister() {
   const nick = regNick.value.trim();
   const pw   = regPw.value;
@@ -443,48 +510,68 @@ function doRegister() {
   socket.emit('auth-register', { nickname: nick, password: pw, hint }, res => {
     btnRegister.disabled = false; btnRegister.textContent = 'Создать аккаунт';
     if (res.ok) {
-      authToken  = res.token;
-      myNickname = res.nickname;
-      myAvatar   = null;
+      authToken  = res.token; myNickname = res.nickname; myAvatar = null;
       try { localStorage.setItem('chat_token', authToken); } catch (_) {}
       onAuthSuccess();
     } else {
-      const msgs = {
-        nick_taken: '❌ Этот ник уже занят',
-        nick_short: '❌ Ник слишком короткий',
-        pw_short:   '❌ Пароль слишком короткий'
-      };
-      regError.textContent = msgs[res.error] || '⚠️ Ошибка регистрации';
+      const msgs = { nick_taken:'❌ Ник занят', nick_short:'❌ Ник слишком короткий', pw_short:'❌ Пароль слишком короткий' };
+      regError.textContent = msgs[res.error] || '⚠️ Ошибка';
     }
   });
 }
 
-// Подсказка пароля
 btnShowHint.addEventListener('click', () => {
   const nick = loginNick.value.trim();
   if (!nick) { loginError.textContent = 'Сначала введи ник'; return; }
   socket.emit('auth-get-hint', { nickname: nick }, res => {
-    if (!res.ok) { loginError.textContent = '❌ Пользователь не найден'; return; }
-    if (res.hint) showToast('💡 Подсказка: ' + res.hint, 6000);
-    else          showToast('Подсказка не задана', 3000);
+    if (!res.ok) { loginError.textContent = '❌ Не найден'; return; }
+    showToast(res.hint ? '💡 Подсказка: ' + res.hint : 'Подсказка не задана', 6000);
   });
 });
 
 function onAuthSuccess() {
-  // Сообщаем серверу ник (для совместимости с room-системой)
   socket.emit('set-nickname', myNickname, () => {});
   updateLobbyAvatarBtn();
   showScreen('lobby');
+  renderRoomListInChat([]);
+  loadPrivateChatsList();
   requestNotifPermission();
 }
 
 // Выход
-btnLogout.addEventListener('click', () => {
+btnLogout.addEventListener('click', doLogout);
+document.getElementById('settings-go-logout').addEventListener('click', doLogout);
+function doLogout() {
   socket.emit('auth-logout', { token: authToken }, () => {});
   try { localStorage.removeItem('chat_token'); } catch (_) {}
   authToken = null; myNickname = ''; myAvatar = null;
   modalProfile.classList.remove('open');
+  modalSettings.classList.remove('open');
   showScreen('auth');
+}
+
+// ═══════════════════════════════════════════════
+//  LOBBY TABS
+// ═══════════════════════════════════════════════
+lobbyTabGroups.addEventListener('click', () => {
+  lobbyTabGroups.classList.add('active'); lobbyTabPrivate.classList.remove('active');
+  roomsList.style.display = ''; privateList.style.display = 'none';
+});
+lobbyTabPrivate.addEventListener('click', () => {
+  lobbyTabPrivate.classList.add('active'); lobbyTabGroups.classList.remove('active');
+  privateList.style.display = ''; roomsList.style.display = 'none';
+  loadPrivateChatsList();
+});
+
+// Chat sidebar tabs (desktop)
+if (chatTabGroups) chatTabGroups.addEventListener('click', () => {
+  chatTabGroups.classList.add('active'); chatTabPrivate.classList.remove('active');
+  chatRoomsList.style.display = ''; chatPrivateList.style.display = 'none';
+});
+if (chatTabPrivate) chatTabPrivate.addEventListener('click', () => {
+  chatTabPrivate.classList.add('active'); chatTabGroups.classList.remove('active');
+  chatPrivateList.style.display = ''; chatRoomsList.style.display = 'none';
+  loadPrivateChatsList(chatPrivateList);
 });
 
 // ═══════════════════════════════════════════════
@@ -496,9 +583,14 @@ modalProfile.addEventListener('click', e => { if (e.target === modalProfile) mod
 
 function openProfileModal() {
   profileNameDisplay.textContent = myNickname;
+  profileEditName.value = myNickname;
   renderProfileAvatar();
   modalProfile.classList.add('open');
   loadFriends();
+  // Загрузить bio
+  socket.emit('profile-get', res => {
+    if (res.ok) profileEditBio.value = res.bio || '';
+  });
 }
 
 function renderProfileAvatar() {
@@ -509,18 +601,30 @@ function renderProfileAvatar() {
   }
 }
 
-// Смена аватара
+// Сохранить профиль
+btnSaveProfile.addEventListener('click', () => {
+  const newName = profileEditName.value.trim();
+  const newBio  = profileEditBio.value.trim();
+  socket.emit('profile-update', { nickname: newName, bio: newBio }, res => {
+    if (res.ok) {
+      myNickname = res.nickname;
+      profileNameDisplay.textContent = myNickname;
+      updateLobbyAvatarBtn();
+      showToast('✅ Профиль сохранён');
+    }
+  });
+});
+
+// Аватар
 profileAvatarWrap.addEventListener('click', () => avatarInput.click());
 avatarInput.addEventListener('change', () => {
-  const file = avatarInput.files[0];
-  if (!file) return;
+  const file = avatarInput.files[0]; if (!file) return;
   avatarInput.value = '';
-  if (file.size > 5 * 1024 * 1024) { showToast('⚠️ Фото слишком большое (макс. 5 МБ)'); return; }
+  if (file.size > 5 * 1024 * 1024) { showToast('⚠️ Фото слишком большое'); return; }
   const reader = new FileReader();
   reader.onload = e => {
     myAvatar = e.target.result;
-    renderProfileAvatar();
-    updateLobbyAvatarBtn();
+    renderProfileAvatar(); updateLobbyAvatarBtn();
     socket.emit('profile-set-avatar', { avatar: myAvatar }, res => {
       if (res.ok) showToast('✅ Аватар обновлён');
     });
@@ -532,143 +636,309 @@ avatarInput.addEventListener('change', () => {
 function loadFriends() {
   socket.emit('friends-list', res => {
     if (!res.ok) return;
-    renderFriendsList(res.friends);
-    renderFriendRequests(res.requests);
+    renderFriendsList(res.friends, friendsListContainer);
+    renderFriendRequests(res.requests, friendReqContainer);
   });
 }
 
-function renderFriendsList(friends) {
+function renderFriendsList(friends, container) {
   if (!friends.length) {
-    friendsListContainer.innerHTML = '<div class="empty-list">Друзей пока нет</div>';
-    return;
+    container.innerHTML = '<div class="empty-list">Друзей пока нет</div>'; return;
   }
-  friendsListContainer.innerHTML = friends.map(f => `
+  container.innerHTML = friends.map(f => `
     <div class="friend-item">
       <div class="friend-avatar">${avatarHtml(f.avatar, '👤')}</div>
-      <div class="friend-info">
-        <div class="friend-name">${escapeHtml(f.nickname)}</div>
-      </div>
+      <div class="friend-info"><div class="friend-name">${escapeHtml(f.nickname)}</div></div>
       <div class="friend-actions">
-        <button class="btn-sm red" data-action="remove-friend" data-nick="${escapeHtml(f.nickname)}">✕</button>
+        <button class="btn-sm blue" data-action="private-chat" data-nick="${escapeHtml(f.nickname)}">💬</button>
+        <button class="btn-sm red"  data-action="remove-friend" data-nick="${escapeHtml(f.nickname)}">✕</button>
       </div>
     </div>
   `).join('');
-
-  friendsListContainer.querySelectorAll('[data-action="remove-friend"]').forEach(btn => {
+  container.querySelectorAll('[data-action="remove-friend"]').forEach(btn => {
     btn.addEventListener('click', () => {
       socket.emit('friend-remove', { nickname: btn.dataset.nick }, res => {
         if (res.ok) { loadFriends(); showToast('Удалён из друзей'); }
       });
     });
   });
+  container.querySelectorAll('[data-action="private-chat"]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      openPrivateChatWith(btn.dataset.nick);
+    });
+  });
 }
 
-function renderFriendRequests(requests) {
+function renderFriendRequests(requests, container) {
   if (!requests.length) {
-    friendReqContainer.innerHTML = '<div class="empty-list">Нет входящих запросов</div>';
-    return;
+    container.innerHTML = '<div class="empty-list">Нет входящих запросов</div>'; return;
   }
-  friendReqContainer.innerHTML = requests.map(r => `
+  container.innerHTML = requests.map(r => `
     <div class="friend-item">
       <div class="friend-avatar">${avatarHtml(r.avatar, '👤')}</div>
-      <div class="friend-info">
-        <div class="friend-name">${escapeHtml(r.nickname)}</div>
-      </div>
+      <div class="friend-info"><div class="friend-name">${escapeHtml(r.nickname)}</div></div>
       <div class="friend-actions">
-        <button class="btn-sm green" data-action="accept" data-nick="${escapeHtml(r.nickname)}">✓</button>
+        <button class="btn-sm green" data-action="accept"  data-nick="${escapeHtml(r.nickname)}">✓</button>
         <button class="btn-sm red"   data-action="decline" data-nick="${escapeHtml(r.nickname)}">✕</button>
       </div>
     </div>
   `).join('');
-
-  friendReqContainer.querySelectorAll('[data-action]').forEach(btn => {
+  container.querySelectorAll('[data-action]').forEach(btn => {
     btn.addEventListener('click', () => {
       const accept = btn.dataset.action === 'accept';
       socket.emit('friend-respond', { fromNickname: btn.dataset.nick, accept }, res => {
-        if (res.ok) { loadFriends(); showToast(accept ? '✅ Добавлен в друзья!' : 'Запрос отклонён'); }
+        if (res.ok) { loadFriends(); showToast(accept ? '✅ Добавлен!' : 'Отклонено'); }
       });
     });
   });
 }
 
-// Поиск пользователя для добавления в друзья
-btnFriendSearch.addEventListener('click', searchUser);
-friendSearchInput.addEventListener('keydown', e => { if (e.key === 'Enter') searchUser(); });
+// Поиск для добавления друга
+btnFriendSearch.addEventListener('click', () => searchUserForFriend(friendSearchInput, friendSearchResult));
+friendSearchInput.addEventListener('keydown', e => { if (e.key === 'Enter') searchUserForFriend(friendSearchInput, friendSearchResult); });
 
-function searchUser() {
-  const nick = friendSearchInput.value.trim();
+function searchUserForFriend(inputEl, resultEl) {
+  const nick = inputEl.value.trim();
   if (!nick) return;
   socket.emit('profile-get-user', { nickname: nick }, res => {
-    if (!res.ok) {
-      friendSearchResult.innerHTML = '<div class="empty-list">❌ Пользователь не найден</div>';
-      return;
-    }
-    friendSearchResult.innerHTML = `
+    if (!res.ok) { resultEl.innerHTML = '<div class="empty-list">❌ Не найден</div>'; return; }
+    resultEl.innerHTML = `
       <div class="friend-item">
         <div class="friend-avatar">${avatarHtml(res.avatar, '👤')}</div>
-        <div class="friend-info"><div class="friend-name">${escapeHtml(res.nickname)}</div></div>
+        <div class="friend-info"><div class="friend-name">${escapeHtml(res.nickname)}</div>
+          ${res.bio ? `<div style="font-size:12px;color:var(--sub)">${escapeHtml(res.bio)}</div>` : ''}
+        </div>
         <div class="friend-actions">
-          <button class="btn-sm blue" id="btn-add-friend-found">➕ Добавить</button>
+          <button class="btn-sm blue" id="btn-add-found-${resultEl.id}">➕</button>
         </div>
       </div>`;
-    document.getElementById('btn-add-friend-found').addEventListener('click', () => {
+    resultEl.querySelector('.btn-sm').addEventListener('click', () => {
       socket.emit('friend-request', { toNickname: res.nickname }, r => {
-        const msgs = {
-          already_friends: '✅ Уже в друзьях',
-          already_sent:    '⏳ Запрос уже отправлен',
-          self:            '😄 Нельзя добавить себя',
-          not_found:       '❌ Не найден'
-        };
+        const msgs = { already_friends:'✅ Уже в друзьях', already_sent:'⏳ Уже отправлено', self:'😄 Нельзя', not_found:'❌ Не найден' };
         showToast(r.ok ? '📨 Запрос отправлен!' : (msgs[r.error] || '⚠️ Ошибка'));
-        if (r.ok) friendSearchResult.innerHTML = '';
+        if (r.ok) resultEl.innerHTML = '';
       });
     });
   });
 }
 
-// Входящий запрос в друзья
-socket.on('friend-request-incoming', ({ fromNick, fromLower, avatar }) => {
+socket.on('friend-request-incoming', ({ fromNick }) => {
   showToast(`👋 ${fromNick} хочет добавить тебя в друзья`, 6000, () => {
     socket.emit('friend-respond', { fromNickname: fromNick, accept: true }, res => {
       if (res.ok) { showToast('✅ Добавлен!'); loadFriends(); }
     });
   });
-  // Обновить список если профиль открыт
   if (modalProfile.classList.contains('open')) loadFriends();
+  if (modalContacts.classList.contains('open')) loadContactsFriends();
+});
+socket.on('friend-accepted', ({ byNick }) => {
+  showToast(`✅ ${byNick} принял запрос!`, 5000);
+  if (modalProfile.classList.contains('open')) loadFriends();
+  if (modalContacts.classList.contains('open')) loadContactsFriends();
 });
 
-socket.on('friend-accepted', ({ byNick }) => {
-  showToast(`✅ ${byNick} принял твой запрос в друзья!`, 5000);
-  if (modalProfile.classList.contains('open')) loadFriends();
+// ═══════════════════════════════════════════════
+//  НАСТРОЙКИ
+// ═══════════════════════════════════════════════
+btnCloseSettings.addEventListener('click', () => modalSettings.classList.remove('open'));
+modalSettings.addEventListener('click', e => { if (e.target === modalSettings) modalSettings.classList.remove('open'); });
+document.getElementById('settings-go-profile').addEventListener('click', () => {
+  modalSettings.classList.remove('open'); openProfileModal();
+});
+document.getElementById('settings-go-privacy').addEventListener('click', () => {
+  showToast('🔒 Раздел в разработке');
+});
+document.getElementById('settings-go-notifs').addEventListener('click', () => {
+  requestNotifPermission(); showToast('🔔 Уведомления: ' + (Notification.permission === 'granted' ? 'включены' : 'выкл/заблокированы'));
+});
+document.getElementById('settings-go-data').addEventListener('click', () => {
+  showToast('💾 Раздел в разработке');
+});
+document.getElementById('settings-go-lang').addEventListener('click', () => {
+  showToast('🌐 Язык: Русский');
+});
+document.getElementById('settings-go-chats').addEventListener('click', () => {
+  showToast('💬 Раздел в разработке');
+});
+
+// ═══════════════════════════════════════════════
+//  КОНТАКТЫ
+// ═══════════════════════════════════════════════
+function openContactsModal() {
+  modalContacts.classList.add('open');
+  loadContactsFriends();
+}
+btnCloseContacts.addEventListener('click', () => modalContacts.classList.remove('open'));
+modalContacts.addEventListener('click', e => { if (e.target === modalContacts) modalContacts.classList.remove('open'); });
+btnContactsSearch.addEventListener('click', () => searchUserForFriend(contactsSearchInput, contactsSearchResult));
+contactsSearchInput.addEventListener('keydown', e => { if (e.key === 'Enter') searchUserForFriend(contactsSearchInput, contactsSearchResult); });
+
+function loadContactsFriends() {
+  socket.emit('friends-list', res => {
+    if (!res.ok) return;
+    renderFriendsList(res.friends, contactsFriendsList);
+    renderFriendRequests(res.requests, contactsReqList);
+  });
+}
+
+// ═══════════════════════════════════════════════
+//  ЛИЧНЫЕ ЧАТЫ
+// ═══════════════════════════════════════════════
+function openPrivateChatsModal() {
+  modalPrivateChats.classList.add('open');
+  loadPrivateChatsList(pcListContainer);
+}
+btnClosePrivChats.addEventListener('click', () => modalPrivateChats.classList.remove('open'));
+modalPrivateChats.addEventListener('click', e => { if (e.target === modalPrivateChats) modalPrivateChats.classList.remove('open'); });
+
+btnPcSearch.addEventListener('click', () => {
+  const nick = pcSearchInput.value.trim();
+  if (!nick) return;
+  openPrivateChatWith(nick);
+  modalPrivateChats.classList.remove('open');
+});
+pcSearchInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    const nick = pcSearchInput.value.trim();
+    if (!nick) return;
+    openPrivateChatWith(nick);
+    modalPrivateChats.classList.remove('open');
+  }
+});
+
+function openPrivateChatWith(nickname) {
+  socket.emit('private-chat-open', { withNickname: nickname }, res => {
+    if (!res.ok) { showToast('❌ Пользователь не найден'); return; }
+    enterPrivateChat(res.chatId, res.withNickname, res.withAvatar);
+  });
+}
+
+function enterPrivateChat(chatId, withNickname, withAvatar) {
+  // Закрыть текущую комнату если есть
+  if (currentRoomId) {
+    socket.emit('leave-room');
+    if (joined) { socket.emit('voice-leave'); hangUp(); joined = false; }
+    currentRoomId = null; currentRoomData = null;
+  }
+
+  currentChatType = 'private';
+  currentChatId   = chatId;
+  isRoomOwner     = false;
+  memberCount     = 2;
+
+  chatRoomName.textContent = withNickname;
+  userCount.textContent    = '2';
+  chatRoomAvatar.innerHTML = withAvatar
+    ? `<img src="${withAvatar}" alt="">` : '👤';
+
+  clearChat(); clearAllTyping();
+
+  // Скрыть голосовые кнопки для личных чатов
+  btnJoin.style.display  = 'none';
+  btnLeave.style.display = 'none';
+  btnMic.style.display   = 'none';
+
+  // Вступить в socket-комнату чата
+  socket.emit('private-chat-join', { chatId });
+
+  showScreen('chat');
+  showToast('💬 Личный чат: ' + withNickname, 2500);
+}
+
+function loadPrivateChatsList(container) {
+  const el = container || privateList;
+  socket.emit('private-chat-list', res => {
+    if (!res.ok || !res.chats.length) {
+      el.innerHTML = `<div class="rooms-empty">
+        <div class="rooms-empty-icon">💬</div>
+        <div>Нет личных чатов.<br>Найди друга и начни общение!</div>
+      </div>`;
+      return;
+    }
+    el.innerHTML = res.chats.map(c => `
+      <div class="pc-card" data-chatid="${c.chatId}" data-with="${escapeHtml(c.withNickname)}" data-avatar="${c.withAvatar||''}">
+        <div class="room-avatar">
+          ${c.withAvatar ? `<img src="${c.withAvatar}" alt="">` : '👤'}
+        </div>
+        <div class="room-info">
+          <div class="room-name">${escapeHtml(c.withNickname)}</div>
+          <div class="room-meta" style="color:var(--green)">💬 Личный чат</div>
+        </div>
+        <div style="color:var(--sub);font-size:20px">›</div>
+      </div>
+    `).join('');
+    el.querySelectorAll('.pc-card').forEach(card => {
+      card.addEventListener('click', () => {
+        enterPrivateChat(card.dataset.chatid, card.dataset.with, card.dataset.avatar || null);
+        if (modalPrivateChats.classList.contains('open')) modalPrivateChats.classList.remove('open');
+      });
+    });
+  });
+}
+
+// Получение личного сообщения
+socket.on('private-message', async data => {
+  if (currentChatType !== 'private' || currentChatId !== data.chatId) {
+    showToast('💬 ' + (data.fromNick || '?') + ': новое сообщение', 4000, () => {
+      enterPrivateChat(data.chatId, data.fromNick, data.fromAvatar);
+    });
+    return;
+  }
+  playMsgSound();
+  const msgId = appendMessage({
+    from: data.from, nickname: data.fromNick, type: data.type,
+    fileName: data.fileName, fileSize: data.fileSize, mimeType: data.mimeType,
+    timestamp: data.timestamp, mine: false, status: 'decrypting'
+  });
+  try {
+    if (data.type === 'text') {
+      const text = await Crypto.decryptText(data.encrypted, data.iv);
+      updateMessage(msgId, { text, status: 'ok' });
+    } else {
+      const mime = data.mimeType || 'application/octet-stream';
+      const blob = await Crypto.decryptBlob(data.encrypted, data.iv, mime);
+      updateMessage(msgId, { localUrl: URL.createObjectURL(blob), status: 'ok' });
+    }
+  } catch { updateMessage(msgId, { status: 'error' }); }
 });
 
 // ═══════════════════════════════════════════════
 //  СПИСОК КОМНАТ
 // ═══════════════════════════════════════════════
-socket.on('room-list', list => renderRoomList(list));
+socket.on('room-list', list => {
+  renderRoomList(list, roomsList);
+  renderRoomListInChat(list);
+});
+
+const roomDeleteTimersMap = {};
 
 function clearAllDeleteTimers() {
-  for (const id in roomDeleteTimers) { clearInterval(roomDeleteTimers[id]); delete roomDeleteTimers[id]; }
+  for (const id in roomDeleteTimersMap) { clearInterval(roomDeleteTimersMap[id]); delete roomDeleteTimersMap[id]; }
 }
 
-function renderRoomList(list) {
+function renderRoomList(list, container) {
   clearAllDeleteTimers();
   if (!list || !list.length) {
-    roomsList.innerHTML = `<div class="rooms-empty">
+    container.innerHTML = `<div class="rooms-empty">
       <div class="rooms-empty-icon">🏠</div>
-      <div>Комнат пока нет.<br>Создай первую!</div>
+      <div>Групп пока нет.<br>Создай первую!</div>
     </div>`;
     return;
   }
-  roomsList.innerHTML = list.map(room => {
-    const isEmpty   = room.memberCount === 0 && room.deleteAt;
+  container.innerHTML = list.map(room => {
+    const now = Date.now();
+    const isEmpty = room.memberCount === 0 && room.deleteAt;
     const timerAttr = isEmpty ? ` data-delete-at="${room.deleteAt}"` : '';
     const timerHtml = isEmpty
       ? `<span class="room-badge-timer" id="timer-${room.id}">🕐 --:--</span>`
       : `<span class="room-badge-members">· 👥 ${room.memberCount}</span>`;
+    const joinBadge = room.joinMode === 'approval'
+      ? `<span style="color:var(--orange);font-size:11px">📋 По заявке</span>` : '';
     return `
       <div class="room-card" data-id="${room.id}"
-           data-has-pw="${room.hasPassword}" data-name="${escapeHtml(room.name)}"${timerAttr}>
+           data-has-pw="${room.hasPassword}"
+           data-name="${escapeHtml(room.name)}"
+           data-joinmode="${room.joinMode || 'open'}"${timerAttr}>
         <div class="room-avatar">
           ${room.photo ? `<img src="${room.photo}" alt="">` : '🏠'}
         </div>
@@ -678,7 +948,7 @@ function renderRoomList(list) {
             ${room.hasPassword
               ? '<span class="room-badge-lock">🔐 Закрытая</span>'
               : '<span>🌐 Открытая</span>'}
-            ${timerHtml}
+            ${timerHtml} ${joinBadge}
           </div>
         </div>
         <div style="color:var(--sub);font-size:20px">›</div>
@@ -691,48 +961,112 @@ function renderRoomList(list) {
       if (!el) return;
       const tick = () => {
         const left = room.deleteAt - Date.now();
-        if (left <= 0) { el.textContent = '🕐 00:00'; clearInterval(roomDeleteTimers[room.id]); return; }
+        if (left <= 0) { el.textContent = '🕐 00:00'; clearInterval(roomDeleteTimersMap[room.id]); return; }
         el.textContent = '🕐 ' + formatCountdown(left);
       };
       tick();
-      roomDeleteTimers[room.id] = setInterval(tick, 1000);
+      roomDeleteTimersMap[room.id] = setInterval(tick, 1000);
     }
   });
 
-  roomsList.querySelectorAll('.room-card').forEach(card => {
+  container.querySelectorAll('.room-card').forEach(card => {
     card.addEventListener('click', () => {
-      if (card.dataset.hasPw === 'true') openRoomPasswordModal(card.dataset.id, card.dataset.name);
-      else joinRoom(card.dataset.id, '');
+      const joinMode = card.dataset.joinmode;
+      if (card.dataset.hasPw === 'true') {
+        openRoomPasswordModal(card.dataset.id, card.dataset.name, joinMode);
+      } else if (joinMode === 'approval') {
+        handleApprovalJoin(card.dataset.id, card.dataset.name);
+      } else {
+        joinRoom(card.dataset.id, '');
+      }
     });
   });
 }
 
-// Переименование комнаты сервером
+function renderRoomListInChat(list) {
+  if (!chatRoomsList) return;
+  if (!list || !list.length) {
+    chatRoomsList.innerHTML = `<div class="rooms-empty" style="padding:30px 10px">
+      <div class="rooms-empty-icon" style="font-size:36px">🏠</div>
+      <div style="font-size:13px">Групп нет</div>
+    </div>`;
+    return;
+  }
+  chatRoomsList.innerHTML = list.map(room => `
+    <div class="room-card" style="margin-bottom:4px" data-id="${room.id}"
+         data-has-pw="${room.hasPassword}" data-name="${escapeHtml(room.name)}"
+         data-joinmode="${room.joinMode || 'open'}">
+      <div class="room-avatar" style="width:38px;height:38px;font-size:16px">
+        ${room.photo ? `<img src="${room.photo}" alt="">` : '🏠'}
+      </div>
+      <div class="room-info">
+        <div class="room-name" style="font-size:13px">${escapeHtml(room.name)}</div>
+        <div class="room-meta" style="font-size:11px">
+          ${room.memberCount} чел.
+          ${room.joinMode === 'approval' ? '· 📋' : ''}
+        </div>
+      </div>
+    </div>
+  `).join('');
+  chatRoomsList.querySelectorAll('.room-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const joinMode = card.dataset.joinmode;
+      if (card.dataset.hasPw === 'true') {
+        openRoomPasswordModal(card.dataset.id, card.dataset.name, joinMode);
+      } else if (joinMode === 'approval') {
+        handleApprovalJoin(card.dataset.id, card.dataset.name);
+      } else {
+        joinRoom(card.dataset.id, '');
+      }
+    });
+  });
+}
+
 socket.on('room-renamed', ({ roomId, newName }) => {
   if (currentRoomId === roomId) {
     chatRoomName.textContent = newName;
-    appendSystemMsg('✏️ Комната переименована: ' + newName);
+    appendSystemMsg('✏️ Переименовано: ' + newName);
+  }
+});
+
+// Комната удалена сервером
+socket.on('room-deleted', ({ roomId, roomName }) => {
+  if (currentRoomId === roomId) {
+    showToast('🗑 Группа «' + roomName + '» удалена создателем', 5000);
+    leaveCurrentRoom();
+    showScreen('lobby');
+  }
+});
+
+// Настройки группы изменены
+socket.on('room-settings-changed', ({ roomId, autoDelete, joinMode }) => {
+  if (currentRoomId === roomId) {
+    appendSystemMsg('⚙️ Настройки группы обновлены');
   }
 });
 
 // ═══════════════════════════════════════════════
 //  СОЗДАНИЕ КОМНАТЫ
 // ═══════════════════════════════════════════════
-btnCreateRoom.addEventListener('click', () => {
+btnCreateRoom.addEventListener('click', openCreateRoomModal);
+document.getElementById('btn-create-room-chat')?.addEventListener('click', openCreateRoomModal);
+btnCloseCreate.addEventListener('click', () => modalCreate.classList.remove('open'));
+modalCreate.addEventListener('click', e => { if (e.target === modalCreate) modalCreate.classList.remove('open'); });
+
+function openCreateRoomModal() {
   createRoomName.value = ''; createRoomPw.value = '';
   createRoomError.textContent = ''; roomPhotoData = null;
+  createAutoDelete.value = 'never'; createJoinMode.value = 'open';
   roomPhotoBtn.innerHTML = '<span class="cam-icon">📷</span><span>Фото</span>';
   modalCreate.classList.add('open');
   setTimeout(() => createRoomName.focus(), 200);
-});
-btnCloseCreate.addEventListener('click', () => modalCreate.classList.remove('open'));
-modalCreate.addEventListener('click', e => { if (e.target === modalCreate) modalCreate.classList.remove('open'); });
+}
 
 roomPhotoBtn.addEventListener('click', () => roomPhotoInput.click());
 roomPhotoInput.addEventListener('change', () => {
   const file = roomPhotoInput.files[0]; if (!file) return;
   roomPhotoInput.value = '';
-  if (file.size > 5*1024*1024) { alert('Фото слишком большое. Макс 5 МБ.'); return; }
+  if (file.size > 5*1024*1024) { alert('Фото слишком большое'); return; }
   const r = new FileReader();
   r.onload = e => {
     roomPhotoData = e.target.result;
@@ -754,8 +1088,14 @@ function submitCreateRoom() {
   const name = createRoomName.value.trim();
   if (!name) { createRoomError.textContent = 'Введи название'; return; }
   btnSubmitCreate.disabled = true; btnSubmitCreate.textContent = '⏳';
-  socket.emit('create-room', { name, password: createRoomPw.value || '', photo: roomPhotoData || null }, res => {
-    btnSubmitCreate.disabled = false; btnSubmitCreate.textContent = 'Создать комнату';
+  socket.emit('create-room', {
+    name,
+    password: createRoomPw.value || '',
+    photo: roomPhotoData || null,
+    autoDelete: createAutoDelete.value,
+    joinMode: createJoinMode.value
+  }, res => {
+    btnSubmitCreate.disabled = false; btnSubmitCreate.textContent = 'Создать группу';
     if (res?.ok) {
       modalCreate.classList.remove('open');
       joinRoom(res.roomId, createRoomPw.value || '');
@@ -768,17 +1108,18 @@ function submitCreateRoom() {
 // ═══════════════════════════════════════════════
 //  ПАРОЛЬ КОМНАТЫ
 // ═══════════════════════════════════════════════
-function openRoomPasswordModal(roomId, roomName) {
+let pendingJoinRoomMode = 'open';
+
+function openRoomPasswordModal(roomId, roomName, joinMode) {
   pendingJoinRoom = { roomId, roomName };
+  pendingJoinRoomMode = joinMode || 'open';
   pwModalRoomName.textContent = roomName;
   roomPwInput.value = ''; roomPwError.textContent = '';
   modalRoomPw.classList.add('open');
   setTimeout(() => roomPwInput.focus(), 200);
 }
 btnClosePwModal.addEventListener('click', () => { modalRoomPw.classList.remove('open'); pendingJoinRoom = null; });
-modalRoomPw.addEventListener('click', e => {
-  if (e.target === modalRoomPw) { modalRoomPw.classList.remove('open'); pendingJoinRoom = null; }
-});
+modalRoomPw.addEventListener('click', e => { if (e.target === modalRoomPw) { modalRoomPw.classList.remove('open'); pendingJoinRoom = null; } });
 btnToggleRoomPw.addEventListener('click', () => {
   const t = roomPwInput.type === 'text';
   roomPwInput.type = t ? 'password' : 'text';
@@ -792,15 +1133,95 @@ function submitRoomPassword() {
   const pw = roomPwInput.value;
   if (!pw) { roomPwError.textContent = 'Введи пароль'; return; }
   btnSubmitRoomPw.disabled = true; btnSubmitRoomPw.textContent = '⏳';
+
+  if (pendingJoinRoomMode === 'approval') {
+    // Сначала ввели пароль, потом надо подать заявку
+    modalRoomPw.classList.remove('open');
+    btnSubmitRoomPw.disabled = false; btnSubmitRoomPw.textContent = 'Войти в группу';
+    handleApprovalJoin(pendingJoinRoom.roomId, pendingJoinRoom.roomName, pw);
+    pendingJoinRoom = null;
+    return;
+  }
+
   joinRoom(pendingJoinRoom.roomId, pw, (ok, err, secsLeft) => {
-    btnSubmitRoomPw.disabled = false; btnSubmitRoomPw.textContent = 'Войти в комнату';
+    btnSubmitRoomPw.disabled = false; btnSubmitRoomPw.textContent = 'Войти в группу';
     if (ok) { modalRoomPw.classList.remove('open'); pendingJoinRoom = null; }
     else if (err === 'rate_limited') roomPwError.textContent = `⛔ Подождите ${secsLeft} сек.`;
     else if (err === 'wrong_password') {
       roomPwError.textContent = '❌ Неверный пароль';
       roomPwInput.style.animation = 'shake 0.35s';
       setTimeout(() => { roomPwInput.style.animation = ''; }, 400);
-    } else roomPwError.textContent = '⚠️ Комната не найдена';
+    } else roomPwError.textContent = '⚠️ Ошибка';
+  });
+}
+
+// ═══════════════════════════════════════════════
+//  ЗАЯВКИ НА ВСТУПЛЕНИЕ
+// ═══════════════════════════════════════════════
+function handleApprovalJoin(roomId, roomName, _pw) {
+  if (!confirm(`📋 Для вступления в «${roomName}» требуется одобрение создателя.\nОтправить заявку?`)) return;
+  socket.emit('room-request-join', { roomId }, res => {
+    if (res.ok) showToast('📨 Заявка отправлена! Ждём одобрения.', 5000);
+    else if (res.error === 'already_requested') showToast('⏳ Заявка уже отправлена');
+    else if (res.error === 'already_member') joinRoom(roomId, _pw || '');
+    else showToast('⚠️ Ошибка: ' + res.error);
+  });
+}
+
+// Заявка одобрена
+socket.on('room-request-accepted', ({ roomId, roomName }) => {
+  showToast(`✅ Заявка в «${roomName}» одобрена!`, 6000, () => {
+    joinRoom(roomId, '');
+  });
+});
+// Заявка отклонена
+socket.on('room-request-declined', ({ roomId, roomName }) => {
+  showToast(`❌ Заявка в «${roomName}» отклонена`, 5000);
+});
+// Входящая заявка (для создателя)
+socket.on('room-join-request', ({ roomId, roomName, nickLower, nickname, avatar }) => {
+  showToast(`📋 ${nickname} хочет вступить в «${roomName}»`, 8000, () => {
+    openMembersModal();
+  });
+  // Если модалка открыта — обновить список заявок
+  if (modalMembers.classList.contains('open') && currentRoomId === roomId) {
+    loadJoinRequests(roomId);
+  }
+});
+
+function loadJoinRequests(roomId) {
+  socket.emit('room-members', { roomId }, res => {
+    if (!res.ok) return;
+    renderJoinRequests(res.pendingRequests || [], roomId);
+  });
+}
+
+function renderJoinRequests(requests, roomId) {
+  const count = requests.length;
+  joinRequestsCount.textContent = count ? `(${count})` : '';
+  if (!count) {
+    joinRequestsList.innerHTML = '<div class="empty-list">Нет заявок</div>'; return;
+  }
+  joinRequestsList.innerHTML = requests.map(r => `
+    <div class="request-item">
+      <div class="friend-avatar">${avatarHtml(r.avatar, '👤')}</div>
+      <div class="friend-info"><div class="friend-name">${escapeHtml(r.nickname)}</div></div>
+      <div class="friend-actions">
+        <button class="btn-sm green" data-action="accept"  data-nick="${r.nickLower}">✓ Принять</button>
+        <button class="btn-sm red"   data-action="decline" data-nick="${r.nickLower}">✕</button>
+      </div>
+    </div>
+  `).join('');
+  joinRequestsList.querySelectorAll('[data-action]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const accept = btn.dataset.action === 'accept';
+      socket.emit('room-request-respond', { roomId, nickLower: btn.dataset.nick, accept }, res => {
+        if (res.ok) {
+          showToast(accept ? '✅ Заявка принята' : 'Отклонено');
+          loadJoinRequests(roomId);
+        }
+      });
+    });
   });
 }
 
@@ -813,6 +1234,8 @@ function joinRoom(roomId, password, cb) {
       currentRoomId   = roomId;
       currentRoomData = res.room;
       currentPassword = password || '';
+      currentChatType = 'group';
+      currentChatId   = null;
       isRoomOwner     = res.room.isOwner || false;
 
       const roomSalt = res.room.roomSalt || (roomId + '-default-salt');
@@ -823,15 +1246,28 @@ function joinRoom(roomId, password, cb) {
       chatRoomName.textContent = res.room.name;
       userCount.textContent    = res.room.members.length + 1;
       memberCount              = res.room.members.length + 1;
+      chatRoomAvatar.innerHTML = res.room.photo ? `<img src="${res.room.photo}" alt="">` : '💬';
 
-      chatRoomAvatar.innerHTML = res.room.photo
-        ? `<img src="${res.room.photo}" alt="">` : '💬';
+      // Восстановить голосовые кнопки
+      btnJoin.style.display  = 'block';
+      btnLeave.style.display = 'none';
+      btnMic.style.display   = 'none';
 
       clearChat(); clearAllTyping();
       showScreen('chat');
       showOwnFingerprint();
       if (cb) cb(true);
+
+      // Если создатель — предзагрузить заявки
+      if (isRoomOwner && res.room.pendingRequests?.length) {
+        showToast(`📋 ${res.room.pendingRequests.length} заявок на вступление`, 5000);
+      }
     } else {
+      if (res?.error === 'approval_required') {
+        handleApprovalJoin(roomId, 'группу');
+        if (cb) cb(false, 'approval_required');
+        return;
+      }
       if (cb) cb(false, res?.error, res?.secsLeft);
       else if (res?.error === 'rate_limited') alert(`⛔ Подождите ${res.secsLeft} сек.`);
       else if (res?.error === 'wrong_password') alert('Неверный пароль');
@@ -846,7 +1282,6 @@ async function showOwnFingerprint() {
     const div = document.createElement('div');
     div.className = 'date-divider';
     div.style.cssText = 'font-size:10px;color:#5288c1;cursor:pointer;user-select:all;';
-    div.title = 'Твой отпечаток ключа';
     div.textContent = '🔑 Твой ключ: ' + fp;
     chatMessages.appendChild(div);
     chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -860,7 +1295,7 @@ function clearChat() {
 }
 
 // ═══════════════════════════════════════════════
-//  УЧАСТНИКИ КОМНАТЫ (модалка)
+//  УЧАСТНИКИ КОМНАТЫ
 // ═══════════════════════════════════════════════
 chatRoomAvatar.addEventListener('click',  openMembersModal);
 chatHeaderInfo.addEventListener('click',  openMembersModal);
@@ -869,10 +1304,21 @@ btnCloseMembers.addEventListener('click', () => modalMembers.classList.remove('o
 modalMembers.addEventListener('click', e => { if (e.target === modalMembers) modalMembers.classList.remove('open'); });
 
 function openMembersModal() {
-  if (!currentRoomId) return;
+  if (!currentRoomId || currentChatType !== 'group') return;
   membersModalTitle.textContent = 'Участники';
-  renameSection.style.display = isRoomOwner ? '' : 'none';
-  if (isRoomOwner && currentRoomData) renameInput.value = currentRoomData.name || '';
+  renameSection.style.display         = isRoomOwner ? '' : 'none';
+  groupSettingsSection.style.display  = isRoomOwner ? '' : 'none';
+  joinRequestsSection.style.display   = isRoomOwner ? '' : 'none';
+  if (isRoomOwner && currentRoomData) {
+    renameInput.value = currentRoomData.name || '';
+    // Установить текущие настройки
+    if (currentRoomData.autoDelete) {
+      groupAutodelSelect.value = String(currentRoomData.autoDelete);
+    } else {
+      groupAutodelSelect.value = 'never';
+    }
+    groupJoinmodeSelect.value = currentRoomData.joinMode || 'open';
+  }
   membersListContainer.innerHTML = '<div class="empty-list">Загрузка…</div>';
   modalMembers.classList.add('open');
 
@@ -888,18 +1334,20 @@ function openMembersModal() {
         </div>
       </div>
     `).join('');
+    if (isRoomOwner) {
+      renderJoinRequests(res.pendingRequests || [], currentRoomId);
+    }
   });
 }
 
-// Переименование комнаты
+// Переименование
 btnRenameRoom.addEventListener('click', () => {
   const name = renameInput.value.trim();
   if (!name) { renameError.textContent = 'Введи название'; return; }
   renameError.textContent = '';
   socket.emit('room-rename', { roomId: currentRoomId, newName: name }, res => {
     if (res.ok) {
-      showToast('✅ Комната переименована');
-      modalMembers.classList.remove('open');
+      showToast('✅ Переименовано');
       if (currentRoomData) currentRoomData.name = name;
     } else {
       renameError.textContent = res.error === 'not_owner' ? '❌ Нет прав' : '⚠️ Ошибка';
@@ -908,8 +1356,42 @@ btnRenameRoom.addEventListener('click', () => {
 });
 renameInput.addEventListener('keydown', e => { if (e.key === 'Enter') btnRenameRoom.click(); });
 
+// Сохранить настройки группы
+btnSaveGroupSettings.addEventListener('click', () => {
+  socket.emit('room-settings-update', {
+    roomId: currentRoomId,
+    autoDelete: groupAutodelSelect.value,
+    joinMode:   groupJoinmodeSelect.value
+  }, res => {
+    if (res.ok) {
+      showToast('✅ Настройки сохранены');
+      if (currentRoomData) {
+        currentRoomData.autoDelete = groupAutodelSelect.value === 'never' ? null : parseInt(groupAutodelSelect.value);
+        currentRoomData.joinMode   = groupJoinmodeSelect.value;
+      }
+    } else {
+      showToast('⚠️ Ошибка сохранения');
+    }
+  });
+});
+
+// Удалить группу
+btnDeleteGroup.addEventListener('click', () => {
+  if (!confirm('🗑 Удалить группу? Это действие необратимо.')) return;
+  socket.emit('room-delete', { roomId: currentRoomId }, res => {
+    if (res.ok) {
+      modalMembers.classList.remove('open');
+      leaveCurrentRoom();
+      showScreen('lobby');
+      showToast('🗑 Группа удалена');
+    } else {
+      showToast('⚠️ Ошибка: ' + res.error);
+    }
+  });
+});
+
 // ═══════════════════════════════════════════════
-//  ПРИГЛАШЕНИЯ В КОМНАТУ
+//  ПРИГЛАШЕНИЯ
 // ═══════════════════════════════════════════════
 btnInviteFriend.addEventListener('click', openInviteModal);
 btnCloseInvite.addEventListener('click',  () => modalInvite.classList.remove('open'));
@@ -921,8 +1403,7 @@ function openInviteModal() {
   inviteFriendsList.innerHTML = '<div class="empty-list">Загрузка…</div>';
   socket.emit('friends-list', res => {
     if (!res.ok || !res.friends.length) {
-      inviteFriendsList.innerHTML = '<div class="empty-list">Нет друзей для приглашения</div>';
-      return;
+      inviteFriendsList.innerHTML = '<div class="empty-list">Нет друзей для приглашения</div>'; return;
     }
     inviteFriendsList.innerHTML = res.friends.map(f => `
       <div class="friend-item">
@@ -944,10 +1425,10 @@ function openInviteModal() {
   });
 }
 
-// Получить приглашение
-socket.on('room-invite', ({ fromNick, roomId, roomName, hasPassword }) => {
+socket.on('room-invite', ({ fromNick, roomId, roomName, hasPassword, joinMode }) => {
   showToast(`📨 ${fromNick} приглашает в «${roomName}»`, 8000, () => {
-    if (hasPassword) openRoomPasswordModal(roomId, roomName);
+    if (hasPassword) openRoomPasswordModal(roomId, roomName, joinMode);
+    else if (joinMode === 'approval') handleApprovalJoin(roomId, roomName);
     else {
       socket.emit('leave-room');
       if (joined) { socket.emit('voice-leave'); hangUp(); joined = false; }
@@ -957,32 +1438,39 @@ socket.on('room-invite', ({ fromNick, roomId, roomName, hasPassword }) => {
 });
 
 // ═══════════════════════════════════════════════
-//  КНОПКА НАЗАД
+//  НАЗАД
 // ═══════════════════════════════════════════════
 btnBackLobby.addEventListener('click', () => {
+  leaveCurrentRoom();
+  showScreen('lobby');
+});
+
+function leaveCurrentRoom() {
   stopMyTyping();
-  socket.emit('leave-room');
-  if (joined) {
-    socket.emit('voice-leave'); hangUp(); joined = false;
-    btnJoin.style.display = 'block';
-    btnLeave.style.display = btnMic.style.display = 'none';
-    micStatus.className = 'mic-status';
+  if (currentChatType === 'group' && currentRoomId) {
+    socket.emit('leave-room');
+    if (joined) {
+      socket.emit('voice-leave'); hangUp(); joined = false;
+      btnJoin.style.display = 'block';
+      btnLeave.style.display = btnMic.style.display = 'none';
+      micStatus.className = 'mic-status';
+    }
   }
   clearAllTyping();
   Crypto.clearAllKeys();
   ecdhExchanged.clear();
   outgoingSeq = 0;
   currentRoomId = null; currentRoomData = null; currentPassword = '';
+  currentChatType = 'group'; currentChatId = null;
   isRoomOwner = false;
-  showScreen('lobby');
-});
+}
 
 // ═══════════════════════════════════════════════
-//  SOCKET: СОБЫТИЯ КОМНАТЫ
+//  СОБЫТИЯ КОМНАТЫ
 // ═══════════════════════════════════════════════
-socket.on('room-user-joined', ({ id, nickname, avatar }) => {
+socket.on('room-user-joined', ({ id, nickname }) => {
   memberCount++; userCount.textContent = memberCount;
-  appendSystemMsg('👋 ' + nickname + ' вошёл в комнату');
+  appendSystemMsg('👋 ' + nickname + ' вошёл');
 });
 socket.on('room-user-left', id => {
   memberCount = Math.max(0, memberCount - 1);
@@ -993,7 +1481,7 @@ socket.on('connect', () => {
   reconnectBanner.classList.remove('visible');
   if (myNickname) {
     socket.emit('set-nickname', myNickname, () => {
-      if (currentRoomId && currentRoomData) joinRoom(currentRoomId, currentPassword);
+      if (currentRoomId && currentChatType === 'group') joinRoom(currentRoomId, currentPassword);
     });
   }
 });
@@ -1003,7 +1491,7 @@ socket.on('disconnect', () => {
 socket.on('ecdh-pubkey', async ({ from, pubkey, nickname }) => {
   try {
     await Crypto.deriveSessionKey(pubkey, from);
-    appendSystemMsg('🔐 Сессионный ключ с ' + (nickname || shortId(from)));
+    appendSystemMsg('🔐 Ключ с ' + (nickname || shortId(from)));
     if (!ecdhExchanged.has(from)) {
       ecdhExchanged.add(from);
       const myPubKey = await Crypto.exportPublicKey();
@@ -1017,7 +1505,6 @@ socket.on('key-fingerprint', ({ from, nickname, fingerprint }) => {
   const div = document.createElement('div');
   div.className = 'date-divider';
   div.style.cssText = 'font-size:10px;color:#4caf50;cursor:pointer;user-select:all;';
-  div.title = 'Отпечаток ключа для верификации';
   div.textContent = '🔑 Ключ ' + escapeHtml(nickname || shortId(from)) + ': ' + fingerprint;
   chatMessages.appendChild(div);
   chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -1053,20 +1540,20 @@ function clearAllTyping() {
   renderTyping();
 }
 function startMyTyping() {
-  if (!currentRoomId) return;
+  if (!currentRoomId || currentChatType !== 'group') return;
   if (typingTimer) clearTimeout(typingTimer);
   socket.emit('typing-start');
   typingTimer = setTimeout(stopMyTyping, 3000);
 }
 function stopMyTyping() {
   if (typingTimer) { clearTimeout(typingTimer); typingTimer = null; }
-  if (currentRoomId) socket.emit('typing-stop');
+  if (currentRoomId && currentChatType === 'group') socket.emit('typing-stop');
 }
 socket.on('typing-start', ({ from, nickname }) => { if (from !== socket.id) addTypingUser(from, nickname); });
 socket.on('typing-stop',  ({ from }) => removeTypingUser(from));
 
 // ═══════════════════════════════════════════════
-//  ЧАТ: ОТПРАВКА ТЕКСТА
+//  ЧАТ: ОТПРАВКА
 // ═══════════════════════════════════════════════
 chatInput.addEventListener('input', () => {
   chatInput.style.height = 'auto';
@@ -1080,21 +1567,27 @@ btnSend.addEventListener('click', sendTextMessage);
 
 async function sendTextMessage() {
   const text = chatInput.value.trim();
-  if (!text || !currentRoomId) return;
+  if (!text) return;
   stopMyTyping(); btnSend.disabled = true;
   try {
-    const { encrypted, iv } = await Crypto.encrypt(text);
-    const seq = ++outgoingSeq;
-    socket.emit('chat-message', { encrypted, iv, type: 'text', seq });
-    appendMessage({ from: socket.id, nickname: myNickname, text, type: 'text', timestamp: Date.now(), mine: true, status: 'ok' });
-    chatInput.value = ''; chatInput.style.height = 'auto';
+    if (currentChatType === 'private' && currentChatId) {
+      const { encrypted, iv } = await Crypto.encrypt(text);
+      const seq = ++outgoingSeq;
+      socket.emit('private-message', { chatId: currentChatId, encrypted, iv, type: 'text', seq });
+      appendMessage({ nickname: myNickname, text, type: 'text', timestamp: Date.now(), mine: true, status: 'ok' });
+      chatInput.value = ''; chatInput.style.height = 'auto';
+    } else if (currentRoomId) {
+      const { encrypted, iv } = await Crypto.encrypt(text);
+      const seq = ++outgoingSeq;
+      socket.emit('chat-message', { encrypted, iv, type: 'text', seq });
+      appendMessage({ from: socket.id, nickname: myNickname, text, type: 'text', timestamp: Date.now(), mine: true, status: 'ok' });
+      chatInput.value = ''; chatInput.style.height = 'auto';
+    }
   } catch (e) { console.error('Send error:', e); }
   finally { btnSend.disabled = false; }
 }
 
-// ═══════════════════════════════════════════════
-//  ЧАТ: ФАЙЛЫ
-// ═══════════════════════════════════════════════
+// Файлы
 btnPhoto.addEventListener('click', () => { fileInput.accept = 'image/*'; fileInput.click(); });
 btnVideo.addEventListener('click', () => { fileInput.accept = 'video/*'; fileInput.click(); });
 btnFile.addEventListener('click',  () => { fileInput.accept = '*/*';     fileInput.click(); });
@@ -1111,23 +1604,26 @@ fileInput.addEventListener('change', async () => {
 });
 
 async function sendMediaBlob(blob, mimeType, fileName, type) {
-  if (!currentRoomId) return;
   try {
     const ab = await blob.arrayBuffer();
     const { encrypted, iv } = await Crypto.encrypt(ab);
     const localUrl = URL.createObjectURL(new Blob([ab], { type: mimeType }));
     const seq = ++outgoingSeq;
-    socket.emit('chat-message', { encrypted, iv, type, seq, fileName: fileName||'file', fileSize: blob.size, mimeType });
+    const payload = { encrypted, iv, type, seq, fileName: fileName||'file', fileSize: blob.size, mimeType };
+
+    if (currentChatType === 'private' && currentChatId) {
+      socket.emit('private-message', { chatId: currentChatId, ...payload });
+    } else if (currentRoomId) {
+      socket.emit('chat-message', payload);
+    }
     appendMessage({ from: socket.id, nickname: myNickname, type, localUrl, fileName: fileName||'file', fileSize: blob.size, mimeType, timestamp: Date.now(), mine: true, status: 'ok' });
   } catch (e) { alert('Ошибка отправки: ' + e.message); }
 }
 
-// ═══════════════════════════════════════════════
-//  ЧАТ: ПОЛУЧЕНИЕ СООБЩЕНИЙ
-// ═══════════════════════════════════════════════
+// Получение сообщений группы
 socket.on('chat-message', async data => {
   playMsgSound();
-  showBrowserNotif('💬 ' + (data.nickname||'Собеседник'), data.type==='text' ? '✉️ Сообщение' : '📎 Файл');
+  showBrowserNotif('💬 ' + (data.nickname||'?'), data.type==='text' ? '✉️ Сообщение' : '📎 Файл');
   const msgId = appendMessage({
     from: data.from, nickname: data.nickname, type: data.type,
     fileName: data.fileName, fileSize: data.fileSize, mimeType: data.mimeType,
@@ -1137,7 +1633,7 @@ socket.on('chat-message', async data => {
     if (data.type === 'text') {
       const text = await Crypto.decryptText(data.encrypted, data.iv);
       updateMessage(msgId, { text, status: 'ok' });
-      showBrowserNotif('💬 ' + (data.nickname||'Собеседник'), text);
+      showBrowserNotif('💬 ' + (data.nickname||'?'), text);
     } else {
       const mime = data.mimeType || 'application/octet-stream';
       const blob = await Crypto.decryptBlob(data.encrypted, data.iv, mime);
@@ -1166,8 +1662,7 @@ function appendMessage(msg) {
 }
 function appendSystemMsg(text) {
   const div = document.createElement('div');
-  div.className = 'date-divider';
-  div.textContent = text;
+  div.className = 'date-divider'; div.textContent = text;
   chatMessages.appendChild(div);
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
@@ -1180,32 +1675,24 @@ function updateMessage(id, updates) {
   }
   const st = div.querySelector('.msg-decrypt-status');
   if (st) {
-    if (updates.status === 'ok')         { st.className = 'msg-decrypt-status ok';  st.textContent = '🔓 расшифровано'; }
-    if (updates.status === 'error')      { st.className = 'msg-decrypt-status err'; st.textContent = '⚠️ ошибка'; }
-    if (updates.status === 'decrypting') st.textContent = '⏳ расшифровываем…';
+    if (updates.status === 'ok')         { st.className = 'msg-decrypt-status ok';  st.textContent = '🔓'; }
+    if (updates.status === 'error')      { st.className = 'msg-decrypt-status err'; st.textContent = '⚠️'; }
+    if (updates.status === 'decrypting') st.textContent = '⏳';
   }
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 function buildMsgHTML(msg) {
   const time = new Date(msg.timestamp||Date.now()).toLocaleTimeString('ru', { hour:'2-digit', minute:'2-digit' });
-  const sender = msg.mine ? '' : `<div class="msg-sender">👤 ${escapeHtml(msg.nickname||shortId(msg.from))}</div>`;
-  const stText  = msg.status==='ok' ? '🔓 расшифровано' : msg.status==='error' ? '⚠️ ошибка' : '⏳ расшифровываем…';
+  const sender = msg.mine ? '' : `<div class="msg-sender">👤 ${escapeHtml(msg.nickname||'?')}</div>`;
+  const stText  = msg.status==='ok' ? '🔓' : msg.status==='error' ? '⚠️' : '⏳';
   const stClass = msg.status==='ok' ? 'ok' : msg.status==='error' ? 'err' : '';
   const st = msg.mine ? '' : `<div class="msg-decrypt-status ${stClass}">${stText}</div>`;
   return `${sender}<div class="msg-content">${buildContentHTML(msg)}</div><div class="msg-meta">${time}</div>${st}`;
 }
 function buildContentHTML(msg) {
   if (msg.type === 'text')  return escapeHtml(msg.text || '');
-  if (msg.type === 'image') {
-    return msg.localUrl
-      ? `<img class="msg-media" src="${msg.localUrl}" alt="фото" loading="lazy">`
-      : '<span style="color:#888;font-size:12px">⏳</span>';
-  }
-  if (msg.type === 'video') {
-    return msg.localUrl
-      ? `<video class="msg-media" src="${msg.localUrl}" controls playsinline></video>`
-      : '<span style="color:#888;font-size:12px">⏳</span>';
-  }
+  if (msg.type === 'image') return msg.localUrl ? `<img class="msg-media" src="${msg.localUrl}" alt="фото" loading="lazy">` : '<span style="color:#888;font-size:12px">⏳</span>';
+  if (msg.type === 'video') return msg.localUrl ? `<video class="msg-media" src="${msg.localUrl}" controls playsinline></video>` : '<span style="color:#888;font-size:12px">⏳</span>';
   if (msg.type === 'file') {
     const size = msg.fileSize ? formatSize(parseInt(msg.fileSize)) : '';
     return msg.localUrl
@@ -1235,7 +1722,7 @@ lightbox.addEventListener('click', e => { if (e.target===lightbox) { lightbox.cl
 //  ГОЛОСОВОЙ ЧАТ (без изменений)
 // ═══════════════════════════════════════════════
 btnJoin.addEventListener('click', async () => {
-  if (!currentRoomId) return;
+  if (!currentRoomId || currentChatType !== 'group') return;
   try {
     const rawStream = await getMicStream();
     localStream = rawStream;
@@ -1250,8 +1737,8 @@ btnJoin.addEventListener('click', async () => {
     for (const { from, offer, nickname } of pendingOffers) await handleOffer(from, offer, nickname);
     pendingOffers = [];
   } catch (err) {
-    const msgs = { NotAllowedError:'❌ Доступ к микрофону запрещён.', NotFoundError:'❌ Микрофон не найден.', NotReadableError:'❌ Микрофон занят.' };
-    alert(msgs[err.name] || '❌ ' + err.name + ': ' + err.message);
+    const msgs = { NotAllowedError:'❌ Доступ запрещён.', NotFoundError:'❌ Микрофон не найден.', NotReadableError:'❌ Микрофон занят.' };
+    alert(msgs[err.name] || '❌ ' + err.name);
   }
 });
 btnLeave.addEventListener('click', () => {
@@ -1334,7 +1821,7 @@ function addParticipant(userId, nickname, isMe) {
   const div = document.createElement('div');
   div.className = 'participant'; div.id = 'p-'+userId;
   const displayName = isMe ? '🟢 '+escapeHtml(nickname)+' (Вы)' : '👤 '+escapeHtml(nickname);
-  const understoodBtn = isMe ? '' : `<button class="btn-understood" data-uid="${userId}">👍 Понял</button>`;
+  const understoodBtn = isMe ? '' : `<button class="btn-understood" data-uid="${userId}">👍</button>`;
   div.innerHTML = `
     <span class="participant-name" id="pname-${userId}">${displayName}</span>
     <div class="volume-bar-wrap"><div class="volume-bar" id="vol-${userId}"></div></div>
@@ -1345,8 +1832,8 @@ function addParticipant(userId, nickname, isMe) {
   const btn = div.querySelector('.btn-understood');
   if (btn) btn.addEventListener('click', function() {
     socket.emit('understood');
-    this.textContent = '✅ Отправлено'; this.disabled = true;
-    setTimeout(() => { this.textContent = '👍 Понял'; this.disabled = false; }, 3000);
+    this.textContent = '✅'; this.disabled = true;
+    setTimeout(() => { this.textContent = '👍'; this.disabled = false; }, 3000);
   });
 }
 function updateParticipantName(userId, nickname) {
