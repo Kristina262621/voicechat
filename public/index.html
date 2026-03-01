@@ -10,19 +10,19 @@
     *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
 
     :root {
-      --bg:         #17212b;
-      --surface:    #232e3c;
-      --header:     #17212b;
-      --bubble-in:  #182533;
-      --bubble-me:  #2b5278;
-      --accent:     #5288c1;
-      --accent2:    #64b5f6;
-      --green:      #4caf50;
-      --red:        #ef5350;
-      --text:       #e8eaed;
-      --sub:        #708499;
-      --divider:    #0d1821;
-      --radius:     12px;
+      --bg:        #17212b;
+      --surface:   #232e3c;
+      --header:    #17212b;
+      --bubble-in: #182533;
+      --bubble-me: #2b5278;
+      --accent:    #5288c1;
+      --accent2:   #64b5f6;
+      --green:     #4caf50;
+      --red:       #ef5350;
+      --text:      #e8eaed;
+      --sub:       #708499;
+      --divider:   #0d1821;
+      --radius:    12px;
     }
 
     html, body {
@@ -54,8 +54,10 @@
 
     .login-icon  { font-size: 54px; margin-bottom: 16px; }
     .login-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; text-align: center; }
-    .login-sub   { font-size: 13px; color: var(--sub); text-align: center;
-                   margin-bottom: 28px; line-height: 1.5; }
+    .login-sub   {
+      font-size: 13px; color: var(--sub);
+      text-align: center; margin-bottom: 28px; line-height: 1.5;
+    }
 
     .pw-wrap { position: relative; width: 100%; margin-bottom: 10px; }
     .pw-wrap input {
@@ -64,8 +66,8 @@
       border-radius: var(--radius); color: var(--text);
       font-size: 15px; outline: none; transition: border-color 0.2s;
     }
-    .pw-wrap input:focus       { border-color: var(--accent); }
-    .pw-wrap input.error       { border-color: var(--red); animation: shake 0.35s; }
+    .pw-wrap input:focus        { border-color: var(--accent); }
+    .pw-wrap input.error        { border-color: var(--red); animation: shake 0.35s; }
     .pw-wrap input::placeholder { color: var(--sub); }
 
     .toggle-pw {
@@ -109,10 +111,13 @@
        ГЛАВНЫЙ ЭКРАН
     ══════════════════════════════ */
     #screen-main {
-      display: none; position: fixed; inset: 0;
+      display: none;
+      position: fixed; inset: 0;
       flex-direction: column;
     }
-    #screen-main.visible { display: flex; }
+
+    /* app.js делает style.display = 'block',
+       поэтому оставляем управление через style */
 
     /* ── Шапка ── */
     .tg-header {
@@ -136,7 +141,9 @@
       font-size: 15px; font-weight: 600;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .tg-header-sub  { font-size: 12px; color: var(--sub); margin-top: 1px; }
+    .tg-header-sub {
+      font-size: 12px; color: var(--sub); margin-top: 1px;
+    }
     .tg-header-sub .online { color: var(--green); }
 
     .tg-header-btns { display: flex; gap: 2px; }
@@ -148,8 +155,15 @@
       display: flex; align-items: center; justify-content: center;
       transition: background 0.15s, color 0.15s;
     }
-    .icon-btn:hover  { background: rgba(255,255,255,0.07); color: var(--text); }
-    .icon-btn.active { color: var(--accent2); }
+    .icon-btn:hover { background: rgba(255,255,255,0.07); color: var(--text); }
+
+    /* ── Кнопка чата — app.js управляет через classList 'visible' ── */
+    #btn-chat-open {
+      display: none;
+    }
+    #btn-chat-open.visible {
+      display: flex;
+    }
 
     .icon-btn .bdg {
       position: absolute; top: 3px; right: 3px;
@@ -159,7 +173,8 @@
       display: none; align-items: center; justify-content: center;
       padding: 0 2px;
     }
-    .icon-btn .bdg.on { display: flex; }
+    /* app.js добавляет класс 'visible' к chat-badge */
+    #chat-badge.visible { display: flex; }
 
     /* ── Reconnect ── */
     .reconnect-banner {
@@ -173,7 +188,7 @@
     .reconnect-banner.visible { display: block; }
     @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.5;} }
 
-    /* ── Тело (лента сообщений) ── */
+    /* ── Тело (лента) ── */
     .tg-body {
       flex: 1; overflow-y: auto;
       padding: 10px 10px 6px;
@@ -187,14 +202,13 @@
     }
 
     /* ── Голосовая панель ── */
+    /* app.js: participantsBox.style.display = 'block'/'none' */
     .voice-panel {
       background: var(--surface);
       border-radius: 14px;
       padding: 12px 14px;
       margin-bottom: 6px;
-      display: none;
     }
-    .voice-panel.visible { display: block; }
 
     .voice-panel-head {
       display: flex; align-items: center; justify-content: space-between;
@@ -205,10 +219,12 @@
       color: var(--sub); text-transform: uppercase; letter-spacing: 0.6px;
     }
 
+    /* ── Участники ── */
     .participant {
       display: flex; align-items: center; gap: 10px;
       padding: 7px 0;
       border-bottom: 1px solid rgba(255,255,255,0.04);
+      flex-wrap: nowrap;
     }
     .participant:last-child { border-bottom: none; }
 
@@ -216,19 +232,21 @@
       width: 34px; height: 34px; border-radius: 50%;
       background: linear-gradient(135deg, #1e3a5a, #2b5278);
       display: flex; align-items: center; justify-content: center;
-      font-size: 15px; flex-shrink: 0; position: relative;
+      font-size: 15px; flex-shrink: 0;
     }
 
     .p-info { flex: 1; min-width: 0; }
-    .p-name {
+    .participant-name {
       font-size: 13px; font-weight: 500;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
 
+    /* volume / signal — те же id что в app.js */
     .volume-bar-wrap {
       width: 36px; height: 3px;
       background: rgba(255,255,255,0.08);
       border-radius: 2px; overflow: hidden;
+      flex-shrink: 0;
     }
     .volume-bar {
       height: 100%; width: 0%;
@@ -237,7 +255,10 @@
     }
     .volume-bar.loud { background: var(--red); }
 
-    .signal-wrap { display: flex; align-items: flex-end; gap: 2px; height: 12px; }
+    .signal-wrap {
+      display: flex; align-items: flex-end; gap: 2px; height: 12px;
+      flex-shrink: 0;
+    }
     .signal-wrap .bar {
       width: 3px; border-radius: 1px;
       background: rgba(255,255,255,0.1);
@@ -265,7 +286,7 @@
     .btn-understood:hover    { background: rgba(76,175,80,0.22); }
     .btn-understood:disabled { opacity: 0.4; cursor: default; }
 
-    /* ── Разделитель дат ── */
+    /* ── Разделитель ── */
     .date-divider {
       align-self: center;
       font-size: 11px; color: var(--sub);
@@ -307,21 +328,40 @@
       border-left: 0; border-top: 0;
     }
 
-    .msg-sender { font-size: 11px; font-weight: 600; color: var(--accent2); margin-bottom: 3px; }
-    .msg-meta   { font-size: 10px; color: rgba(255,255,255,0.38); text-align: right; margin-top: 4px; }
-    .msg-decrypt-status { font-size: 10px; color: rgba(255,255,255,0.3); margin-top: 2px; }
+    .msg-sender {
+      font-size: 11px; font-weight: 600;
+      color: var(--accent2); margin-bottom: 3px;
+    }
+    .msg-meta {
+      font-size: 10px; color: rgba(255,255,255,0.38);
+      text-align: right; margin-top: 4px;
+    }
+    .msg-decrypt-status {
+      font-size: 10px; color: rgba(255,255,255,0.3); margin-top: 2px;
+    }
     .msg-decrypt-status.ok  { color: rgba(100,181,246,0.55); }
     .msg-decrypt-status.err { color: var(--red); }
 
-    .msg-media { max-width: 100%; border-radius: 10px; cursor: pointer; display: block; margin-bottom: 3px; }
+    .msg-media {
+      max-width: 100%; border-radius: 10px;
+      cursor: pointer; display: block; margin-bottom: 3px;
+    }
     .msg video.msg-media { max-height: 220px; width: 100%; }
 
     .msg-file { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
     .msg-file-icon { font-size: 26px; }
     .msg-file-info { flex: 1; min-width: 0; }
-    .msg-file-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+    .msg-file-name {
+      font-size: 13px; font-weight: 600;
+      overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; max-width: 160px;
+    }
     .msg-file-size { font-size: 11px; opacity: 0.5; margin-top: 1px; }
-    .msg-file-dl   { font-size: 20px; cursor: pointer; padding: 6px; text-decoration: none; border-radius: 50%; transition: background 0.15s; }
+    .msg-file-dl {
+      font-size: 20px; cursor: pointer; padding: 6px;
+      text-decoration: none; border-radius: 50%;
+      transition: background 0.15s;
+    }
     .msg-file-dl:hover { background: rgba(255,255,255,0.08); }
 
     /* ══════════════════════════════
@@ -334,31 +374,43 @@
       padding-bottom: max(6px, env(safe-area-inset-bottom));
     }
 
-    /* Голосовая строка */
+    /* ── Голосовые кнопки ── */
+    /* app.js управляет через style.display напрямую */
     .voice-bar {
       display: flex; align-items: center; gap: 8px;
       padding: 8px 12px 6px;
     }
 
-    .btn-v {
+    /* Кнопки голосового — используем те же id что в app.js */
+    #btn-join {
       flex: 1; padding: 9px 0;
       border: none; border-radius: 22px;
-      font-size: 13px; font-weight: 600;
-      cursor: pointer; transition: background 0.2s, transform 0.1s;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      background: var(--accent); color: white;
+      transition: background 0.2s;
     }
-    .btn-v:active { transform: scale(0.97); }
-
-    #btn-join  { background: var(--accent); color: white; }
     #btn-join:hover { background: #4070a8; }
 
-    #btn-mic   { background: rgba(255,255,255,0.07); color: var(--text); display: none; }
-    #btn-mic:hover  { background: rgba(255,255,255,0.12); }
-    #btn-mic.muted  { color: var(--red); }
+    #btn-mic {
+      flex: 1; padding: 9px 0;
+      border: none; border-radius: 22px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      background: rgba(255,255,255,0.07); color: var(--text);
+      transition: background 0.2s;
+    }
+    #btn-mic:hover { background: rgba(255,255,255,0.12); }
 
-    #btn-leave { background: rgba(239,83,80,0.13); color: var(--red); display: none;
-                 border: 1px solid rgba(239,83,80,0.25); }
+    #btn-leave {
+      flex: 1; padding: 9px 0;
+      border: 1px solid rgba(239,83,80,0.3);
+      border-radius: 22px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      background: rgba(239,83,80,0.13); color: var(--red);
+      transition: background 0.2s;
+    }
     #btn-leave:hover { background: rgba(239,83,80,0.22); }
 
+    /* mic-status — app.js управляет классами active/muted */
     .mic-status {
       font-size: 11px; text-align: center;
       padding: 2px 0 4px; display: none;
@@ -366,7 +418,7 @@
     .mic-status.active { display: block; color: var(--green); }
     .mic-status.muted  { display: block; color: var(--red); }
 
-    /* Строка ввода */
+    /* ── Строка ввода ── */
     .tg-input-row {
       display: flex; align-items: flex-end; gap: 6px;
       padding: 6px 10px 8px;
@@ -406,7 +458,8 @@
     .attach-item:hover { background: rgba(255,255,255,0.06); }
     .attach-item-icon  { font-size: 20px; width: 24px; text-align: center; }
 
-    .tg-textarea {
+    /* textarea — id="chat-input" как в app.js */
+    #chat-input {
       flex: 1; padding: 10px 14px;
       background: var(--surface);
       border: none; border-radius: 22px;
@@ -415,10 +468,11 @@
       min-height: 38px; max-height: 120px; line-height: 1.45;
       transition: background 0.2s;
     }
-    .tg-textarea::placeholder { color: var(--sub); }
-    .tg-textarea:focus { background: #2a3a4e; }
+    #chat-input::placeholder { color: var(--sub); }
+    #chat-input:focus { background: #2a3a4e; }
 
-    .btn-send-tg {
+    /* btn-send — app.js использует id="btn-send" */
+    #btn-send {
       width: 38px; height: 38px; flex-shrink: 0;
       border: none; border-radius: 50%;
       background: var(--accent); color: white;
@@ -426,13 +480,15 @@
       display: flex; align-items: center; justify-content: center;
       transition: background 0.2s, transform 0.1s;
     }
-    .btn-send-tg:hover    { background: #4070a8; }
-    .btn-send-tg:active   { transform: scale(0.92); }
-    .btn-send-tg:disabled { background: #2a3a4e; cursor: not-allowed; }
+    #btn-send:hover    { background: #4070a8; }
+    #btn-send:active   { transform: scale(0.92); }
+    #btn-send:disabled { background: #2a3a4e; cursor: not-allowed; }
 
-    /* ══════════════════════════════
-       БАННЕР "ПОНЯЛ"
-    ══════════════════════════════ */
+    /* secure-badge — app.js добавляет класс 'visible' */
+    .secure-badge        { display: none; }
+    .secure-badge.visible { display: inline; color: var(--green); }
+
+    /* ── Баннер "Понял" ── */
     .understood-banner {
       position: fixed; top: 68px; left: 50%;
       transform: translateX(-50%);
@@ -452,9 +508,7 @@
       100% { opacity:0; transform:translateX(-50%) translateY(-6px);  }
     }
 
-    /* ══════════════════════════════
-       LIGHTBOX
-    ══════════════════════════════ */
+    /* ── Lightbox ── */
     .lightbox {
       display: none; position: fixed; inset: 0;
       background: rgba(0,0,0,0.95); z-index: 3000;
@@ -472,13 +526,11 @@
     }
     .lightbox-close:hover { color: white; }
 
-    /* Secure badge */
-    .secure-badge { display: none; }
-    .secure-badge.visible { display: inline; color: var(--green); }
-
     /* Скролл */
     ::-webkit-scrollbar { width: 3px; }
-    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,0.08); border-radius: 2px;
+    }
 
     #keep-alive-audio, #hidden-audios, #file-input { display: none; }
   </style>
@@ -527,7 +579,8 @@
       </div>
     </div>
     <div class="tg-header-btns">
-      <button class="icon-btn" id="btn-chat-open" title="Чат" style="display:none">
+      <!-- app.js: btnChatOpen.classList.add('visible') -->
+      <button class="icon-btn" id="btn-chat-open" title="Чат">
         💬
         <span class="bdg" id="chat-badge">0</span>
       </button>
@@ -537,18 +590,19 @@
   <!-- Reconnect -->
   <div class="reconnect-banner" id="reconnect-banner">🔄 Переподключаемся…</div>
 
-  <!-- Лента -->
+  <!-- Лента сообщений — id="chat-messages" как в app.js -->
   <div class="tg-body" id="chat-messages">
 
-    <!-- Голосовая панель -->
-    <div class="voice-panel" id="participants">
+    <!-- Голосовая панель — id="participants", app.js: style.display='block'/'none' -->
+    <div class="voice-panel" id="participants" style="display:none">
       <div class="voice-panel-head">
         <div class="voice-panel-title">🎙 Голосовой чат</div>
       </div>
+      <!-- id="participants-list" как в app.js -->
       <div id="participants-list"></div>
     </div>
 
-    <!-- Старт -->
+    <!-- Приветствие -->
     <div class="date-divider">Начало чата</div>
     <div style="align-self:center; text-align:center; color:var(--sub);
                 font-size:12px; background:rgba(23,33,43,0.85);
@@ -564,12 +618,14 @@
   <div class="tg-bottom">
 
     <!-- Голосовые кнопки -->
+    <!-- app.js управляет через style.display каждой кнопки отдельно -->
     <div class="voice-bar">
-      <button class="btn-v" id="btn-join">🎙 Войти в голосовой</button>
-      <button class="btn-v" id="btn-mic">🔇 Выкл. микрофон</button>
-      <button class="btn-v" id="btn-leave">📵 Выйти</button>
+      <button id="btn-join">🎙 Войти в голосовой</button>
+      <button id="btn-mic"   style="display:none">🔇 Выкл. микрофон</button>
+      <button id="btn-leave" style="display:none">📵 Выйти</button>
     </div>
 
+    <!-- mic-status — app.js управляет классами active/muted -->
     <div class="mic-status" id="mic-status"></div>
 
     <!-- Строка ввода -->
@@ -577,63 +633,11 @@
 
       <!-- Попап прикрепления -->
       <div class="attach-popup" id="attach-popup">
+        <!-- id="btn-photo", "btn-video", "btn-file" — как в app.js -->
         <button class="attach-item" id="btn-photo">
           <span class="attach-item-icon">🖼</span> Фото
         </button>
         <button class="attach-item" id="btn-video">
           <span class="attach-item-icon">🎬</span> Видео
         </button>
-        <button class="attach-item" id="btn-file">
-          <span class="attach-item-icon">📎</span> Файл
-        </button>
-      </div>
-
-      <button class="btn-attach-tg" id="btn-attach-toggle" title="Прикрепить">📎</button>
-
-      <textarea class="tg-textarea" id="chat-input"
-                placeholder="Сообщение…" rows="1"></textarea>
-
-      <button class="btn-send-tg" id="btn-send">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
-          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-        </svg>
-      </button>
-    </div>
-
-  </div>
-</div>
-
-<!-- Lightbox -->
-<div class="lightbox" id="lightbox">
-  <span class="lightbox-close" id="lightbox-close">✕</span>
-  <div id="lightbox-content"></div>
-</div>
-
-<input type="file" id="file-input" accept="*/*">
-<audio id="keep-alive-audio" loop playsinline></audio>
-<div id="hidden-audios"></div>
-
-<script src="/socket.io/socket.io.js"></script>
-<script src="editor.js"></script>
-<script src="app.js"></script>
-
-<script>
-  // Попап прикрепления — открыть/закрыть
-  const attachToggle = document.getElementById('btn-attach-toggle');
-  const attachPopup  = document.getElementById('attach-popup');
-
-  attachToggle.addEventListener('click', (e) => {
-    e.stopPropagation();
-    attachPopup.classList.toggle('open');
-  });
-
-  document.addEventListener('click', () => {
-    attachPopup.classList.remove('open');
-  });
-
-  attachPopup.addEventListener('click', (e) => {
-    e.stopPropagation();
-  });
-</script>
-</body>
-</html>
+        <button class="attach-item
