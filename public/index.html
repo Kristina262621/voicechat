@@ -56,7 +56,7 @@
       transition: all 0.2s;
     }
 
-    .btn-join { background: #e94560; color: white; }
+    .btn-join  { background: #e94560; color: white; }
     .btn-join:hover { background: #c73652; }
 
     .btn-leave {
@@ -91,6 +91,7 @@
     }
     .btn-mic:hover { background: #1a4a7a; }
 
+    /* Участники */
     .participants { margin-top: 24px; display: none; }
     .participants-title {
       font-size: 13px;
@@ -119,7 +120,7 @@
     }
 
     .volume-bar-wrap {
-      width: 60px;
+      width: 50px;
       height: 6px;
       background: #1a1a2e;
       border-radius: 3px;
@@ -135,34 +136,107 @@
     }
     .volume-bar.loud { background: #e94560; }
 
+    /* ── Качество связи ── */
+    .signal-wrap {
+      display: flex;
+      align-items: flex-end;
+      gap: 2px;
+      height: 16px;
+    }
+
+    .signal-wrap .bar {
+      width: 5px;
+      border-radius: 2px;
+      background: #1a1a2e;
+      transition: background 0.4s;
+    }
+
+    .signal-wrap .bar:nth-child(1) { height: 4px;  }
+    .signal-wrap .bar:nth-child(2) { height: 8px;  }
+    .signal-wrap .bar:nth-child(3) { height: 12px; }
+    .signal-wrap .bar:nth-child(4) { height: 16px; }
+
+    /* excellent */
+    .signal-excellent .bar              { background: #4caf50; }
+    /* good */
+    .signal-good .bar:nth-child(-n+3)  { background: #8bc34a; }
+    /* fair */
+    .signal-fair .bar:nth-child(-n+2)  { background: #ff9800; }
+    /* poor */
+    .signal-poor .bar:nth-child(1)     { background: #e94560; }
+    /* none — все серые */
+
+    /* Плашка переподключения */
+    .reconnect-banner {
+      display: none;
+      margin-top: 16px;
+      padding: 10px 14px;
+      background: #3a1a1a;
+      border: 1px solid #e94560;
+      border-radius: 10px;
+      font-size: 13px;
+      color: #ff6b6b;
+      animation: pulse 1.5s infinite;
+    }
+    .reconnect-banner.visible { display: block; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.5; }
+    }
+
+    /* Шифрование */
+    .secure-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 14px;
+      padding: 6px 12px;
+      background: #0d2b1a;
+      border: 1px solid #2e7d32;
+      border-radius: 20px;
+      font-size: 12px;
+      color: #66bb6a;
+    }
+
     #hidden-audios { display: none; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>🎙️ Голосовой чат</h1>
-    <p class="subtitle">Говори — тебя услышат</p>
+<div class="container">
+  <h1>🎙️ Голосовой чат</h1>
+  <p class="subtitle">Говори — тебя услышат</p>
 
-    <div class="status-box">
-      <div class="user-count" id="user-count">0</div>
-      <div class="user-label">участников онлайн</div>
-    </div>
-
-    <button class="btn btn-join" id="btn-join">🎙️ Войти в чат</button>
-    <button class="btn btn-mic" id="btn-mic" style="display:none">🔇 Выключить микрофон</button>
-    <button class="btn btn-leave" id="btn-leave" style="display:none">Выйти из чата</button>
-
-    <div class="mic-status" id="mic-status"></div>
-
-    <div class="participants" id="participants">
-      <div class="participants-title">Участники</div>
-      <div id="participants-list"></div>
-    </div>
+  <div class="status-box">
+    <div class="user-count" id="user-count">0</div>
+    <div class="user-label">участников онлайн</div>
   </div>
 
-  <div id="hidden-audios"></div>
+  <button class="btn btn-join"  id="btn-join">🎙️ Войти в чат</button>
+  <button class="btn btn-mic"   id="btn-mic"  style="display:none">🔇 Выключить микрофон</button>
+  <button class="btn btn-leave" id="btn-leave" style="display:none">Выйти из чата</button>
 
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="app.js"></script>
+  <div class="mic-status" id="mic-status"></div>
+
+  <!-- Плашка переподключения -->
+  <div class="reconnect-banner" id="reconnect-banner">
+    🔄 Соединение потеряно, переподключаемся…
+  </div>
+
+  <!-- Бейдж шифрования -->
+  <div class="secure-badge" id="secure-badge" style="display:none">
+    🔒 Звонок зашифрован (DTLS-SRTP)
+  </div>
+
+  <div class="participants" id="participants">
+    <div class="participants-title">Участники</div>
+    <div id="participants-list"></div>
+  </div>
+</div>
+
+<div id="hidden-audios"></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
