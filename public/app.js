@@ -1,3 +1,76 @@
+// ═══════════════════════════════════════════════
+//  CRYPTO — AES-256-GCM через WebCrypto API
+//  Ключ = пароль комнаты, никуда не передаётся
+// ═══════════════════════════════════════════════
+const Crypto = (() => {
+  let cryptoKey = null;
+
+  // Выводим ключ из пароля через PBKDF2 (100 000 итераций)
+  async function deriveKey(password) {
+    const enc      = new TextEncoder();
+    const keyMat   = await crypto.subtle.importKey(
+      'raw', enc.encode(password), { name: 'PBKDF2' }, false, ['deriveKey']
+    );
+    const salt = enc.encode('voicechat-salt-v1'); // фиксированная соль для совместимости
+    cryptoKey  = await crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+      keyMat,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
+    return cryptoKey;
+  }
+
+  // Шифруем произвольные данные (ArrayBuffer или строку)
+  async function encrypt(data) {
+    const iv         = crypto.getRandomValues(new Uint8Array(12)); // 96-bit IV
+    const encoded    = typeof data === 'string'
+      ? new TextEncoder().encode(data)
+      : new Uint8Array(data);
+
+    const cipherBuf  = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv },
+      cryptoKey,
+      encoded
+    );
+
+    // Возвращаем base64(iv) и base64(ciphertext) — удобно для JSON
+    return {
+      iv:        btoa(String.fromCharCode(...iv)),
+      encrypted: btoa(String.fromCharCode(...new Uint8Array(cipherBuf)))
+    };
+  }
+
+  // Расшифровываем
+  async function decrypt(encryptedB64, ivB64) {
+    const iv         = Uint8Array.from(atob(ivB64),        c => c.charCodeAt(0));
+    const cipherBuf  = Uint8Array.from(atob(encryptedB64), c => c.charCodeAt(0));
+
+    const plainBuf   = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv },
+      cryptoKey,
+      cipherBuf
+    );
+    return plainBuf; // ArrayBuffer
+  }
+
+  async function decryptText(encryptedB64, ivB64) {
+    const buf = await decrypt(encryptedB64, ivB64);
+    return new TextDecoder().decode(buf);
+  }
+
+  async function decryptBlob(encryptedB64, ivB64, mimeType) {
+    const buf = await decrypt(encryptedB64, ivB64);
+    return new Blob([buf], { type: mimeType });
+  }
+
+  return { deriveKey, encrypt, decrypt, decryptText, decryptBlob };
+})();
+
+// ═══════════════════════════════════════════════
+//  SOCKET
+// ═══════════════════════════════════════════════
 const socket = io({
   reconnection:         true,
   reconnectionAttempts: Infinity,
@@ -5,20 +78,21 @@ const socket = io({
   reconnectionDelayMax: 5000,
   timeout:              20000,
   transports:           ['websocket', 'polling'],
-  // Не подключаемся автоматически — ждём пока пройдёт auth
   autoConnect:          false,
 });
 
 // ── DOM ──
 const screenPassword   = document.getElementById('screen-password');
-const screenChat       = document.getElementById('screen-chat');
+const screenMain       = document.getElementById('screen-main');
 const pwInput          = document.getElementById('pw-input');
 const pwError          = document.getElementById('pw-error');
 const btnEnter         = document.getElementById('btn-enter');
 const btnTogglePw      = document.getElementById('btn-toggle-pw');
+
 const btnJoin          = document.getElementById('btn-join');
 const btnLeave         = document.getElementById('btn-leave');
 const btnMic           = document.getElementById('btn-mic');
+const btnChatOpen      = document.getElementById('btn-chat-open');
 const userCount        = document.getElementById('user-count');
 const micStatus        = document.getElementById('mic-status');
 const hiddenAudios     = document.getElementById('hidden-audios');
@@ -28,6 +102,20 @@ const reconnectBanner  = document.getElementById('reconnect-banner');
 const secureBadge      = document.getElementById('secure-badge');
 const keepAliveAudio   = document.getElementById('keep-alive-audio');
 
+const chatPanel        = document.getElementById('chat-panel');
+const chatMessages     = document.getElementById('chat-messages');
+const chatInput        = document.getElementById('chat-input');
+const btnSend          = document.getElementById('btn-send');
+const btnClosChat      = document.getElementById('btn-close-chat');
+const btnPhoto         = document.getElementById('btn-photo');
+const btnVideo         = document.getElementById('btn-video');
+const btnFile          = document.getElementById('btn-file');
+const fileInput        = document.getElementById('file-input');
+const chatBadge        = document.getElementById('chat-badge');
+const lightbox         = document.getElementById('lightbox');
+const lightboxContent  = document.getElementById('lightbox-content');
+const lightboxClose    = document.getElementById('lightbox-close');
+
 let localStream     = null;
 let peers           = {};
 let micEnabled      = true;
@@ -35,7 +123,10 @@ let pendingOffers   = [];
 let joined          = false;
 let audioCtx        = null;
 let wakeLock        = null;
-let savedPassword   = '';        // держим в памяти для реконнекта
+let savedPassword   = '';
+let unreadCount     = 0;
+let chatOpen        = false;
+
 const analysers     = {};
 const qualityTimers = {};
 
@@ -44,52 +135,43 @@ const qualityTimers = {};
 // ═══════════════════════════════════════════════
 function log(msg) {
   console.log(msg);
-  let logBox = document.getElementById('log-box');
-  if (!logBox) {
-    logBox = document.createElement('div');
-    logBox.id = 'log-box';
-    logBox.style.cssText = `
+  let box = document.getElementById('log-box');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'log-box';
+    box.style.cssText = `
       position:fixed;bottom:0;left:0;right:0;
       background:rgba(0,0,0,0.85);color:#0f0;
-      font-size:11px;font-family:monospace;
-      padding:8px;max-height:40vh;overflow-y:auto;z-index:9999;
+      font-size:10px;font-family:monospace;
+      padding:6px;max-height:35vh;overflow-y:auto;z-index:9999;
     `;
-    document.body.appendChild(logBox);
+    document.body.appendChild(box);
   }
   const line = document.createElement('div');
-  line.textContent = new Date().toISOString().slice(11, 19) + ' ' + msg;
-  logBox.appendChild(line);
-  logBox.scrollTop = logBox.scrollHeight;
+  line.textContent = new Date().toISOString().slice(11,19) + ' ' + msg;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
 }
 
 // ═══════════════════════════════════════════════
 //  ЭКРАН ПАРОЛЯ
 // ═══════════════════════════════════════════════
-
-// Показать/скрыть пароль
 btnTogglePw.addEventListener('click', () => {
   const isText = pwInput.type === 'text';
-  pwInput.type       = isText ? 'password' : 'text';
+  pwInput.type = isText ? 'password' : 'text';
   btnTogglePw.textContent = isText ? '👁' : '🙈';
 });
 
-// Enter в поле пароля
-pwInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') attemptEnter();
-});
-
+pwInput.addEventListener('keydown', e => { if (e.key === 'Enter') attemptEnter(); });
 btnEnter.addEventListener('click', attemptEnter);
 
 async function attemptEnter() {
   const pw = pwInput.value.trim();
-  if (!pw) {
-    showPwError('Введи пароль');
-    return;
-  }
+  if (!pw) { showPwError('Введи пароль'); return; }
 
-  btnEnter.disabled      = true;
-  btnEnter.textContent   = '⏳ Проверяем…';
-  pwError.textContent    = '';
+  btnEnter.disabled    = true;
+  btnEnter.textContent = '⏳ Проверяем…';
+  pwError.textContent  = '';
 
   try {
     const res  = await fetch('/auth', {
@@ -101,6 +183,9 @@ async function attemptEnter() {
 
     if (data.ok) {
       savedPassword = pw;
+      // Выводим ключ из пароля — это может занять секунду
+      await Crypto.deriveKey(pw);
+      log('Crypto key derived');
       enterChat();
     } else {
       showPwError('❌ Неверный пароль');
@@ -108,8 +193,8 @@ async function attemptEnter() {
       setTimeout(() => pwInput.classList.remove('error'), 400);
     }
   } catch (e) {
-    showPwError('⚠️ Ошибка соединения с сервером');
-    log('Auth fetch error: ' + e.message);
+    showPwError('⚠️ Ошибка соединения');
+    log('Auth error: ' + e.message);
   } finally {
     btnEnter.disabled    = false;
     btnEnter.textContent = '🔑 Войти';
@@ -123,11 +208,368 @@ function showPwError(msg) {
 
 function enterChat() {
   screenPassword.style.display = 'none';
-  screenChat.style.display     = 'block';
-
-  // Подключаем socket только после успешной авторизации
+  screenMain.style.display     = 'block';
+  secureBadge.classList.add('visible');
+  btnChatOpen.classList.add('visible');
   socket.connect();
 }
+
+// ═══════════════════════════════════════════════
+//  ЧАТ — ОТКРЫТИЕ / ЗАКРЫТИЕ
+// ═══════════════════════════════════════════════
+btnChatOpen.addEventListener('click', openChat);
+btnClosChat.addEventListener('click', closeChat);
+
+function openChat() {
+  chatPanel.classList.add('open');
+  chatOpen = true;
+  unreadCount = 0;
+  chatBadge.classList.remove('visible');
+  chatBadge.textContent = '0';
+  setTimeout(() => chatMessages.scrollTop = chatMessages.scrollHeight, 100);
+}
+
+function closeChat() {
+  chatPanel.classList.remove('open');
+  chatOpen = false;
+}
+
+// Авто-resize textarea
+chatInput.addEventListener('input', () => {
+  chatInput.style.height = 'auto';
+  chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+});
+
+chatInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendTextMessage();
+  }
+});
+
+btnSend.addEventListener('click', sendTextMessage);
+
+// ═══════════════════════════════════════════════
+//  ОТПРАВКА ТЕКСТА
+// ═══════════════════════════════════════════════
+async function sendTextMessage() {
+  const text = chatInput.value.trim();
+  if (!text) return;
+
+  btnSend.disabled = true;
+  try {
+    const { encrypted, iv } = await Crypto.encrypt(text);
+    socket.emit('chat-message', { encrypted, iv, type: 'text' });
+
+    // Показываем своё сообщение сразу (не ждём эхо от сервера)
+    appendMessage({
+      from:      socket.id,
+      text,
+      type:      'text',
+      timestamp: Date.now(),
+      mine:      true,
+      status:    'ok'
+    });
+
+    chatInput.value = '';
+    chatInput.style.height = 'auto';
+  } catch (e) {
+    log('Send text error: ' + e.message);
+  } finally {
+    btnSend.disabled = false;
+  }
+}
+
+// ═══════════════════════════════════════════════
+//  ОТПРАВКА ФАЙЛА (фото / видео / любой)
+// ═══════════════════════════════════════════════
+let pendingFileType = 'image/*';
+
+btnPhoto.addEventListener('click', () => {
+  pendingFileType   = 'image/*';
+  fileInput.accept  = 'image/*';
+  fileInput.click();
+});
+
+btnVideo.addEventListener('click', () => {
+  pendingFileType   = 'video/*';
+  fileInput.accept  = 'video/*';
+  fileInput.click();
+});
+
+btnFile.addEventListener('click', () => {
+  pendingFileType   = '*/*';
+  fileInput.accept  = '*/*';
+  fileInput.click();
+});
+
+fileInput.addEventListener('change', async () => {
+  const file = fileInput.files[0];
+  if (!file) return;
+  fileInput.value = '';
+
+  // Лимит 20 МБ
+  if (file.size > 20 * 1024 * 1024) {
+    alert('Файл слишком большой. Максимум 20 МБ.');
+    return;
+  }
+
+  const type = file.type.startsWith('image/') ? 'image'
+             : file.type.startsWith('video/') ? 'video'
+             : 'file';
+
+  try {
+    // Читаем файл как ArrayBuffer
+    const arrayBuf   = await file.arrayBuffer();
+    // Шифруем
+    const { encrypted, iv } = await Crypto.encrypt(arrayBuf);
+
+    // Для превью — локальный URL (не зашифрованный, только для себя)
+    const localUrl = URL.createObjectURL(new Blob([arrayBuf], { type: file.type }));
+
+    socket.emit('chat-message', {
+      encrypted,
+      iv,
+      type,
+      fileName: file.name,
+      fileSize: file.size,
+      mimeType: file.type,
+    });
+
+    // Показываем своё медиа сразу
+    appendMessage({
+      from:      socket.id,
+      type,
+      localUrl,
+      fileName:  file.name,
+      fileSize:  file.size,
+      mimeType:  file.type,
+      timestamp: Date.now(),
+      mine:      true,
+      status:    'ok'
+    });
+
+  } catch (e) {
+    log('Send file error: ' + e.message);
+    alert('Ошибка при отправке файла: ' + e.message);
+  }
+});
+
+// ═══════════════════════════════════════════════
+//  ПОЛУЧЕНИЕ СООБЩЕНИЙ
+// ═══════════════════════════════════════════════
+socket.on('chat-message', async (data) => {
+  log('Chat msg from ' + data.from + ' type=' + data.type);
+
+  const msgObj = {
+    from:      data.from,
+    type:      data.type,
+    fileName:  data.fileName,
+    fileSize:  data.fileSize,
+    mimeType:  data.mimeType,
+    timestamp: data.timestamp,
+    mine:      false,
+    status:    'decrypting'
+  };
+
+  // Добавляем placeholder пока расшифровываем
+  const msgId = appendMessage(msgObj);
+
+  try {
+    if (data.type === 'text') {
+      const text     = await Crypto.decryptText(data.encrypted, data.iv);
+      updateMessage(msgId, { text, status: 'ok' });
+    } else {
+      // Файл / фото / видео
+      const mimeType = data.mimeType || 'application/octet-stream';
+      const blob     = await Crypto.decryptBlob(data.encrypted, data.iv, mimeType);
+      const url      = URL.createObjectURL(blob);
+      updateMessage(msgId, { localUrl: url, status: 'ok' });
+    }
+  } catch (e) {
+    log('Decrypt error: ' + e.message);
+    updateMessage(msgId, { status: 'error' });
+  }
+
+  // Счётчик непрочитанных
+  if (!chatOpen) {
+    unreadCount++;
+    chatBadge.textContent = unreadCount > 99 ? '99+' : unreadCount;
+    chatBadge.classList.add('visible');
+  }
+});
+
+// ═══════════════════════════════════════════════
+//  РЕНДЕР СООБЩЕНИЙ
+// ═══════════════════════════════════════════════
+let msgCounter = 0;
+
+function appendMessage(msg) {
+  const id  = 'msg-' + (++msgCounter);
+  const div = document.createElement('div');
+  div.id        = id;
+  div.className = 'msg ' + (msg.mine ? 'mine' : 'theirs');
+
+  div.innerHTML = buildMsgHTML(msg);
+  chatMessages.appendChild(div);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  return id;
+}
+
+function updateMessage(id, updates) {
+  const div = document.getElementById(id);
+  if (!div) return;
+
+  // Получаем текущие данные из data-атрибутов
+  const type     = div.dataset.type     || 'text';
+  const mimeType = div.dataset.mimeType || '';
+  const fileName = div.dataset.fileName || '';
+  const fileSize = div.dataset.fileSize || '';
+  const mine     = div.classList.contains('mine');
+
+  // Обновляем content
+  const content = div.querySelector('.msg-content');
+  if (content) {
+    const msg = { type, mimeType, fileName, fileSize, mine, ...updates };
+    content.innerHTML = buildContentHTML(msg);
+    bindMediaEvents(div);
+  }
+
+  const statusEl = div.querySelector('.msg-decrypt-status');
+  if (statusEl) {
+    if (updates.status === 'ok')    { statusEl.className = 'msg-decrypt-status ok';  statusEl.textContent = '🔓 расшифровано'; }
+    if (updates.status === 'error') { statusEl.className = 'msg-decrypt-status err'; statusEl.textContent = '⚠️ ошибка расшифровки'; }
+    if (updates.status === 'decrypting') statusEl.textContent = '⏳ расшифровываем…';
+  }
+
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function buildMsgHTML(msg) {
+  const time    = new Date(msg.timestamp || Date.now()).toLocaleTimeString('ru', { hour:'2-digit', minute:'2-digit' });
+  const sender  = msg.mine ? '' : `<div class="msg-sender">👤 ${shortId(msg.from)}</div>`;
+  const status  = msg.status === 'ok'
+    ? '🔓 расшифровано'
+    : msg.status === 'error'
+      ? '⚠️ ошибка расшифровки'
+      : '⏳ расшифровываем…';
+  const statusClass = msg.status === 'ok' ? 'ok' : msg.status === 'error' ? 'err' : '';
+
+  return `
+    ${sender}
+    <div class="msg-content"
+         data-type="${msg.type || 'text'}"
+         data-mime="${msg.mimeType || ''}"
+         data-filename="${msg.fileName || ''}"
+         data-filesize="${msg.fileSize || ''}">
+      ${buildContentHTML(msg)}
+    </div>
+    <div class="msg-meta">${time}</div>
+    <div class="msg-decrypt-status ${statusClass}">${msg.mine ? '' : status}</div>
+  `;
+}
+
+function buildContentHTML(msg) {
+  if (msg.type === 'text') {
+    return escapeHtml(msg.text || '');
+  }
+
+  if (msg.type === 'image') {
+    if (msg.localUrl) {
+      return `<img class="msg-media" src="${msg.localUrl}" alt="фото" loading="lazy">`;
+    }
+    return '<span style="color:#888;font-size:12px">⏳ загрузка изображения…</span>';
+  }
+
+  if (msg.type === 'video') {
+    if (msg.localUrl) {
+      return `<video class="msg-media" src="${msg.localUrl}" controls playsinline></video>`;
+    }
+    return '<span style="color:#888;font-size:12px">⏳ загрузка видео…</span>';
+  }
+
+  // Произвольный файл
+  if (msg.type === 'file') {
+    const size = msg.fileSize ? formatSize(msg.fileSize) : '';
+    if (msg.localUrl) {
+      return `
+        <div class="msg-file">
+          <span class="msg-file-icon">📄</span>
+          <div class="msg-file-info">
+            <div class="msg-file-name">${escapeHtml(msg.fileName || 'файл')}</div>
+            <div class="msg-file-size">${size}</div>
+          </div>
+          <a class="msg-file-dl" href="${msg.localUrl}"
+             download="${escapeHtml(msg.fileName || 'file')}" title="Скачать">⬇️</a>
+        </div>
+      `;
+    }
+    return `
+      <div class="msg-file">
+        <span class="msg-file-icon">📄</span>
+        <div class="msg-file-info">
+          <div class="msg-file-name">${escapeHtml(msg.fileName || 'файл')}</div>
+          <div class="msg-file-size">${size}</div>
+        </div>
+        <span style="color:#888;font-size:12px">⏳</span>
+      </div>
+    `;
+  }
+
+  return '';
+}
+
+function bindMediaEvents(container) {
+  // Фото — открываем в lightbox
+  container.querySelectorAll('img.msg-media').forEach(img => {
+    img.onclick = () => openLightbox('img', img.src);
+  });
+  // Видео — тоже в lightbox
+  container.querySelectorAll('video.msg-media').forEach(vid => {
+    vid.ondblclick = () => openLightbox('video', vid.src);
+  });
+}
+
+// ═══════════════════════════════════════════════
+//  LIGHTBOX
+// ═══════════════════════════════════════════════
+function openLightbox(type, src) {
+  lightboxContent.innerHTML = type === 'img'
+    ? `<img src="${src}" alt="">`
+    : `<video src="${src}" controls autoplay playsinline style="max-width:95vw;max-height:85vh"></video>`;
+  lightbox.classList.add('open');
+}
+
+lightboxClose.addEventListener('click', () => {
+  lightbox.classList.remove('open');
+  lightboxContent.innerHTML = '';
+});
+
+lightbox.addEventListener('click', (e) => {
+  if (e.target === lightbox) {
+    lightbox.classList.remove('open');
+    lightboxContent.innerHTML = '';
+  }
+});
+
+// ═══════════════════════════════════════════════
+//  УТИЛИТЫ
+// ═══════════════════════════════════════════════
+function escapeHtml(str) {
+  return str
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024)        return bytes + ' Б';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' КБ';
+  return (bytes / 1024 / 1024).toFixed(1) + ' МБ';
+}
+
+function shortId(id) { return id ? id.slice(0, 6) : '??'; }
 
 // ═══════════════════════════════════════════════
 //  WAKELOCK
@@ -142,14 +584,11 @@ async function requestWakeLock() {
 }
 
 async function releaseWakeLock() {
-  if (wakeLock) {
-    try { await wakeLock.release(); } catch (_) {}
-    wakeLock = null;
-  }
+  if (wakeLock) { try { await wakeLock.release(); } catch (_) {} wakeLock = null; }
 }
 
 // ═══════════════════════════════════════════════
-//  KEEP-ALIVE AUDIO (iOS)
+//  KEEP-ALIVE (iOS)
 // ═══════════════════════════════════════════════
 function startKeepAlive() {
   try {
@@ -157,14 +596,11 @@ function startKeepAlive() {
     const buffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
     const source = ctx.createBufferSource();
     const dest   = ctx.createMediaStreamDestination();
-    source.buffer = buffer;
-    source.loop   = true;
-    source.connect(dest);
-    source.start();
+    source.buffer = buffer; source.loop = true;
+    source.connect(dest); source.start();
     keepAliveAudio.srcObject = dest.stream;
-    keepAliveAudio.play().catch(e => log('KeepAlive error: ' + e.message));
-    log('KeepAlive started');
-  } catch (e) { log('KeepAlive init error: ' + e.message); }
+    keepAliveAudio.play().catch(e => log('KeepAlive: ' + e.message));
+  } catch (e) { log('KeepAlive init: ' + e.message); }
 }
 
 function stopKeepAlive() {
@@ -173,61 +609,37 @@ function stopKeepAlive() {
 }
 
 // ═══════════════════════════════════════════════
-//  ВОССТАНОВЛЕНИЕ ПОСЛЕ БЛОКИРОВКИ ЭКРАНА
+//  ВОССТАНОВЛЕНИЕ ТРЕКА ПОСЛЕ БЛОКИРОВКИ ЭКРАНА
 // ═══════════════════════════════════════════════
 document.addEventListener('visibilitychange', async () => {
-  log('Visibility: ' + document.visibilityState);
   if (document.visibilityState !== 'visible' || !joined || !localStream) return;
-
   await requestWakeLock();
 
-  const audioTracks = localStream.getAudioTracks();
-  const allDead     = audioTracks.every(t => t.readyState === 'ended');
-
-  if (allDead) {
-    log('Tracks ended — reacquiring mic...');
+  const tracks = localStream.getAudioTracks();
+  if (tracks.every(t => t.readyState === 'ended')) {
+    log('Tracks ended — reacquiring...');
     try {
       const newStream = await navigator.mediaDevices.getUserMedia({
         video: false,
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl:  true,
-          sampleRate:       48000,
-          sampleSize:       16,
-          channelCount:     2,
-          latency:          0,
-        }
+        audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true,
+                 sampleRate:48000, channelCount:2 }
       });
-
       const newTrack = newStream.getAudioTracks()[0];
-
-      for (const [userId, peer] of Object.entries(peers)) {
+      for (const [uid, peer] of Object.entries(peers)) {
         const sender = peer.getSenders().find(s => s.track?.kind === 'audio');
-        if (sender) {
-          await sender.replaceTrack(newTrack);
-          log('Replaced track for ' + userId);
-        }
+        if (sender) { await sender.replaceTrack(newTrack); log('Replaced track for ' + uid); }
       }
-
-      audioTracks.forEach(t => { localStream.removeTrack(t); t.stop(); });
+      tracks.forEach(t => { localStream.removeTrack(t); t.stop(); });
       localStream.addTrack(newTrack);
-
       stopVolumeAnalysis(socket.id);
       startVolumeAnalysis(socket.id, localStream);
       newTrack.enabled = micEnabled;
       log('Mic restored');
-    } catch (e) {
-      log('Failed to restore mic: ' + e.message);
-    }
+    } catch (e) { log('Restore mic failed: ' + e.message); }
   } else {
-    audioTracks.forEach(t => { t.enabled = micEnabled; });
+    tracks.forEach(t => { t.enabled = micEnabled; });
   }
-
-  if (audioCtx?.state === 'suspended') {
-    await audioCtx.resume();
-    log('AudioContext resumed');
-  }
+  if (audioCtx?.state === 'suspended') { await audioCtx.resume(); log('AudioCtx resumed'); }
 });
 
 // ═══════════════════════════════════════════════
@@ -238,8 +650,7 @@ function playBeep(type) {
     const ctx  = new (window.AudioContext || window.webkitAudioContext)();
     const osc  = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
+    osc.connect(gain); gain.connect(ctx.destination);
     gain.gain.setValueAtTime(0.3, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
     if (type === 'join') {
@@ -249,10 +660,9 @@ function playBeep(type) {
       osc.frequency.setValueAtTime(900, ctx.currentTime);
       osc.frequency.setValueAtTime(500, ctx.currentTime + 0.12);
     }
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.35);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.35);
     osc.onended = () => ctx.close();
-  } catch (e) { log('Beep error: ' + e.message); }
+  } catch (e) { log('Beep: ' + e.message); }
 }
 
 // ═══════════════════════════════════════════════
@@ -262,39 +672,21 @@ const iceServers = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302'  },
     { urls: 'stun:stun1.l.google.com:19302' },
-    {
-      urls:       'turn:openrelay.metered.ca:80',
-      username:   'openrelayproject',
-      credential: 'openrelayproject'
-    },
-    {
-      urls:       'turn:openrelay.metered.ca:443',
-      username:   'openrelayproject',
-      credential: 'openrelayproject'
-    },
-    {
-      urls:       'turn:openrelay.metered.ca:443?transport=tcp',
-      username:   'openrelayproject',
-      credential: 'openrelayproject'
-    }
+    { urls:'turn:openrelay.metered.ca:80',    username:'openrelayproject', credential:'openrelayproject' },
+    { urls:'turn:openrelay.metered.ca:443',   username:'openrelayproject', credential:'openrelayproject' },
+    { urls:'turn:openrelay.metered.ca:443?transport=tcp', username:'openrelayproject', credential:'openrelayproject' },
   ]
 };
 
-// ═══════════════════════════════════════════════
-//  SDP
-// ═══════════════════════════════════════════════
 function forceOpusMaxQuality(sdp) {
-  const lines  = sdp.split('\r\n');
-  const result = [];
+  const lines = sdp.split('\r\n'), result = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (line.includes('a=rtpmap') && line.toLowerCase().includes('opus')) {
       result.push(line);
       const pt = line.split(':')[1].split(' ')[0];
-      if (i + 1 < lines.length && lines[i + 1].startsWith('a=fmtp:' + pt)) i++;
-      result.push(
-        `a=fmtp:${pt} minptime=10;useinbandfec=1;stereo=1;sprop-stereo=1;maxaveragebitrate=510000`
-      );
+      if (i+1 < lines.length && lines[i+1].startsWith('a=fmtp:'+pt)) i++;
+      result.push(`a=fmtp:${pt} minptime=10;useinbandfec=1;stereo=1;sprop-stereo=1;maxaveragebitrate=510000`);
       continue;
     }
     if (line.startsWith('b=AS:') || line.startsWith('b=TIAS:')) continue;
@@ -306,32 +698,27 @@ function forceOpusMaxQuality(sdp) {
 // ═══════════════════════════════════════════════
 //  ШКАЛА КАЧЕСТВА
 // ═══════════════════════════════════════════════
-function renderSignal(userId, level) {
-  const wrap = document.getElementById('sig-' + userId);
-  if (!wrap) return;
-  wrap.className = 'signal-wrap signal-' + level;
-}
-
 function calcLevel(rtt, lost, total, jitter) {
   if (rtt === null) return 'none';
-  const lossRate = (lost + total) > 0 ? lost / (lost + total) : 0;
-  if (rtt < 80  && lossRate < 0.02 && jitter < 0.02) return 'excellent';
-  if (rtt < 150 && lossRate < 0.05 && jitter < 0.05) return 'good';
-  if (rtt < 300 && lossRate < 0.10 && jitter < 0.10) return 'fair';
+  const lr = (lost+total) > 0 ? lost/(lost+total) : 0;
+  if (rtt < 80  && lr < 0.02 && jitter < 0.02) return 'excellent';
+  if (rtt < 150 && lr < 0.05 && jitter < 0.05) return 'good';
+  if (rtt < 300 && lr < 0.10 && jitter < 0.10) return 'fair';
   return 'poor';
+}
+
+function renderSignal(userId, level) {
+  const w = document.getElementById('sig-' + userId);
+  if (w) w.className = 'signal-wrap signal-' + level;
 }
 
 async function measureRemoteQuality(peer) {
   try {
     const stats = await peer.getStats();
-    let rtt = null, lost = 0, received = 0, jitter = 0;
+    let rtt=null, lost=0, received=0, jitter=0;
     stats.forEach(r => {
-      if (r.type === 'inbound-rtp' && r.kind === 'audio') {
-        lost = r.packetsLost || 0; received = r.packetsReceived || 0; jitter = r.jitter || 0;
-      }
-      if (r.type === 'candidate-pair' && r.state === 'succeeded' && r.currentRoundTripTime != null) {
-        rtt = r.currentRoundTripTime * 1000;
-      }
+      if (r.type==='inbound-rtp' && r.kind==='audio') { lost=r.packetsLost||0; received=r.packetsReceived||0; jitter=r.jitter||0; }
+      if (r.type==='candidate-pair' && r.state==='succeeded' && r.currentRoundTripTime!=null) rtt=r.currentRoundTripTime*1000;
     });
     return calcLevel(rtt, lost, received, jitter);
   } catch { return 'none'; }
@@ -340,15 +727,10 @@ async function measureRemoteQuality(peer) {
 async function measureLocalQuality(peer) {
   try {
     const stats = await peer.getStats();
-    let rtt = null, lost = 0, sent = 0, jitter = 0;
+    let rtt=null, lost=0, sent=0, jitter=0;
     stats.forEach(r => {
-      if (r.type === 'remote-inbound-rtp' && r.kind === 'audio') {
-        lost = r.packetsLost || 0; jitter = r.jitter || 0;
-        if (r.roundTripTime != null) rtt = r.roundTripTime * 1000;
-      }
-      if (r.type === 'outbound-rtp' && r.kind === 'audio') {
-        sent = r.packetsSent || 0;
-      }
+      if (r.type==='remote-inbound-rtp' && r.kind==='audio') { lost=r.packetsLost||0; jitter=r.jitter||0; if(r.roundTripTime!=null) rtt=r.roundTripTime*1000; }
+      if (r.type==='outbound-rtp' && r.kind==='audio') sent=r.packetsSent||0;
     });
     return calcLevel(rtt, lost, sent, jitter);
   } catch { return 'none'; }
@@ -357,9 +739,7 @@ async function measureLocalQuality(peer) {
 function startQualityMonitor(userId, peer, isLocal) {
   stopQualityMonitor(userId);
   qualityTimers[userId] = setInterval(async () => {
-    const level = isLocal
-      ? await measureLocalQuality(peer)
-      : await measureRemoteQuality(peer);
+    const level = isLocal ? await measureLocalQuality(peer) : await measureRemoteQuality(peer);
     renderSignal(userId, level);
   }, 2000);
 }
@@ -371,19 +751,14 @@ function stopQualityMonitor(userId) {
 // ═══════════════════════════════════════════════
 //  УЧАСТНИКИ UI
 // ═══════════════════════════════════════════════
-function shortId(id) { return id.slice(0, 6); }
-
 function addParticipant(userId, label) {
-  if (document.getElementById('p-' + userId)) return;
+  if (document.getElementById('p-'+userId)) return;
   participantsBox.style.display = 'block';
   const div = document.createElement('div');
-  div.className = 'participant';
-  div.id = 'p-' + userId;
+  div.className = 'participant'; div.id = 'p-'+userId;
   div.innerHTML = `
     <span class="participant-name">${label}</span>
-    <div class="volume-bar-wrap">
-      <div class="volume-bar" id="vol-${userId}"></div>
-    </div>
+    <div class="volume-bar-wrap"><div class="volume-bar" id="vol-${userId}"></div></div>
     <div class="signal-wrap signal-none" id="sig-${userId}">
       <div class="bar"></div><div class="bar"></div>
       <div class="bar"></div><div class="bar"></div>
@@ -393,7 +768,7 @@ function addParticipant(userId, label) {
 }
 
 function removeParticipant(userId) {
-  const el = document.getElementById('p-' + userId);
+  const el = document.getElementById('p-'+userId);
   if (el) el.remove();
   if (participantsList.children.length === 0) participantsBox.style.display = 'none';
 }
@@ -402,27 +777,20 @@ function removeParticipant(userId) {
 //  ГРОМКОСТЬ
 // ═══════════════════════════════════════════════
 function startVolumeAnalysis(userId, stream) {
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
-  }
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate:48000 });
   stopVolumeAnalysis(userId);
-  const source   = audioCtx.createMediaStreamSource(stream);
+  const source = audioCtx.createMediaStreamSource(stream);
   const analyser = audioCtx.createAnalyser();
   analyser.fftSize = 512;
   source.connect(analyser);
-  const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
+  const data = new Uint8Array(analyser.frequencyBinCount);
   function tick() {
     if (!analysers[userId]) return;
-    analyser.getByteFrequencyData(dataArray);
-    let sum = 0;
-    for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-    const pct = Math.min(100, (sum / dataArray.length) * 3);
-    const bar = document.getElementById('vol-' + userId);
-    if (bar) {
-      bar.style.width = pct + '%';
-      bar.className   = 'volume-bar' + (pct > 60 ? ' loud' : '');
-    }
+    analyser.getByteFrequencyData(data);
+    let sum = 0; for (let i=0; i<data.length; i++) sum += data[i];
+    const pct = Math.min(100, (sum/data.length)*3);
+    const bar = document.getElementById('vol-'+userId);
+    if (bar) { bar.style.width = pct+'%'; bar.className = 'volume-bar'+(pct>60?' loud':''); }
     analysers[userId].animFrame = requestAnimationFrame(tick);
   }
   analysers[userId] = { analyser, source, animFrame: requestAnimationFrame(tick) };
@@ -440,97 +808,70 @@ function stopVolumeAnalysis(userId) {
 //  SOCKET СОБЫТИЯ
 // ═══════════════════════════════════════════════
 socket.on('connect', () => {
-  log('Socket connected: ' + socket.id);
+  log('Connected: ' + socket.id);
   reconnectBanner.classList.remove('visible');
-
-  // При каждом (пере)подключении аутентифицируемся через socket
   socket.emit('authenticate', savedPassword);
 });
 
 socket.on('auth-ok', () => {
-  log('Socket auth OK');
-  // Если были в чате — переподключаемся
-  if (joined && localStream) {
-    log('Rejoining after reconnect...');
-    socket.emit('join');
-  }
+  log('Auth OK');
+  if (joined && localStream) socket.emit('join');
 });
 
 socket.on('auth-fail', () => {
-  log('Socket auth FAILED — возвращаем на экран пароля');
+  log('Auth FAIL');
   savedPassword = '';
   screenPassword.style.display = 'block';
-  screenChat.style.display     = 'none';
+  screenMain.style.display     = 'none';
+  secureBadge.classList.remove('visible');
+  btnChatOpen.classList.remove('visible');
   showPwError('❌ Сессия истекла, войди заново');
   hangUp();
   joined = false;
 });
 
 socket.on('disconnect', (reason) => {
-  log('Socket disconnected: ' + reason);
+  log('Disconnected: ' + reason);
   if (joined) reconnectBanner.classList.add('visible');
-});
-
-socket.on('reconnect_attempt', n => log('Reconnect attempt #' + n));
-
-socket.on('reconnect', () => {
-  log('Reconnected!');
-  reconnectBanner.classList.remove('visible');
 });
 
 socket.on('user-count', count => { userCount.textContent = count; });
 
 // ═══════════════════════════════════════════════
-//  КНОПКИ ЧАТА
+//  КНОПКИ ГОЛОСОВОГО
 // ═══════════════════════════════════════════════
 btnJoin.addEventListener('click', async () => {
-  log('Join clicked');
   try {
     localStream = await navigator.mediaDevices.getUserMedia({
       video: false,
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl:  true,
-        sampleRate:       48000,
-        sampleSize:       16,
-        channelCount:     2,
-        latency:          0,
-        volume:           1.0
-      }
+      audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true,
+               sampleRate:48000, sampleSize:16, channelCount:2, latency:0 }
     });
-
-    localStream.getAudioTracks().forEach(t =>
-      log('Track: ' + t.label + ' ' + JSON.stringify(t.getSettings()))
-    );
 
     await requestWakeLock();
     startKeepAlive();
-
     setMicStatus(true);
-    btnJoin.style.display     = 'none';
-    btnLeave.style.display    = 'block';
-    btnMic.style.display      = 'block';
-    secureBadge.style.display = 'inline-flex';
+
+    btnJoin.style.display  = 'none';
+    btnLeave.style.display = 'block';
+    btnMic.style.display   = 'block';
     joined = true;
 
-    addParticipant(socket.id, '🟢 Вы (' + shortId(socket.id) + ')');
+    addParticipant(socket.id, '🟢 Вы ('+shortId(socket.id)+')');
     startVolumeAnalysis(socket.id, localStream);
 
     socket.emit('join');
-
     for (const { from, offer } of pendingOffers) await handleOffer(from, offer);
     pendingOffers = [];
 
   } catch (err) {
-    log('MIC ERROR: ' + err.name + ' - ' + err.message);
+    log('MIC ERROR: ' + err.name);
     const msgs = {
-      NotAllowedError:       '❌ Доступ к микрофону запрещён.\n\nРазреши микрофон в настройках браузера.',
-      PermissionDeniedError: '❌ Доступ к микрофону запрещён.',
-      NotFoundError:         '❌ Микрофон не найден.',
-      NotReadableError:      '❌ Микрофон занят другим приложением.'
+      NotAllowedError:  '❌ Доступ к микрофону запрещён.',
+      NotFoundError:    '❌ Микрофон не найден.',
+      NotReadableError: '❌ Микрофон занят.'
     };
-    alert(msgs[err.name] || ('❌ Ошибка: ' + err.name + ' — ' + err.message));
+    alert(msgs[err.name] || '❌ ' + err.name + ': ' + err.message);
   }
 });
 
@@ -538,13 +879,11 @@ btnLeave.addEventListener('click', () => {
   socket.emit('leave');
   hangUp();
   joined = false;
-  btnJoin.style.display     = 'block';
-  btnLeave.style.display    = 'none';
-  btnMic.style.display      = 'none';
-  secureBadge.style.display = 'none';
+  btnJoin.style.display  = 'block';
+  btnLeave.style.display = 'none';
+  btnMic.style.display   = 'none';
   reconnectBanner.classList.remove('visible');
-  micStatus.className   = 'mic-status';
-  micStatus.textContent = '';
+  micStatus.className = 'mic-status'; micStatus.textContent = '';
   releaseWakeLock();
   stopKeepAlive();
 });
@@ -562,31 +901,29 @@ function setMicStatus(active) {
 }
 
 // ═══════════════════════════════════════════════
-//  WebRTC СОБЫТИЯ
+//  WebRTC
 // ═══════════════════════════════════════════════
 socket.on('existing-users', async (userIds) => {
-  log('Existing users: ' + JSON.stringify(userIds));
-  for (const userId of userIds) {
-    addParticipant(userId, '👤 ' + shortId(userId));
-    peers[userId] = createPeer(userId, true);
+  log('Existing: ' + JSON.stringify(userIds));
+  for (const uid of userIds) {
+    addParticipant(uid, '👤 '+shortId(uid));
+    peers[uid] = createPeer(uid, true);
   }
 });
 
-socket.on('user-joined', (userId) => {
-  log('User joined: ' + userId);
+socket.on('user-joined', (uid) => {
+  log('User joined: ' + uid);
   playBeep('join');
-  addParticipant(userId, '👤 ' + shortId(userId));
+  addParticipant(uid, '👤 '+shortId(uid));
 });
 
 socket.on('offer', async ({ from, offer }) => {
-  log('Got offer from ' + from);
   if (!localStream) { pendingOffers.push({ from, offer }); return; }
   await handleOffer(from, offer);
 });
 
 async function handleOffer(from, offer) {
-  log('Handling offer from ' + from);
-  const peer  = createPeer(from, false);
+  const peer = createPeer(from, false);
   peers[from] = peer;
   await peer.setRemoteDescription(new RTCSessionDescription(offer));
   const answer   = await peer.createAnswer();
@@ -597,91 +934,71 @@ async function handleOffer(from, offer) {
 
 socket.on('answer', async ({ from, answer }) => {
   const peer = peers[from];
-  if (peer?.signalingState === 'have-local-offer') {
+  if (peer?.signalingState === 'have-local-offer')
     await peer.setRemoteDescription(new RTCSessionDescription(answer));
-  }
 });
 
 socket.on('ice-candidate', async ({ from, candidate }) => {
   const peer = peers[from];
   if (peer && candidate) {
     try { await peer.addIceCandidate(new RTCIceCandidate(candidate)); }
-    catch (e) { log('ICE error: ' + e.message); }
+    catch (e) { log('ICE: ' + e.message); }
   }
 });
 
-socket.on('user-left', (userId) => {
-  log('User left: ' + userId);
+socket.on('user-left', (uid) => {
+  log('User left: ' + uid);
   playBeep('leave');
-  removeParticipant(userId);
-  stopVolumeAnalysis(userId);
-  stopQualityMonitor(userId);
-  if (peers[userId]) { peers[userId].close(); delete peers[userId]; }
-  const audio = document.getElementById('audio-' + userId);
-  if (audio) audio.remove();
+  removeParticipant(uid);
+  stopVolumeAnalysis(uid);
+  stopQualityMonitor(uid);
+  if (peers[uid]) { peers[uid].close(); delete peers[uid]; }
+  document.getElementById('audio-'+uid)?.remove();
 });
 
-// ═══════════════════════════════════════════════
-//  СОЗДАНИЕ PEER
-// ═══════════════════════════════════════════════
 function createPeer(userId, isInitiator) {
-  log('Creating peer for ' + userId + ' init=' + isInitiator);
+  log('Creating peer ' + userId + ' init=' + isInitiator);
   const peer = new RTCPeerConnection(iceServers);
 
-  localStream.getTracks().forEach(track => peer.addTrack(track, localStream));
+  localStream.getTracks().forEach(t => peer.addTrack(t, localStream));
 
   peer.getSenders().forEach(sender => {
     if (sender.track?.kind === 'audio') {
-      const params = sender.getParameters();
-      if (!params.encodings) params.encodings = [{}];
-      params.encodings[0].maxBitrate      = 510000;
-      params.encodings[0].priority        = 'high';
-      params.encodings[0].networkPriority = 'high';
-      sender.setParameters(params).catch(e => log('setParams: ' + e.message));
+      const p = sender.getParameters();
+      if (!p.encodings) p.encodings = [{}];
+      p.encodings[0].maxBitrate = 510000;
+      p.encodings[0].priority   = 'high';
+      sender.setParameters(p).catch(() => {});
     }
   });
 
   peer.addEventListener('connectionstatechange', () => {
-    log('Peer ' + userId + ' state: ' + peer.connectionState);
+    log('Peer '+userId+': '+peer.connectionState);
     if (peer.connectionState === 'connected') {
-      const isFirstPeer = Object.keys(peers).length === 1;
-      if (isFirstPeer) startQualityMonitor(socket.id, peer, true);
+      if (Object.keys(peers).length === 1) startQualityMonitor(socket.id, peer, true);
       startQualityMonitor(userId, peer, false);
     }
-    if (peer.connectionState === 'failed') {
-      log('Connection failed, restarting ICE...');
-      peer.restartIce();
-    }
+    if (peer.connectionState === 'failed') peer.restartIce();
   });
 
   peer.ontrack = (event) => {
-    log('Got remote track from ' + userId);
-    let audio = document.getElementById('audio-' + userId);
+    let audio = document.getElementById('audio-'+userId);
     if (!audio) {
       audio = document.createElement('audio');
-      audio.id          = 'audio-' + userId;
-      audio.autoplay    = true;
-      audio.playsInline = true;
-      audio.muted       = false;
+      audio.id = 'audio-'+userId; audio.autoplay = true; audio.playsInline = true;
       hiddenAudios.appendChild(audio);
     }
     audio.srcObject = event.streams[0];
     audio.play()
-      .then(() => {
-        log('Audio playing for ' + userId);
-        startVolumeAnalysis(userId, event.streams[0]);
-      })
-      .catch(e => log('Autoplay BLOCKED: ' + e.message));
+      .then(() => startVolumeAnalysis(userId, event.streams[0]))
+      .catch(e => log('Autoplay: ' + e.message));
   };
 
-  peer.onicecandidate = (event) => {
-    if (event.candidate) {
-      socket.emit('ice-candidate', { to: userId, candidate: event.candidate });
-    }
+  peer.onicecandidate = (e) => {
+    if (e.candidate) socket.emit('ice-candidate', { to: userId, candidate: e.candidate });
   };
 
   peer.oniceconnectionstatechange = () => {
-    log('Peer ' + userId + ' ICE: ' + peer.iceConnectionState);
     if (peer.iceConnectionState === 'failed') peer.restartIce();
   };
 
@@ -692,7 +1009,6 @@ function createPeer(userId, isInitiator) {
         const improved = { type: offer.type, sdp: forceOpusMaxQuality(offer.sdp) };
         await peer.setLocalDescription(improved);
         socket.emit('offer', { to: userId, offer: improved });
-        log('Sent offer to ' + userId);
       } catch (e) { log('Offer error: ' + e.message); }
     };
   }
@@ -704,7 +1020,6 @@ function createPeer(userId, isInitiator) {
 //  ЗАВЕРШЕНИЕ
 // ═══════════════════════════════════════════════
 function hangUp() {
-  log('Hanging up');
   Object.keys(analysers).forEach(id => stopVolumeAnalysis(id));
   Object.keys(qualityTimers).forEach(id => stopQualityMonitor(id));
   Object.values(peers).forEach(p => p.close());
