@@ -184,6 +184,23 @@ function enterNick() {
   btnNickEnter.disabled    = true;
   btnNickEnter.textContent = '⏳';
 
+  if (!socket.connected) {
+    socket.connect();
+    socket.once('connect', () => doSetNickname(nick));
+    setTimeout(() => {
+      if (btnNickEnter.disabled) {
+        btnNickEnter.disabled    = false;
+        btnNickEnter.textContent = 'Войти →';
+        showNickError('⚠️ Нет соединения с сервером');
+      }
+    }, 5000);
+    return;
+  }
+
+  doSetNickname(nick);
+}
+
+function doSetNickname(nick) {
   socket.emit('set-nickname', nick, (res) => {
     btnNickEnter.disabled    = false;
     btnNickEnter.textContent = 'Войти →';
@@ -195,13 +212,20 @@ function enterNick() {
       showNickError('Ошибка, попробуй снова');
     }
   });
+
+  setTimeout(() => {
+    if (btnNickEnter.disabled) {
+      btnNickEnter.disabled    = false;
+      btnNickEnter.textContent = 'Войти →';
+      showNickError('⚠️ Сервер не отвечает');
+    }
+  }, 5000);
 }
 
 function showNickError(msg) {
   nickError.textContent = msg;
   setTimeout(() => { nickError.textContent = ''; }, 3000);
 }
-
 // ═══════════════════════════════════════════════
 //  SOCKET: список комнат
 // ═══════════════════════════════════════════════
