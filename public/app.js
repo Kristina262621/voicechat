@@ -143,8 +143,14 @@ let wakeLock        = null;
 let pendingFileType = 'image/*';
 let msgCounter      = 0;
 
+// Хранилище ников голосовых участников: socketId → nickname
+const voiceNicknames = {};
+
 const analysers     = {};
 const qualityTimers = {};
+
+// Таймеры комнат (для отображения обратного отсчёта)
+const roomDeleteTimers = {}; // roomId → intervalId
 
 // ═══════════════════════════════════════════════
 //  УТИЛИТЫ
@@ -160,6 +166,14 @@ function formatSize(bytes) {
   return (bytes / 1048576).toFixed(1) + ' МБ';
 }
 function shortId(id) { return id ? id.slice(0, 6) : '??'; }
+
+function formatCountdown(msLeft) {
+  if (msLeft <= 0) return '00:00';
+  const totalSec = Math.floor(msLeft / 1000);
+  const mins     = Math.floor(totalSec / 60);
+  const secs     = totalSec % 60;
+  return String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+}
 
 function showScreen(name) {
   [screenNick, screenLobby, screenMain].forEach(s => s.classList.remove('active'));
@@ -229,7 +243,17 @@ function showNickError(msg) {
 // ═══════════════════════════════════════════════
 socket.on('room-list', (list) => { renderRoomList(list); });
 
+// Очищаем все таймеры обратного отсчёта
+function clearAllDeleteTimers() {
+  for (const id in roomDeleteTimers) {
+    clearInterval(roomDeleteTimers[id]);
+    delete roomDeleteTimers[id];
+  }
+}
+
 function renderRoomList(list) {
+  clearAllDeleteTimers();
+
   if (!list || list.length === 0) {
     roomsList.innerHTML = `
       <div class="rooms-empty">
@@ -239,26 +263,56 @@ function renderRoomList(list) {
     return;
   }
 
-  roomsList.innerHTML = list.map(room => `
-    <div class="room-card"
-         data-id="${room.id}"
-         data-has-pw="${room.hasPassword}"
-         data-name="${escapeHtml(room.name)}">
-      <div class="room-avatar">
-        ${room.photo ? `<img src="${room.photo}" alt="">` : '🏠'}
-      </div>
-      <div class="room-info">
-        <div class="room-name">${escapeHtml(room.name)}</div>
-        <div class="room-meta">
-          ${room.hasPassword
-            ? '<span class="room-badge-lock">🔐 Закрытая</span>'
-            : '<span>🌐 Открытая</span>'}
-          <span class="room-badge-members">· 👥 ${room.memberCount}</span>
+  roomsList.innerHTML = list.map(room => {
+    const isEmpty   = room.memberCount === 0 && room.deleteAt;
+    const timerAttr = isEmpty ? ` data-delete-at="${room.deleteAt}"` : '';
+    const timerHtml = isEmpty
+      ? `<span class="room-badge-timer" id="timer-${room.id}">🕐 --:--</span>`
+      : `<span class="room-badge-members">· 👥 ${room.memberCount}</span>`;
+
+    return `
+      <div class="room-card"
+           data-id="${room.id}"
+           data-has-pw="${room.hasPassword}"
+           data-name="${escapeHtml(room.name)}"
+           ${timerAttr}>
+        <div class="room-avatar">
+          ${room.photo ? `<img src="${room.photo}" alt="">` : '🏠'}
         </div>
-      </div>
-      <div style="color:var(--sub);font-size:20px">›</div>
-    </div>
-  `).join('');
+        <div class="room-info">
+          <div class="room-name">${escapeHtml(room.name)}</div>
+          <div class="room-meta">
+            ${room.hasPassword
+              ? '<span class="room-badge-lock">🔐 Закрытая</span>'
+              : '<span>🌐 Открытая</span>'}
+            ${timerHtml}
+          </div>
+        </div>
+        <div style="color:var(--sub);font-size:20px">›</div>
+      </div>`;
+  }).join('');
+
+  // Запускаем таймеры обратного отсчёта для пустых комнат
+  list.forEach(room => {
+    if (room.memberCount === 0 && room.deleteAt) {
+      const timerEl = document.getElementById('timer-' + room.id);
+      if (!timerEl) return;
+
+      function updateTimer() {
+        const msLeft = room.deleteAt - Date.now();
+        if (msLeft <= 0) {
+          timerEl.textContent = '🕐 00:00';
+          clearInterval(roomDeleteTimers[room.id]);
+          delete roomDeleteTimers[room.id];
+          return;
+        }
+        timerEl.textContent = '🕐 ' + formatCountdown(msLeft);
+      }
+
+      updateTimer();
+      roomDeleteTimers[room.id] = setInterval(updateTimer, 1000);
+    }
+  });
 
   roomsList.querySelectorAll('.room-card').forEach(card => {
     card.addEventListener('click', () => {
@@ -735,10 +789,13 @@ btnJoin.addEventListener('click', async () => {
     btnLeave.style.display = 'block';
     btnMic.style.display   = 'block';
     joined = true;
-    addParticipant(socket.id, '🟢 Вы (' + myNickname + ')');
+    // Добавляем себя с ником
+    addParticipant(socket.id, myNickname, true);
     startVolumeAnalysis(socket.id, localStream);
     socket.emit('voice-join');
-    for (const { from, offer } of pendingOffers) await handleOffer(from, offer);
+    for (const { from, offer, nickname } of pendingOffers) {
+      await handleOffer(from, offer, nickname);
+    }
     pendingOffers = [];
   } catch (err) {
     const msgs = {
@@ -778,27 +835,51 @@ function setMicStatus(active) {
 // ═══════════════════════════════════════════════
 //  WebRTC
 // ═══════════════════════════════════════════════
-socket.on('existing-voice-users', async (userIds) => {
-  for (const uid of userIds) {
-    addParticipant(uid, '👤 ' + shortId(uid));
-    peers[uid] = createPeer(uid, true);
+
+// Получаем список существующих участников голосового чата с никами
+socket.on('existing-voice-users', (users) => {
+  // users теперь массив объектов { id, nickname }
+  for (const user of users) {
+    const nick = user.nickname || shortId(user.id);
+    voiceNicknames[user.id] = nick;
+    addParticipant(user.id, nick, false);
+    peers[user.id] = createPeer(user.id, true);
   }
 });
 
-socket.on('voice-user-joined', uid => {
+// Новый участник голосового чата с ником
+socket.on('voice-user-joined', (data) => {
+  // data может быть объектом { id, nickname } или строкой (старый формат)
+  const uid  = (typeof data === 'object') ? data.id       : data;
+  const nick = (typeof data === 'object') ? data.nickname : shortId(data);
+
   playBeep('join');
-  addParticipant(uid, '👤 ' + shortId(uid));
-  if (joined) { if (!peers[uid]) peers[uid] = createPeer(uid, false); }
-  else pendingOffers.push({ from: uid, offer: null });
+  voiceNicknames[uid] = nick;
+  addParticipant(uid, nick, false);
+  if (joined) {
+    if (!peers[uid]) peers[uid] = createPeer(uid, false);
+  } else {
+    pendingOffers.push({ from: uid, offer: null, nickname: nick });
+  }
 });
 
-socket.on('offer', async ({ from, offer }) => {
-  if (!localStream) { pendingOffers.push({ from, offer }); return; }
-  await handleOffer(from, offer);
+socket.on('offer', async ({ from, offer, nickname }) => {
+  // Сохраняем ник из оффера если пришёл
+  if (nickname) voiceNicknames[from] = nickname;
+  if (!localStream) {
+    pendingOffers.push({ from, offer, nickname });
+    return;
+  }
+  await handleOffer(from, offer, nickname);
 });
 
-async function handleOffer(from, offer) {
+async function handleOffer(from, offer, nickname) {
   if (!offer) return;
+  // Обновляем ник участника если пришёл
+  if (nickname) {
+    voiceNicknames[from] = nickname;
+    updateParticipantName(from, nickname);
+  }
   const peer  = createPeer(from, false);
   peers[from] = peer;
   await peer.setRemoteDescription(new RTCSessionDescription(offer));
@@ -808,7 +889,12 @@ async function handleOffer(from, offer) {
   socket.emit('answer', { to: from, answer: improved });
 }
 
-socket.on('answer', async ({ from, answer }) => {
+socket.on('answer', async ({ from, answer, nickname }) => {
+  // Сохраняем ник из ответа
+  if (nickname) {
+    voiceNicknames[from] = nickname;
+    updateParticipantName(from, nickname);
+  }
   const peer = peers[from];
   if (peer && peer.signalingState === 'have-local-offer')
     await peer.setRemoteDescription(new RTCSessionDescription(answer));
@@ -827,6 +913,7 @@ socket.on('voice-user-left', uid => {
   removeParticipant(uid);
   stopVolumeAnalysis(uid);
   stopQualityMonitor(uid);
+  delete voiceNicknames[uid];
   if (peers[uid]) { peers[uid].close(); delete peers[uid]; }
   var el = document.getElementById('audio-' + uid);
   if (el) el.remove();
@@ -842,26 +929,37 @@ socket.on('understood', ({ from, nickname }) => {
 });
 
 // ═══════════════════════════════════════════════
-//  УЧАСТНИКИ
+//  УЧАСТНИКИ ГОЛОСОВОГО ЧАТА
 // ═══════════════════════════════════════════════
-function addParticipant(userId, label) {
-  if (document.getElementById('p-' + userId)) return;
+function addParticipant(userId, nickname, isMe) {
+  if (document.getElementById('p-' + userId)) {
+    // Если уже есть — обновляем имя
+    updateParticipantName(userId, nickname);
+    return;
+  }
   participantsBox.style.display = 'block';
   const div     = document.createElement('div');
   div.className = 'participant';
   div.id        = 'p-' + userId;
-  const isMe    = userId === socket.id;
+
+  const displayName = isMe
+    ? '🟢 ' + escapeHtml(nickname) + ' (Вы)'
+    : '👤 ' + escapeHtml(nickname);
+
   const understoodBtn = isMe ? ''
-    : '<button class="btn-understood" data-uid="' + userId + '">👍 Понял</button>';
+    : `<button class="btn-understood" data-uid="${userId}">👍 Понял</button>`;
+
   div.innerHTML = `
-    <span class="participant-name">${label}</span>
+    <span class="participant-name" id="pname-${userId}">${displayName}</span>
     <div class="volume-bar-wrap"><div class="volume-bar" id="vol-${userId}"></div></div>
     <div class="signal-wrap signal-none" id="sig-${userId}">
       <div class="bar"></div><div class="bar"></div>
       <div class="bar"></div><div class="bar"></div>
     </div>
     ${understoodBtn}`;
+
   participantsList.appendChild(div);
+
   var btn = div.querySelector('.btn-understood');
   if (btn) {
     btn.addEventListener('click', function() {
@@ -872,6 +970,16 @@ function addParticipant(userId, label) {
       setTimeout(function() { self.textContent = '👍 Понял'; self.disabled = false; }, 3000);
     });
   }
+}
+
+// Обновляем имя участника в списке
+function updateParticipantName(userId, nickname) {
+  const nameEl = document.getElementById('pname-' + userId);
+  if (!nameEl) return;
+  const isMe = userId === socket.id;
+  nameEl.textContent = isMe
+    ? '🟢 ' + nickname + ' (Вы)'
+    : '👤 ' + nickname;
 }
 
 function removeParticipant(userId) {
@@ -947,12 +1055,12 @@ async function getMicStream() {
   return navigator.mediaDevices.getUserMedia({
     video: false,
     audio: {
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl:  true,
-      sampleRate:       48000,
-      channelCount:     2,
-      latency:          0
+      echoCancellation:     true,
+      noiseSuppression:     true,
+      autoGainControl:      true,
+      sampleRate:           48000,
+      channelCount:         1,      // моно — стабильнее на слабом канале
+      latency:              0
     }
   });
 }
@@ -981,14 +1089,14 @@ async function buildAudioPipeline(rawStream) {
 
   noiseWorklet = new AudioWorkletNode(audioCtx, 'noise-gate-processor', {
     processorOptions: { threshold: 0.008, attack: 0.003, release: 0.08, smoothing: 0.92 },
-    numberOfInputs:  1,
-    numberOfOutputs: 1,
-    outputChannelCount: [2]
+    numberOfInputs:   1,
+    numberOfOutputs:  1,
+    outputChannelCount: [[1]](#annotation-145738-0)  // моно — стабильнее
   });
 
-  var outputGain      = audioCtx.createGain();
+  var outputGain        = audioCtx.createGain();
   outputGain.gain.value = 1.1;
-  var destination     = audioCtx.createMediaStreamDestination();
+  var destination       = audioCtx.createMediaStreamDestination();
 
   source.connect(hpf).connect(compressor).connect(noiseWorklet).connect(outputGain).connect(destination);
   if (noiseIndicator) noiseIndicator.classList.add('visible');
@@ -1001,11 +1109,15 @@ async function buildAudioPipeline(rawStream) {
 var iceServers = {
   iceServers: [
     { urls: 'stun:stun.relay.metered.ca:80' },
-    { urls: 'turn:global.relay.metered.ca:80',              username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
-    { urls: 'turn:global.relay.metered.ca:80?transport=tcp', username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
-    { urls: 'turn:global.relay.metered.ca:443',             username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
+    { urls: 'turn:global.relay.metered.ca:80',               username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
+    { urls: 'turn:global.relay.metered.ca:80?transport=tcp',  username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
+    { urls: 'turn:global.relay.metered.ca:443',              username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
     { urls: 'turns:global.relay.metered.ca:443?transport=tcp', username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' }
-  ]
+  ],
+  // Улучшение стабильности: собираем все кандидаты перед подключением
+  iceCandidatePoolSize: 10,
+  bundlePolicy:         'max-bundle',
+  rtcpMuxPolicy:        'require'
 };
 
 function forceOpusMaxQuality(sdp) {
@@ -1015,9 +1127,10 @@ function forceOpusMaxQuality(sdp) {
     var line = lines[i];
     if (line.includes('a=rtpmap') && line.toLowerCase().includes('opus')) {
       result.push(line);
-      var pt = line.split(':')[1].split(' ')[0];
+      var pt = line.split(':')[[1]](#annotation-145738-0).split(' ')[0];
       if (i + 1 < lines.length && lines[i + 1].startsWith('a=fmtp:' + pt)) i++;
-      result.push('a=fmtp:' + pt + ' minptime=10;useinbandfec=1;stereo=1;sprop-stereo=1;maxaveragebitrate=510000');
+      // Оптимизация для плохой связи: FEC включён, DTX экономит полосу в тишине
+      result.push('a=fmtp:' + pt + ' minptime=10;useinbandfec=1;stereo=0;sprop-stereo=0;maxaveragebitrate=64000;dtx=1;cbr=0');
       continue;
     }
     if (line.startsWith('b=AS:') || line.startsWith('b=TIAS:')) continue;
@@ -1081,7 +1194,7 @@ function stopQualityMonitor(userId) {
 }
 
 // ═══════════════════════════════════════════════
-//  CREATE PEER
+//  CREATE PEER — с автовосстановлением соединения
 // ═══════════════════════════════════════════════
 function createPeer(userId, isInitiator) {
   var peer   = new RTCPeerConnection(iceServers);
@@ -1092,26 +1205,57 @@ function createPeer(userId, isInitiator) {
     if (sender.track && sender.track.kind === 'audio') {
       var p = sender.getParameters();
       if (!p.encodings) p.encodings = [{}];
-      p.encodings[0].maxBitrate = 510000;
-      p.encodings[0].priority   = 'high';
+      p.encodings[0].maxBitrate     = 64000;   // разумный лимит для голоса
+      p.encodings[0].priority       = 'high';
+      p.encodings[0].networkPriority = 'high';
       sender.setParameters(p).catch(function() {});
     }
   });
 
+  // Счётчик попыток рестарта — защита от бесконечной петли
+  var restartAttempts  = 0;
+  var maxRestartAttempts = 5;
+  var restartTimer     = null;
+
+  function tryRestart() {
+    if (restartAttempts >= maxRestartAttempts) return;
+    restartAttempts++;
+    clearTimeout(restartTimer);
+    // Экспоненциальная задержка: 2с, 4с, 8с…
+    var delay = Math.min(2000 * Math.pow(2, restartAttempts - 1), 30000);
+    restartTimer = setTimeout(function() {
+      if (peer.connectionState === 'failed' || peer.iceConnectionState === 'failed') {
+        console.log('Restarting ICE for', userId, 'attempt', restartAttempts);
+        peer.restartIce();
+      }
+    }, delay);
+  }
+
   peer.addEventListener('connectionstatechange', function() {
+    console.log('Connection state', userId, peer.connectionState);
     if (peer.connectionState === 'connected') {
+      restartAttempts = 0;
+      clearTimeout(restartTimer);
       if (Object.keys(peers).length === 1) startQualityMonitor(socket.id, peer, true);
       startQualityMonitor(userId, peer, false);
     }
-    if (peer.connectionState === 'failed') peer.restartIce();
+    if (peer.connectionState === 'failed') tryRestart();
+    // disconnected — даём 4 секунды, потом пробуем рестарт
+    if (peer.connectionState === 'disconnected') {
+      restartTimer = setTimeout(function() {
+        if (peer.connectionState === 'disconnected' || peer.connectionState === 'failed') {
+          tryRestart();
+        }
+      }, 4000);
+    }
   });
 
   peer.ontrack = function(event) {
     var audio = document.getElementById('audio-' + userId);
     if (!audio) {
-      audio           = document.createElement('audio');
-      audio.id        = 'audio-' + userId;
-      audio.autoplay  = true;
+      audio             = document.createElement('audio');
+      audio.id          = 'audio-' + userId;
+      audio.autoplay    = true;
       audio.playsInline = true;
       hiddenAudios.appendChild(audio);
     }
@@ -1124,8 +1268,15 @@ function createPeer(userId, isInitiator) {
   peer.onicecandidate = function(e) {
     if (e.candidate) socket.emit('ice-candidate', { to: userId, candidate: e.candidate });
   };
+
   peer.oniceconnectionstatechange = function() {
-    if (peer.iceConnectionState === 'failed') peer.restartIce();
+    console.log('ICE state', userId, peer.iceConnectionState);
+    if (peer.iceConnectionState === 'failed') tryRestart();
+    if (peer.iceConnectionState === 'disconnected') {
+      setTimeout(function() {
+        if (peer.iceConnectionState === 'disconnected') tryRestart();
+      }, 4000);
+    }
   };
 
   if (isInitiator) {
@@ -1149,6 +1300,8 @@ function hangUp() {
   Object.keys(qualityTimers).forEach(function(id) { stopQualityMonitor(id); });
   Object.values(peers).forEach(function(p) { p.close(); });
   peers = {};
+  // Очищаем ники
+  for (var k in voiceNicknames) delete voiceNicknames[k];
   if (localStream) { localStream.getTracks().forEach(function(t) { t.stop(); }); localStream = null; }
   if (noiseWorklet) { try { noiseWorklet.disconnect(); } catch (_) {} noiseWorklet = null; }
   if (audioCtx) { audioCtx.close().catch(function() {}); audioCtx = null; }
