@@ -813,7 +813,7 @@ function openPrivateChatWith(nickname) {
   });
 }
 
-function enterPrivateChat(chatId, withNickname, withAvatar) {
+async function enterPrivateChat(chatId, withNickname, withAvatar) {
   // Закрыть текущую комнату если есть
   if (currentRoomId) {
     socket.emit('leave-room');
@@ -825,6 +825,15 @@ function enterPrivateChat(chatId, withNickname, withAvatar) {
   currentChatId   = chatId;
   isRoomOwner     = false;
   memberCount     = 2;
+
+  // ── КЛЮЧ ДЛЯ ЛИЧНОГО ЧАТА ──
+  // Деривируем детерминированный ключ из chatId (без пароля)
+  // Оба участника получат одинаковый ключ т.к. chatId = sort([nickA, nickB]).join('::')
+  try {
+    await Crypto.deriveKey('', chatId, chatId + '-private-v1');
+  } catch (e) {
+    console.error('Ошибка деривации ключа личного чата:', e);
+  }
 
   chatRoomName.textContent = withNickname;
   userCount.textContent    = '2';
@@ -894,12 +903,16 @@ socket.on('private-message', async data => {
     if (data.type === 'text') {
       const text = await Crypto.decryptText(data.encrypted, data.iv);
       updateMessage(msgId, { text, status: 'ok' });
+      showBrowserNotif('💬 ' + (data.fromNick || '?'), text);
     } else {
       const mime = data.mimeType || 'application/octet-stream';
       const blob = await Crypto.decryptBlob(data.encrypted, data.iv, mime);
       updateMessage(msgId, { localUrl: URL.createObjectURL(blob), status: 'ok' });
     }
-  } catch { updateMessage(msgId, { status: 'error' }); }
+  } catch (e) {
+    console.error('Decrypt private msg error:', e);
+    updateMessage(msgId, { status: 'error' });
+  }
 });
 
 // ═══════════════════════════════════════════════
@@ -1304,27 +1317,37 @@ btnCloseMembers.addEventListener('click', () => modalMembers.classList.remove('o
 modalMembers.addEventListener('click', e => { if (e.target === modalMembers) modalMembers.classList.remove('open'); });
 
 function openMembersModal() {
-  if (!currentRoomId || currentChatType !== 'group') return;
+  // В личном чате — показать имя собеседника, не открывать модалку группы
+  if (currentChatType === 'private') {
+    showToast('💬 Личный чат с ' + chatRoomName.textContent, 2500);
+    return;
+  }
+  if (!currentRoomId) return;
+
   membersModalTitle.textContent = 'Участники';
   renameSection.style.display         = isRoomOwner ? '' : 'none';
   groupSettingsSection.style.display  = isRoomOwner ? '' : 'none';
   joinRequestsSection.style.display   = isRoomOwner ? '' : 'none';
+
   if (isRoomOwner && currentRoomData) {
     renameInput.value = currentRoomData.name || '';
-    // Установить текущие настройки
-    if (currentRoomData.autoDelete) {
-      groupAutodelSelect.value = String(currentRoomData.autoDelete);
-    } else {
-      groupAutodelSelect.value = 'never';
-    }
+    groupAutodelSelect.value  = currentRoomData.autoDelete
+      ? String(currentRoomData.autoDelete) : 'never';
     groupJoinmodeSelect.value = currentRoomData.joinMode || 'open';
   }
+
   membersListContainer.innerHTML = '<div class="empty-list">Загрузка…</div>';
   modalMembers.classList.add('open');
 
   socket.emit('room-members', { roomId: currentRoomId }, res => {
-    if (!res.ok) { membersListContainer.innerHTML = '<div class="empty-list">Ошибка</div>'; return; }
-    if (!res.members.length) { membersListContainer.innerHTML = '<div class="empty-list">Пусто</div>'; return; }
+    if (!res.ok) {
+      membersListContainer.innerHTML = '<div class="empty-list">Ошибка</div>';
+      return;
+    }
+    if (!res.members.length) {
+      membersListContainer.innerHTML = '<div class="empty-list">Пусто</div>';
+      return;
+    }
     membersListContainer.innerHTML = res.members.map(m => `
       <div class="member-item">
         <div class="member-avatar">${avatarHtml(m.avatar, '👤')}</div>
@@ -1359,15 +1382,16 @@ renameInput.addEventListener('keydown', e => { if (e.key === 'Enter') btnRenameR
 // Сохранить настройки группы
 btnSaveGroupSettings.addEventListener('click', () => {
   socket.emit('room-settings-update', {
-    roomId: currentRoomId,
+    roomId:     currentRoomId,
     autoDelete: groupAutodelSelect.value,
     joinMode:   groupJoinmodeSelect.value
   }, res => {
     if (res.ok) {
       showToast('✅ Настройки сохранены');
       if (currentRoomData) {
-        currentRoomData.autoDelete = groupAutodelSelect.value === 'never' ? null : parseInt(groupAutodelSelect.value);
-        currentRoomData.joinMode   = groupJoinmodeSelect.value;
+        currentRoomData.autoDelete = groupAutodelSelect.value === 'never'
+          ? null : parseInt(groupAutodelSelect.value);
+        currentRoomData.joinMode = groupJoinmodeSelect.value;
       }
     } else {
       showToast('⚠️ Ошибка сохранения');
@@ -1393,7 +1417,14 @@ btnDeleteGroup.addEventListener('click', () => {
 // ═══════════════════════════════════════════════
 //  ПРИГЛАШЕНИЯ
 // ═══════════════════════════════════════════════
-btnInviteFriend.addEventListener('click', openInviteModal);
+btnInviteFriend.addEventListener('click', () => {
+  // В личном чате кнопка 👥 открывает поиск для нового личного чата
+  if (currentChatType === 'private') {
+    openPrivateChatsModal();
+    return;
+  }
+  openInviteModal();
+});
 btnCloseInvite.addEventListener('click',  () => modalInvite.classList.remove('open'));
 modalInvite.addEventListener('click', e => { if (e.target === modalInvite) modalInvite.classList.remove('open'); });
 
@@ -1403,7 +1434,8 @@ function openInviteModal() {
   inviteFriendsList.innerHTML = '<div class="empty-list">Загрузка…</div>';
   socket.emit('friends-list', res => {
     if (!res.ok || !res.friends.length) {
-      inviteFriendsList.innerHTML = '<div class="empty-list">Нет друзей для приглашения</div>'; return;
+      inviteFriendsList.innerHTML = '<div class="empty-list">Нет друзей для приглашения</div>';
+      return;
     }
     inviteFriendsList.innerHTML = res.friends.map(f => `
       <div class="friend-item">
@@ -1447,22 +1479,31 @@ btnBackLobby.addEventListener('click', () => {
 
 function leaveCurrentRoom() {
   stopMyTyping();
+
   if (currentChatType === 'group' && currentRoomId) {
     socket.emit('leave-room');
     if (joined) {
       socket.emit('voice-leave'); hangUp(); joined = false;
-      btnJoin.style.display = 'block';
-      btnLeave.style.display = btnMic.style.display = 'none';
       micStatus.className = 'mic-status';
     }
   }
+
+  // Восстановить голосовые кнопки для следующего входа в группу
+  btnJoin.style.display  = 'block';
+  btnLeave.style.display = 'none';
+  btnMic.style.display   = 'none';
+
   clearAllTyping();
   Crypto.clearAllKeys();
   ecdhExchanged.clear();
   outgoingSeq = 0;
-  currentRoomId = null; currentRoomData = null; currentPassword = '';
-  currentChatType = 'group'; currentChatId = null;
-  isRoomOwner = false;
+
+  currentRoomId   = null;
+  currentRoomData = null;
+  currentPassword = '';
+  currentChatType = 'group';
+  currentChatId   = null;
+  isRoomOwner     = false;
 }
 
 // ═══════════════════════════════════════════════
