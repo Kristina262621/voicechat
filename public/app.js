@@ -143,17 +143,16 @@ let wakeLock        = null;
 let pendingFileType = 'image/*';
 let msgCounter      = 0;
 
-// Хранилище ников голосовых участников: socketId → nickname
-const voiceNicknames = {};
-
-const analysers     = {};
-const qualityTimers = {};
-
-// Таймеры комнат (для отображения обратного отсчёта)
+const voiceNicknames   = {};
+const analysers        = {};
+const qualityTimers    = {};
 const roomDeleteTimers = {};
 
-// Порог громкости для индикатора «говорит» (% от 0..100)
 const SPEAKING_THRESHOLD = 8;
+
+// ── «Печатает»: кто сейчас печатает { socketId → таймер автосброса } ──
+const typingUsers   = {};  // socketId → { nickname, timer }
+let   typingTimer   = null; // таймер отправки typing-stop от себя
 
 // ═══════════════════════════════════════════════
 //  УТИЛИТЫ
@@ -164,8 +163,8 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 function formatSize(bytes) {
-  if (bytes < 1024)      return bytes + ' Б';
-  if (bytes < 1048576)   return (bytes / 1024).toFixed(1) + ' КБ';
+  if (bytes < 1024)    return bytes + ' Б';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' КБ';
   return (bytes / 1048576).toFixed(1) + ' МБ';
 }
 function shortId(id) { return id ? id.slice(0, 6) : '??'; }
@@ -208,14 +207,58 @@ function playMsgSound() {
 }
 
 // ═══════════════════════════════════════════════
-//  ЭКРАН: ВВОД НИКА
+//  УВЕДОМЛЕНИЯ БРАУЗЕРА
 // ═══════════════════════════════════════════════
+// Запрашиваем разрешение при первом взаимодействии
+function requestNotifPermission() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+}
+
+function showBrowserNotif(title, body) {
+  // Показываем только если вкладка не активна
+  if (document.visibilityState === 'visible') return;
+  if (!('Notification' in window)) return;
+  if (Notification.permission !== 'granted') return;
+  try {
+    const n = new Notification(title, {
+      body,
+      icon:   '/icon.png',   // можешь добавить иконку в папку public
+      badge:  '/icon.png',
+      silent: false
+    });
+    // Клик по уведомлению — фокус на вкладку
+    n.onclick = function () {
+      window.focus();
+      n.close();
+    };
+    // Автозакрытие через 5 сек
+    setTimeout(() => n.close(), 5000);
+  } catch (_) {}
+}
+
+// ═══════════════════════════════════════════════
+//  ЭКРАН: ВВОД НИКА — с сохранением в localStorage
+// ═══════════════════════════════════════════════
+
+// Восстанавливаем сохранённый ник
+(function loadSavedNick() {
+  try {
+    const saved = localStorage.getItem('chat_nickname');
+    if (saved) nickInput.value = saved;
+  } catch (_) {}
+})();
+
 nickInput.addEventListener('keydown', e => { if (e.key === 'Enter') enterNick(); });
 btnNickEnter.addEventListener('click', enterNick);
 
 function enterNick() {
   const nick = nickInput.value.trim();
   if (!nick) { showNickError('Введи своё имя'); return; }
+
+  // Сохраняем ник в localStorage
+  try { localStorage.setItem('chat_nickname', nick); } catch (_) {}
 
   btnNickEnter.disabled    = true;
   btnNickEnter.textContent = '⏳';
@@ -244,6 +287,8 @@ function doSetNickname(nick) {
       myNickname = nick;
       lobbyNickLabel.textContent = '👤 ' + nick;
       showScreen('lobby');
+      // Запрашиваем разрешение на уведомления после входа
+      requestNotifPermission();
     } else {
       showNickError('Ошибка, попробуй снова');
     }
@@ -320,7 +365,6 @@ function renderRoomList(list) {
     if (room.memberCount === 0 && room.deleteAt) {
       const timerEl = document.getElementById('timer-' + room.id);
       if (!timerEl) return;
-
       function updateTimer() {
         const msLeft = room.deleteAt - Date.now();
         if (msLeft <= 0) {
@@ -331,7 +375,6 @@ function renderRoomList(list) {
         }
         timerEl.textContent = '🕐 ' + formatCountdown(msLeft);
       }
-
       updateTimer();
       roomDeleteTimers[room.id] = setInterval(updateTimer, 1000);
     }
@@ -392,10 +435,8 @@ createRoomName.addEventListener('keydown', e => { if (e.key === 'Enter') submitC
 function submitCreateRoom() {
   const name = createRoomName.value.trim();
   if (!name) { createRoomError.textContent = 'Введи название комнаты'; return; }
-
   btnSubmitCreate.disabled    = true;
   btnSubmitCreate.textContent = '⏳ Создаём…';
-
   socket.emit('create-room', {
     name,
     password: createRoomPw.value || '',
@@ -416,10 +457,10 @@ function submitCreateRoom() {
 //  ПАРОЛЬ ДЛЯ ВХОДА В КОМНАТУ
 // ═══════════════════════════════════════════════
 function openRoomPasswordModal(roomId, roomName) {
-  pendingJoinRoom              = { roomId, roomName };
-  pwModalRoomName.textContent  = roomName;
-  roomPwInput.value            = '';
-  roomPwError.textContent      = '';
+  pendingJoinRoom             = { roomId, roomName };
+  pwModalRoomName.textContent = roomName;
+  roomPwInput.value           = '';
+  roomPwError.textContent     = '';
   modalRoomPw.classList.add('open');
   setTimeout(() => roomPwInput.focus(), 200);
 }
@@ -433,8 +474,8 @@ modalRoomPw.addEventListener('click', e => {
 });
 
 btnToggleRoomPw.addEventListener('click', () => {
-  const isText          = roomPwInput.type === 'text';
-  roomPwInput.type      = isText ? 'password' : 'text';
+  const isText         = roomPwInput.type === 'text';
+  roomPwInput.type     = isText ? 'password' : 'text';
   btnToggleRoomPw.textContent = isText ? '👁' : '🙈';
 });
 
@@ -445,10 +486,8 @@ function submitRoomPassword() {
   if (!pendingJoinRoom) return;
   const pw = roomPwInput.value;
   if (!pw) { roomPwError.textContent = 'Введи пароль'; return; }
-
   btnSubmitRoomPw.disabled    = true;
   btnSubmitRoomPw.textContent = '⏳ Проверяем…';
-
   joinRoom(pendingJoinRoom.roomId, pw, (ok, err) => {
     btnSubmitRoomPw.disabled    = false;
     btnSubmitRoomPw.textContent = 'Войти в комнату';
@@ -487,6 +526,8 @@ function joinRoom(roomId, password, cb) {
       }
 
       clearChat();
+      // Сбрасываем все статусы «печатает» при входе в новую комнату
+      clearAllTyping();
       memberCount = res.room.members.length + 1;
       showScreen('chat');
       if (cb) cb(true);
@@ -508,6 +549,8 @@ function clearChat() {
 //  КНОПКА НАЗАД
 // ═══════════════════════════════════════════════
 btnBackLobby.addEventListener('click', () => {
+  // Снимаем свой статус «печатает»
+  stopMyTyping();
   socket.emit('leave-room');
   if (joined) {
     socket.emit('voice-leave');
@@ -518,6 +561,7 @@ btnBackLobby.addEventListener('click', () => {
     btnMic.style.display   = 'none';
     micStatus.className    = 'mic-status';
   }
+  clearAllTyping();
   currentRoomId   = null;
   currentRoomData = null;
   showScreen('lobby');
@@ -551,12 +595,92 @@ socket.on('disconnect', () => {
 });
 
 // ═══════════════════════════════════════════════
+//  СТАТУС «ПЕЧАТАЕТ»
+// ═══════════════════════════════════════════════
+
+// Строка «Иван печатает…» в подзаголовке шапки
+const headerSubEl = document.querySelector('.tg-header-sub');
+
+// Рендерим строку «печатает»
+function renderTyping() {
+  const names = Object.values(typingUsers).map(u => u.nickname);
+  if (names.length === 0) {
+    headerSubEl.innerHTML =
+      `<span class="online"><span id="user-count">${memberCount}</span> участников</span>`;
+    return;
+  }
+  const text = names.length === 1
+    ? escapeHtml(names[0]) + ' печатает…'
+    : escapeHtml(names.slice(0, 2).join(', ')) + ' печатают…';
+  headerSubEl.innerHTML =
+    `<span class="typing-indicator"><span class="typing-dots"><span></span><span></span><span></span></span>${text}</span>`;
+}
+
+// Добавить/обновить печатающего
+function addTypingUser(socketId, nickname) {
+  // Сбрасываем старый автотаймер
+  if (typingUsers[socketId]) clearTimeout(typingUsers[socketId].timer);
+  // Автосброс через 4 сек если typing-stop не придёт
+  const timer = setTimeout(() => removeTypingUser(socketId), 4000);
+  typingUsers[socketId] = { nickname, timer };
+  renderTyping();
+}
+
+function removeTypingUser(socketId) {
+  if (typingUsers[socketId]) {
+    clearTimeout(typingUsers[socketId].timer);
+    delete typingUsers[socketId];
+  }
+  renderTyping();
+}
+
+function clearAllTyping() {
+  Object.keys(typingUsers).forEach(id => {
+    clearTimeout(typingUsers[id].timer);
+    delete typingUsers[id];
+  });
+  renderTyping();
+}
+
+// Отправка своего статуса «печатает»
+function startMyTyping() {
+  if (!currentRoomId) return;
+  // Сбрасываем предыдущий таймер автостопа
+  if (typingTimer) clearTimeout(typingTimer);
+  socket.emit('typing-start');
+  // Автостоп через 3 сек без ввода
+  typingTimer = setTimeout(() => stopMyTyping(), 3000);
+}
+
+function stopMyTyping() {
+  if (typingTimer) { clearTimeout(typingTimer); typingTimer = null; }
+  if (currentRoomId) socket.emit('typing-stop');
+}
+
+// Socket: получаем статус от других
+socket.on('typing-start', ({ from, nickname }) => {
+  if (from === socket.id) return;
+  addTypingUser(from, nickname);
+});
+
+socket.on('typing-stop', ({ from }) => {
+  removeTypingUser(from);
+});
+
+// ═══════════════════════════════════════════════
 //  ЧАТ: ОТПРАВКА ТЕКСТА
 // ═══════════════════════════════════════════════
 chatInput.addEventListener('input', () => {
   chatInput.style.height = 'auto';
   chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+  // Отправляем «печатает» при вводе
+  if (chatInput.value.trim().length > 0) {
+    startMyTyping();
+  } else {
+    stopMyTyping();
+  }
 });
+
 chatInput.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendTextMessage(); }
 });
@@ -565,6 +689,8 @@ btnSend.addEventListener('click', sendTextMessage);
 async function sendTextMessage() {
   const text = chatInput.value.trim();
   if (!text || !currentRoomId) return;
+  // Снимаем статус «печатает» при отправке
+  stopMyTyping();
   btnSend.disabled = true;
   try {
     const { encrypted, iv } = await Crypto.encrypt(text);
@@ -638,8 +764,14 @@ async function sendMediaBlob(blob, mimeType, fileName, type) {
 //  ЧАТ: ПОЛУЧЕНИЕ СООБЩЕНИЙ
 // ═══════════════════════════════════════════════
 socket.on('chat-message', async (data) => {
-  // Звук нового сообщения (только от других)
+  // Звук нового сообщения
   playMsgSound();
+
+  // Уведомление браузера
+  showBrowserNotif(
+    '💬 ' + (data.nickname || 'Собеседник'),
+    data.type === 'text' ? '✉️ Новое сообщение' : '📎 Файл/медиа'
+  );
 
   const msgId = appendMessage({
     from:      data.from,
@@ -656,6 +788,8 @@ socket.on('chat-message', async (data) => {
     if (data.type === 'text') {
       const text = await Crypto.decryptText(data.encrypted, data.iv);
       updateMessage(msgId, { text, status: 'ok' });
+      // Уточняем уведомление с реальным текстом (показываем новое)
+      showBrowserNotif('💬 ' + (data.nickname || 'Собеседник'), text);
     } else {
       const mime = data.mimeType || 'application/octet-stream';
       const blob = await Crypto.decryptBlob(data.encrypted, data.iv, mime);
@@ -1005,24 +1139,19 @@ function removeParticipant(userId) {
 // ═══════════════════════════════════════════════
 //  ГРОМКОСТЬ + ИНДИКАТОР «ГОВОРИТ»
 // ═══════════════════════════════════════════════
-
-// Устанавливает/снимает подсветку «говорит» у участника
 function setSpeaking(userId, isSpeaking) {
   var row = document.getElementById('p-' + userId);
   if (!row) return;
-  if (isSpeaking) {
-    row.classList.add('speaking');
-  } else {
-    row.classList.remove('speaking');
-  }
+  if (isSpeaking) row.classList.add('speaking');
+  else            row.classList.remove('speaking');
 }
 
 function startVolumeAnalysis(userId, stream) {
   var ctx = audioCtx || new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
   if (!audioCtx) audioCtx = ctx;
   stopVolumeAnalysis(userId);
-  var source   = ctx.createMediaStreamSource(stream);
-  var analyser = ctx.createAnalyser();
+  var source      = ctx.createMediaStreamSource(stream);
+  var analyser    = ctx.createAnalyser();
   analyser.fftSize = 512;
   source.connect(analyser);
   var data        = new Uint8Array(analyser.frequencyBinCount);
@@ -1035,14 +1164,12 @@ function startVolumeAnalysis(userId, stream) {
     for (var i = 0; i < data.length; i++) sum += data[i];
     var pct = Math.min(100, (sum / data.length) * 3);
 
-    // Обновляем полоску громкости
     var bar = document.getElementById('vol-' + userId);
     if (bar) {
       bar.style.width = pct + '%';
       bar.className   = 'volume-bar' + (pct > 60 ? ' loud' : '');
     }
 
-    // Обновляем подсветку «говорит»
     var nowSpeaking = pct > SPEAKING_THRESHOLD;
     if (nowSpeaking !== wasSpeaking) {
       setSpeaking(userId, nowSpeaking);
@@ -1051,7 +1178,7 @@ function startVolumeAnalysis(userId, stream) {
 
     analysers[userId].animFrame = requestAnimationFrame(tick);
   }
-  analysers[userId] = { analyser: analyser, source: source, animFrame: requestAnimationFrame(tick) };
+  analysers[userId] = { analyser, source, animFrame: requestAnimationFrame(tick) };
 }
 
 function stopVolumeAnalysis(userId) {
@@ -1060,7 +1187,6 @@ function stopVolumeAnalysis(userId) {
     try { analysers[userId].source.disconnect(); } catch (_) {}
     delete analysers[userId];
   }
-  // Снимаем подсветку при остановке
   setSpeaking(userId, false);
 }
 
