@@ -2,62 +2,152 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Приватный чат</title>
   <style>
-    * { margin:0; padding:0; box-sizing:border-box; }
+    /* ═══════════════════════════════════════════
+       RESET & BASE
+    ═══════════════════════════════════════════ */
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
 
-    body {
-      font-family: Arial, sans-serif;
-      background: #1a1a2e;
-      color: white;
+    :root {
+      --tg-bg:        #17212b;
+      --tg-surface:   #232e3c;
+      --tg-header:    #17212b;
+      --tg-input-bg:  #17212b;
+      --tg-bubble-in: #182533;
+      --tg-bubble-me: #2b5278;
+      --tg-accent:    #5288c1;
+      --tg-accent2:   #64b5f6;
+      --tg-green:     #4caf50;
+      --tg-red:       #ef5350;
+      --tg-text:      #e8eaed;
+      --tg-sub:       #708499;
+      --tg-divider:   #0d1821;
+      --tg-radius:    12px;
+    }
+
+    html, body {
+      height: 100%;
+      font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
+      background: var(--tg-bg);
+      color: var(--tg-text);
+      overflow: hidden;
+    }
+
+    /* ═══════════════════════════════════════════
+       ЭКРАН ПАРОЛЯ
+    ═══════════════════════════════════════════ */
+    #screen-password {
+      position: fixed;
+      inset: 0;
       display: flex;
+      align-items: center;
       justify-content: center;
-      align-items: flex-start;
-      min-height: 100vh;
-      padding: 20px 0 60px;
+      background: var(--tg-bg);
+      z-index: 500;
     }
 
-    .container {
+    .login-card {
+      width: 100%;
+      max-width: 360px;
+      padding: 40px 28px 32px;
+      background: var(--tg-surface);
+      border-radius: 18px;
+      box-shadow: 0 12px 48px rgba(0,0,0,0.6);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+      margin: 0 16px;
+    }
+
+    .login-icon {
+      font-size: 56px;
+      margin-bottom: 16px;
+      filter: drop-shadow(0 4px 12px rgba(82,136,193,0.4));
+    }
+
+    .login-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--tg-text);
+      margin-bottom: 6px;
       text-align: center;
-      padding: 30px;
-      background: #16213e;
-      border-radius: 20px;
-      width: 360px;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
     }
 
-    h1 { font-size:24px; margin-bottom:6px; }
-    p.subtitle { color:#888; margin-bottom:24px; font-size:13px; }
-
-    #screen-password { display:block; }
-    #screen-main     { display:none;  }
-
-    .password-form { display:flex; flex-direction:column; gap:12px; margin-top:20px; }
-
-    .password-input-wrap { position:relative; display:flex; align-items:center; }
-
-    .password-input-wrap input {
-      width:100%; padding:14px 44px 14px 16px;
-      border:2px solid #0f3460; border-radius:12px;
-      background:#0f3460; color:white;
-      font-size:16px; outline:none; transition:border-color 0.2s;
+    .login-sub {
+      font-size: 13px;
+      color: var(--tg-sub);
+      text-align: center;
+      margin-bottom: 28px;
+      line-height: 1.5;
     }
-    .password-input-wrap input:focus { border-color:#e94560; }
-    .password-input-wrap input.error {
-      border-color:#e94560; animation:shake 0.35s;
+
+    .pw-wrap {
+      position: relative;
+      width: 100%;
+      margin-bottom: 10px;
     }
+
+    .pw-wrap input {
+      width: 100%;
+      padding: 14px 46px 14px 16px;
+      background: var(--tg-input-bg);
+      border: 2px solid #2a3a4e;
+      border-radius: var(--tg-radius);
+      color: var(--tg-text);
+      font-size: 15px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .pw-wrap input:focus     { border-color: var(--tg-accent); }
+    .pw-wrap input.error     { border-color: var(--tg-red); animation: shake 0.35s; }
+    .pw-wrap input::placeholder { color: var(--tg-sub); }
 
     .toggle-pw {
-      position:absolute; right:12px;
-      background:none; border:none;
-      cursor:pointer; font-size:18px; color:#888;
+      position: absolute; right: 13px; top: 50%;
+      transform: translateY(-50%);
+      background: none; border: none;
+      cursor: pointer; font-size: 18px; color: var(--tg-sub);
+      line-height: 1;
     }
-    .toggle-pw:hover { color:white; }
+    .toggle-pw:hover { color: var(--tg-text); }
 
-    .pw-error { font-size:13px; color:#e94560; min-height:18px; }
+    .pw-error {
+      font-size: 12px;
+      color: var(--tg-red);
+      min-height: 18px;
+      margin-bottom: 8px;
+      text-align: center;
+    }
+
+    .btn-login {
+      width: 100%;
+      padding: 14px;
+      background: var(--tg-accent);
+      color: white;
+      border: none;
+      border-radius: var(--tg-radius);
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+    .btn-login:hover    { background: #4070a8; }
+    .btn-login:active   { transform: scale(0.98); }
+    .btn-login:disabled { background: #2a3a4e; color: var(--tg-sub); cursor: not-allowed; }
+
+    .e2e-note {
+      margin-top: 20px;
+      font-size: 11px;
+      color: var(--tg-sub);
+      text-align: center;
+      line-height: 1.6;
+    }
+    .e2e-note span { color: var(--tg-green); }
 
     @keyframes shake {
       0%,100%{ transform:translateX(0);   }
@@ -67,352 +157,561 @@
       80%    { transform:translateX(5px);  }
     }
 
-    .btn {
-      width:100%; padding:13px;
-      border:none; border-radius:12px;
-      font-size:15px; font-weight:bold;
-      cursor:pointer; transition:all 0.2s;
+    /* ═══════════════════════════════════════════
+       ГЛАВНЫЙ ЭКРАН — TG LAYOUT
+    ═══════════════════════════════════════════ */
+    #screen-main {
+      display: none;
+      position: fixed;
+      inset: 0;
+      flex-direction: column;
     }
-    .btn-primary   { background:#e94560; color:white; }
-    .btn-primary:hover   { background:#c73652; }
-    .btn-primary:disabled { background:#555; cursor:not-allowed; }
-    .btn-secondary { background:#0f3460; color:white; margin-top:10px; }
-    .btn-secondary:hover { background:#1a4a7a; }
-    .btn-danger    { background:#333; color:#aaa; margin-top:10px; }
-    .btn-danger:hover { background:#444; }
+    #screen-main.visible { display: flex; }
 
-    .status-box {
-      background:#0f3460; border-radius:12px;
-      padding:14px; margin-bottom:18px;
-      display:flex; align-items:center; justify-content:space-between;
+    /* ── Шапка ── */
+    .tg-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px;
+      background: var(--tg-header);
+      border-bottom: 1px solid var(--tg-divider);
+      flex-shrink: 0;
+      min-height: 56px;
+      padding-top: max(10px, env(safe-area-inset-top));
     }
-    .user-count { font-size:28px; font-weight:bold; color:#e94560; }
-    .user-label { font-size:12px; color:#aaa; margin-top:2px; }
 
-    .secure-badge {
-      display:none; align-items:center; gap:5px;
-      padding:5px 10px;
-      background:#0d2b1a; border:1px solid #2e7d32;
-      border-radius:20px; font-size:11px; color:#66bb6a;
+    .tg-header-avatar {
+      width: 38px; height: 38px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #2b5278, #5288c1);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; flex-shrink: 0;
     }
-    .secure-badge.visible { display:inline-flex; }
 
-    .mic-status { font-size:13px; color:#888; margin:10px 0; display:none; }
-    .mic-status.active { display:block; color:#4caf50; }
-    .mic-status.muted  { display:block; color:#e94560; }
+    .tg-header-info { flex: 1; min-width: 0; }
+    .tg-header-name {
+      font-size: 15px; font-weight: 600;
+      color: var(--tg-text); white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
+    }
+    .tg-header-status {
+      font-size: 12px; color: var(--tg-green);
+      margin-top: 1px;
+    }
+    .tg-header-status.offline { color: var(--tg-sub); }
 
-    .participants { margin-top:18px; display:none; }
-    .participants-title { font-size:12px; color:#888; margin-bottom:8px; text-align:left; }
+    .tg-header-actions { display: flex; gap: 4px; }
+
+    .tg-icon-btn {
+      width: 38px; height: 38px;
+      border: none; background: none;
+      color: var(--tg-sub); font-size: 20px;
+      border-radius: 50%; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s, color 0.15s;
+    }
+    .tg-icon-btn:hover { background: rgba(255,255,255,0.07); color: var(--tg-text); }
+    .tg-icon-btn.active { color: var(--tg-accent2); }
+
+    /* Значок непрочитанных */
+    .tg-icon-btn .badge {
+      position: absolute;
+      top: 4px; right: 4px;
+      background: var(--tg-red);
+      color: white; font-size: 9px; font-weight: 700;
+      border-radius: 50%; min-width: 16px; height: 16px;
+      display: none; align-items: center; justify-content: center;
+      padding: 0 3px;
+    }
+    .tg-icon-btn .badge.visible { display: flex; }
+    .tg-icon-btn { position: relative; }
+
+    /* ── Тело (сообщения) ── */
+    .tg-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      background: var(--tg-bg);
+      /* TG wallpaper pattern */
+      background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.015) 1px, transparent 0);
+      background-size: 24px 24px;
+    }
+
+    /* ── Панель участников (внутри body) ── */
+    .voice-panel {
+      background: var(--tg-surface);
+      border-radius: 14px;
+      padding: 12px 14px;
+      margin-bottom: 8px;
+      display: none;
+    }
+    .voice-panel.visible { display: block; }
+
+    .voice-panel-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .voice-panel-title {
+      font-size: 12px; font-weight: 600;
+      color: var(--tg-sub); text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .voice-panel-count {
+      font-size: 11px; color: var(--tg-sub);
+    }
 
     .participant {
-      display:flex; align-items:center; gap:8px;
-      padding:7px 10px; background:#0f3460;
-      border-radius:10px; margin-bottom:6px;
-      flex-wrap: wrap;
+      display: flex; align-items: center; gap: 10px;
+      padding: 7px 4px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
     }
+    .participant:last-child { border-bottom: none; }
+
+    .participant-avatar {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: linear-gradient(135deg, #1e3a5a, #2b5278);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; flex-shrink: 0; position: relative;
+    }
+    .participant-avatar .mic-dot {
+      position: absolute; bottom: 0; right: 0;
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--tg-green);
+      border: 2px solid var(--tg-surface);
+    }
+
+    .participant-info { flex: 1; min-width: 0; }
     .participant-name {
-      font-size:12px; flex:1; text-align:left;
-      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+      font-size: 13px; font-weight: 500;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .volume-bar-wrap { width:44px; height:5px; background:#1a1a2e; border-radius:3px; overflow:hidden; }
-    .volume-bar { height:100%; width:0%; border-radius:3px; background:#4caf50; transition:width 0.08s; }
-    .volume-bar.loud { background:#e94560; }
+    .participant-sub {
+      font-size: 11px; color: var(--tg-sub); margin-top: 1px;
+    }
 
-    .signal-wrap { display:flex; align-items:flex-end; gap:2px; height:14px; }
-    .signal-wrap .bar { width:4px; border-radius:2px; background:#1a1a2e; transition:background 0.4s; }
-    .signal-wrap .bar:nth-child(1) { height:4px;  }
-    .signal-wrap .bar:nth-child(2) { height:8px;  }
-    .signal-wrap .bar:nth-child(3) { height:11px; }
-    .signal-wrap .bar:nth-child(4) { height:14px; }
-    .signal-excellent .bar            { background:#4caf50; }
-    .signal-good .bar:nth-child(-n+3) { background:#8bc34a; }
-    .signal-fair .bar:nth-child(-n+2) { background:#ff9800; }
-    .signal-poor .bar:nth-child(1)    { background:#e94560; }
+    .volume-bar-wrap {
+      width: 36px; height: 4px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 2px; overflow: hidden;
+    }
+    .volume-bar {
+      height: 100%; width: 0%;
+      border-radius: 2px;
+      background: var(--tg-green);
+      transition: width 0.08s;
+    }
+    .volume-bar.loud { background: var(--tg-red); }
 
+    .signal-wrap {
+      display: flex; align-items: flex-end; gap: 2px; height: 13px;
+    }
+    .signal-wrap .bar {
+      width: 3px; border-radius: 1px;
+      background: rgba(255,255,255,0.12);
+      transition: background 0.4s;
+    }
+    .signal-wrap .bar:nth-child(1) { height: 4px;  }
+    .signal-wrap .bar:nth-child(2) { height: 7px;  }
+    .signal-wrap .bar:nth-child(3) { height: 10px; }
+    .signal-wrap .bar:nth-child(4) { height: 13px; }
+    .signal-excellent .bar            { background: var(--tg-green); }
+    .signal-good .bar:nth-child(-n+3) { background: #8bc34a; }
+    .signal-fair .bar:nth-child(-n+2) { background: #ff9800; }
+    .signal-poor .bar:nth-child(1)    { background: var(--tg-red); }
+
+    .btn-understood {
+      padding: 5px 12px;
+      background: rgba(76,175,80,0.15);
+      color: var(--tg-green);
+      border: 1px solid rgba(76,175,80,0.3);
+      border-radius: 20px;
+      font-size: 11px; font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .btn-understood:hover    { background: rgba(76,175,80,0.25); }
+    .btn-understood:disabled { opacity: 0.4; cursor: default; }
+
+    /* ── Сообщения ── */
+    .msg {
+      max-width: 78%;
+      padding: 8px 12px 6px;
+      border-radius: 14px;
+      font-size: 14px;
+      line-height: 1.5;
+      word-break: break-word;
+      position: relative;
+    }
+    .msg.mine {
+      align-self: flex-end;
+      background: var(--tg-bubble-me);
+      border-bottom-right-radius: 4px;
+    }
+    .msg.theirs {
+      align-self: flex-start;
+      background: var(--tg-bubble-in);
+      border-bottom-left-radius: 4px;
+    }
+
+    /* Хвостик у пузыря */
+    .msg.mine::after {
+      content: '';
+      position: absolute; bottom: 0; right: -6px;
+      width: 0; height: 0;
+      border-style: solid;
+      border-width: 0 0 8px 8px;
+      border-color: transparent transparent var(--tg-bubble-me) transparent;
+    }
+    .msg.theirs::before {
+      content: '';
+      position: absolute; bottom: 0; left: -6px;
+      width: 0; height: 0;
+      border-style: solid;
+      border-width: 0 8px 8px 0;
+      border-color: transparent var(--tg-bubble-in) transparent transparent;
+    }
+
+    .msg-sender {
+      font-size: 11px; font-weight: 600;
+      color: var(--tg-accent2);
+      margin-bottom: 3px;
+    }
+
+    .msg-meta {
+      font-size: 10px;
+      color: rgba(255,255,255,0.4);
+      text-align: right;
+      margin-top: 3px;
+      display: flex; align-items: center; justify-content: flex-end; gap: 4px;
+    }
+
+    .msg-decrypt-status {
+      font-size: 10px; color: rgba(255,255,255,0.35);
+      margin-top: 2px;
+    }
+    .msg-decrypt-status.ok  { color: rgba(100,181,246,0.6); }
+    .msg-decrypt-status.err { color: var(--tg-red); }
+
+    .msg-media {
+      max-width: 100%; border-radius: 10px;
+      cursor: pointer; display: block; margin-bottom: 4px;
+    }
+    .msg video.msg-media { max-height: 220px; width: 100%; }
+
+    .msg-file {
+      display: flex; align-items: center; gap: 10px;
+      padding: 4px 2px;
+    }
+    .msg-file-icon  { font-size: 26px; }
+    .msg-file-info  { flex: 1; min-width: 0; }
+    .msg-file-name  {
+      font-size: 13px; font-weight: 600;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      max-width: 160px;
+    }
+    .msg-file-size  { font-size: 11px; opacity: 0.55; margin-top: 1px; }
+    .msg-file-dl    {
+      font-size: 20px; cursor: pointer;
+      padding: 6px; text-decoration: none;
+      border-radius: 50%;
+      transition: background 0.15s;
+    }
+    .msg-file-dl:hover { background: rgba(255,255,255,0.08); }
+
+    /* Дата-разделитель */
+    .date-divider {
+      align-self: center;
+      font-size: 11px;
+      color: var(--tg-sub);
+      background: rgba(23,33,43,0.85);
+      padding: 3px 10px;
+      border-radius: 10px;
+      margin: 6px 0;
+    }
+
+    /* ── Нижний бар ── */
+    .tg-bottom {
+      background: var(--tg-header);
+      border-top: 1px solid var(--tg-divider);
+      flex-shrink: 0;
+      padding-bottom: max(8px, env(safe-area-inset-bottom));
+    }
+
+    /* Строка ввода */
+    .tg-input-row {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      padding: 8px 10px 8px;
+    }
+
+    .btn-attach-tg {
+      width: 38px; height: 38px;
+      border: none; background: none;
+      color: var(--tg-sub); font-size: 22px;
+      border-radius: 50%; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      transition: color 0.15s;
+    }
+    .btn-attach-tg:hover { color: var(--tg-accent2); }
+
+    /* Попап прикрепления */
+    .attach-popup {
+      position: absolute;
+      bottom: 62px; left: 10px;
+      background: var(--tg-surface);
+      border-radius: 14px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      padding: 8px;
+      display: none;
+      flex-direction: column;
+      gap: 2px;
+      z-index: 200;
+      min-width: 160px;
+    }
+    .attach-popup.open { display: flex; }
+
+    .attach-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 14px;
+      color: var(--tg-text);
+      transition: background 0.15s;
+      border: none; background: none; width: 100%; text-align: left;
+    }
+    .attach-item:hover { background: rgba(255,255,255,0.06); }
+    .attach-item-icon  { font-size: 20px; width: 24px; text-align: center; }
+
+    .tg-textarea {
+      flex: 1;
+      padding: 10px 14px;
+      background: var(--tg-surface);
+      border: none;
+      border-radius: 20px;
+      color: var(--tg-text);
+      font-size: 14px;
+      font-family: inherit;
+      resize: none;
+      outline: none;
+      min-height: 38px;
+      max-height: 120px;
+      line-height: 1.45;
+      transition: background 0.2s;
+    }
+    .tg-textarea::placeholder { color: var(--tg-sub); }
+    .tg-textarea:focus { background: #2a3a4e; }
+
+    .btn-send-tg {
+      width: 38px; height: 38px;
+      border: none; border-radius: 50%;
+      background: var(--tg-accent);
+      color: white; font-size: 17px;
+      cursor: pointer; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.2s, transform 0.1s;
+    }
+    .btn-send-tg:hover    { background: #4070a8; }
+    .btn-send-tg:active   { transform: scale(0.92); }
+    .btn-send-tg:disabled { background: #2a3a4e; cursor: not-allowed; }
+
+    /* Голосовая панель внизу */
+    .voice-bar {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 14px 4px;
+      border-top: 1px solid rgba(255,255,255,0.04);
+    }
+    .voice-bar.visible { display: flex; }
+
+    .btn-voice {
+      flex: 1; padding: 9px 0;
+      border: none; border-radius: 20px;
+      font-size: 13px; font-weight: 600;
+      cursor: pointer; transition: background 0.2s, transform 0.1s;
+    }
+    .btn-voice:active { transform: scale(0.97); }
+
+    .btn-voice-join  { background: var(--tg-accent);   color: white; }
+    .btn-voice-join:hover  { background: #4070a8; }
+
+    .btn-voice-mic   {
+      background: rgba(255,255,255,0.07);
+      color: var(--tg-text); display:none;
+    }
+    .btn-voice-mic:hover  { background: rgba(255,255,255,0.12); }
+    .btn-voice-mic.muted  { color: var(--tg-red); }
+
+    .btn-voice-leave {
+      background: rgba(239,83,80,0.15);
+      color: var(--tg-red); display: none;
+      border: 1px solid rgba(239,83,80,0.3);
+    }
+    .btn-voice-leave:hover { background: rgba(239,83,80,0.25); }
+
+    /* ── Reconnect banner ── */
     .reconnect-banner {
-      display:none; margin-top:12px; padding:9px 12px;
-      background:#3a1a1a; border:1px solid #e94560;
-      border-radius:10px; font-size:12px; color:#ff6b6b;
-      animation:pulse 1.5s infinite;
+      display: none;
+      padding: 7px 14px;
+      background: rgba(239,83,80,0.12);
+      border-bottom: 1px solid rgba(239,83,80,0.2);
+      font-size: 12px; color: #ff6b6b;
+      text-align: center;
+      animation: pulse 1.5s infinite;
+      flex-shrink: 0;
     }
-    .reconnect-banner.visible { display:block; }
+    .reconnect-banner.visible { display: block; }
 
     @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.5;} }
 
-    /* ── КНОПКА ПОНЯЛ ── */
-    .btn-understood {
-      flex-basis: 100%;
-      margin-top: 4px;
-      padding: 6px 14px;
-      background: #2a7a3b;
-      color: #fff;
-      border: none;
-      border-radius: 20px;
-      font-size: 12px;
-      font-weight: bold;
-      cursor: pointer;
-      transition: background 0.2s, transform 0.1s;
-      text-align: center;
+    /* ── Бейдж E2E ── */
+    .secure-badge {
+      display: none; align-items: center; gap: 4px;
+      font-size: 11px; color: var(--tg-green);
     }
-    .btn-understood:hover    { background: #358a48; }
-    .btn-understood:active   { transform: scale(0.96); }
-    .btn-understood:disabled { background: #444; color: #777; cursor: default; }
+    .secure-badge.visible { display: inline-flex; }
 
-    /* ── БАННЕР "ПОНЯЛ" ── */
+    /* ── Баннер ПОНЯЛ ── */
     .understood-banner {
       position: fixed;
-      top: 70px;
-      left: 50%;
+      top: 70px; left: 50%;
       transform: translateX(-50%);
-      background: #1a6b2a;
+      background: rgba(27,94,32,0.95);
+      backdrop-filter: blur(10px);
       color: #fff;
-      padding: 12px 28px;
-      border-radius: 24px;
-      font-size: 16px;
-      font-weight: bold;
+      padding: 11px 24px;
+      border-radius: 20px;
+      font-size: 15px; font-weight: 600;
       z-index: 9999;
       box-shadow: 0 4px 20px rgba(0,0,0,0.5);
       pointer-events: none;
       animation: understoodAnim 3s ease forwards;
+      white-space: nowrap;
     }
 
     @keyframes understoodAnim {
-      0%   { opacity:0; transform: translateX(-50%) translateY(-12px); }
-      15%  { opacity:1; transform: translateX(-50%) translateY(0);     }
-      75%  { opacity:1;                                                  }
-      100% { opacity:0; transform: translateX(-50%) translateY(-8px);  }
+      0%   { opacity:0; transform: translateX(-50%) translateY(-10px); }
+      12%  { opacity:1; transform: translateX(-50%) translateY(0);     }
+      75%  { opacity:1; }
+      100% { opacity:0; transform: translateX(-50%) translateY(-6px);  }
     }
 
-    /* ── ЧАТ ── */
-    .chat-panel {
-      position:fixed; top:0; right:-100%;
-      width:100%; max-width:420px;
-      height:100vh; background:#16213e;
-      box-shadow:-4px 0 24px rgba(0,0,0,0.5);
-      display:flex; flex-direction:column;
-      transition:right 0.3s ease; z-index:1000;
-    }
-    .chat-panel.open { right:0; }
-
-    .chat-header {
-      display:flex; align-items:center; justify-content:space-between;
-      padding:16px 18px; background:#0f3460;
-      border-bottom:1px solid #1a3a6e; flex-shrink:0;
-    }
-    .chat-header-title { font-size:16px; font-weight:bold; }
-    .chat-header-sub   { font-size:11px; color:#4caf50; margin-top:2px; }
-
-    .btn-close-chat {
-      background:none; border:none; color:#888;
-      font-size:22px; cursor:pointer; padding:4px 8px;
-      border-radius:8px; line-height:1;
-    }
-    .btn-close-chat:hover { color:white; background:#1a3a6e; }
-
-    .chat-messages {
-      flex:1; overflow-y:auto; padding:16px;
-      display:flex; flex-direction:column; gap:10px;
-      scroll-behavior:smooth;
-    }
-
-    .msg {
-      max-width:85%; padding:10px 13px;
-      border-radius:14px; font-size:14px;
-      line-height:1.45; word-break:break-word; position:relative;
-    }
-    .msg.mine   { align-self:flex-end;  background:#e94560; color:white; border-bottom-right-radius:4px; }
-    .msg.theirs { align-self:flex-start; background:#0f3460; color:white; border-bottom-left-radius:4px; }
-
-    .msg-meta   { font-size:10px; opacity:0.6; margin-top:4px; text-align:right; }
-    .msg-sender { font-size:10px; opacity:0.7; margin-bottom:4px; color:#8bc34a; }
-
-    .msg-media  { max-width:100%; border-radius:8px; cursor:pointer; display:block; margin-bottom:4px; }
-    .msg video.msg-media { max-height:200px; width:100%; }
-
-    .msg-file { display:flex; align-items:center; gap:8px; padding:4px 0; }
-    .msg-file-icon { font-size:24px; }
-    .msg-file-info { flex:1; }
-    .msg-file-name { font-size:12px; font-weight:bold; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:160px; }
-    .msg-file-size { font-size:10px; opacity:0.6; }
-    .msg-file-dl   { font-size:18px; cursor:pointer; padding:4px; text-decoration:none; }
-    .msg-file-dl:hover { opacity:0.7; }
-
-    .msg-decrypt-status { font-size:10px; margin-top:3px; color:rgba(255,255,255,0.5); }
-    .msg-decrypt-status.ok  { color:#66bb6a; }
-    .msg-decrypt-status.err { color:#e94560; }
-
-    .chat-badge {
-      position:absolute; top:-6px; right:-6px;
-      background:#e94560; color:white;
-      font-size:10px; font-weight:bold;
-      border-radius:50%; width:18px; height:18px;
-      display:none; align-items:center; justify-content:center;
-    }
-    .chat-badge.visible { display:flex; }
-
-    .chat-input-area {
-      padding:12px 14px; background:#0f3460;
-      border-top:1px solid #1a3a6e; flex-shrink:0;
-    }
-
-    .chat-input-row { display:flex; gap:8px; align-items:flex-end; }
-
-    .chat-input-row textarea {
-      flex:1; padding:10px 13px;
-      border:2px solid #1a3a6e; border-radius:12px;
-      background:#1a1a2e; color:white; font-size:14px;
-      resize:none; outline:none;
-      min-height:42px; max-height:120px;
-      font-family:inherit; transition:border-color 0.2s;
-    }
-    .chat-input-row textarea:focus  { border-color:#e94560; }
-    .chat-input-row textarea::placeholder { color:#555; }
-
-    .btn-send {
-      width:42px; height:42px; border:none; border-radius:12px;
-      background:#e94560; color:white; font-size:18px; cursor:pointer;
-      flex-shrink:0; display:flex; align-items:center; justify-content:center;
-      transition:background 0.2s;
-    }
-    .btn-send:hover    { background:#c73652; }
-    .btn-send:disabled { background:#444; cursor:not-allowed; }
-
-    .chat-actions { display:flex; gap:8px; margin-bottom:8px; }
-
-    .btn-attach {
-      padding:7px 12px; border:none; border-radius:10px;
-      background:#1a3a6e; color:#aaa; font-size:13px; cursor:pointer;
-      transition:all 0.2s; display:flex; align-items:center; gap:5px;
-    }
-    .btn-attach:hover { background:#2a4a8e; color:white; }
-
-    .encrypt-note { font-size:10px; color:#3a7a4a; text-align:center; margin-top:6px; }
-
-    .btn-chat-open {
-      position:relative; width:100%; padding:13px;
-      border:none; border-radius:12px;
-      background:#0f3460; color:white;
-      font-size:15px; font-weight:bold;
-      cursor:pointer; margin-top:10px;
-      transition:background 0.2s; display:none;
-    }
-    .btn-chat-open:hover { background:#1a4a7a; }
-    .btn-chat-open.visible { display:block; }
-
-    /* Lightbox */
+    /* ── Lightbox ── */
     .lightbox {
-      display:none; position:fixed; inset:0;
-      background:rgba(0,0,0,0.92); z-index:2000;
-      align-items:center; justify-content:center;
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.94);
+      z-index: 3000;
+      align-items: center; justify-content: center;
     }
-    .lightbox.open { display:flex; }
+    .lightbox.open { display: flex; }
     .lightbox img, .lightbox video {
-      max-width:95vw; max-height:90vh;
-      border-radius:8px; object-fit:contain;
+      max-width: 96vw; max-height: 88vh;
+      border-radius: 6px; object-fit: contain;
     }
     .lightbox-close {
-      position:absolute; top:16px; right:20px;
-      font-size:32px; color:white;
-      cursor:pointer; opacity:0.7; z-index:1;
+      position: absolute; top: 14px; right: 18px;
+      font-size: 30px; color: rgba(255,255,255,0.7);
+      cursor: pointer; line-height: 1; z-index: 1;
     }
-    .lightbox-close:hover { opacity:1; }
+    .lightbox-close:hover { color: white; }
 
-    #keep-alive-audio { position:absolute; width:0; height:0; opacity:0; }
-    #hidden-audios    { display:none; }
-    #file-input       { display:none; }
+    /* ── Скролл ── */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+    #keep-alive-audio, #hidden-audios, #file-input { display: none; }
   </style>
 </head>
 <body>
 
-<div class="container">
-  <h1>🔐 Приватный чат</h1>
-  <p class="subtitle">Сквозное шифрование · Нет логов · Нет следов</p>
+<!-- ══════════════════════════════════════
+     ЭКРАН ПАРОЛЯ
+══════════════════════════════════════ -->
+<div id="screen-password">
+  <div class="login-card">
+    <div class="login-icon">🔐</div>
+    <div class="login-title">Приватный чат</div>
+    <div class="login-sub">Сквозное шифрование · Нет логов · Нет следов</div>
 
-  <!-- Экран пароля -->
-  <div id="screen-password">
-    <div class="password-form">
-      <div class="password-input-wrap">
-        <input type="password" id="pw-input"
-               placeholder="Введи пароль…"
-               autocomplete="current-password" maxlength="64"/>
-        <button class="toggle-pw" id="btn-toggle-pw" type="button">👁</button>
+    <div class="pw-wrap">
+      <input type="password" id="pw-input"
+             placeholder="Введи пароль…"
+             autocomplete="current-password" maxlength="64"/>
+      <button class="toggle-pw" id="btn-toggle-pw" type="button">👁</button>
+    </div>
+    <div class="pw-error" id="pw-error"></div>
+
+    <button class="btn-login" id="btn-enter">Войти</button>
+
+    <div class="e2e-note">
+      <span>🔒 AES-256-GCM</span> · Ключ не покидает устройство<br>
+      Сервер видит только зашифрованный набор байт
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     ГЛАВНЫЙ ЭКРАН
+══════════════════════════════════════ -->
+<div id="screen-main">
+
+  <!-- Шапка -->
+  <div class="tg-header">
+    <div class="tg-header-avatar">🔐</div>
+    <div class="tg-header-info">
+      <div class="tg-header-name">Приватный чат</div>
+      <div class="tg-header-status" id="header-status">
+        <span class="secure-badge" id="secure-badge">🔒 E2E · </span>
+        <span id="user-count">0</span> онлайн
       </div>
-      <div class="pw-error" id="pw-error"></div>
-      <button class="btn btn-primary" id="btn-enter">🔑 Войти</button>
+    </div>
+    <div class="tg-header-actions">
+      <button class="tg-icon-btn" id="btn-chat-open" title="Чат" style="display:none">
+        💬
+        <span class="badge" id="chat-badge">0</span>
+      </button>
     </div>
   </div>
 
-  <!-- Основной экран -->
-  <div id="screen-main">
-    <div class="status-box">
-      <div>
-        <div class="user-count" id="user-count">0</div>
-        <div class="user-label">участников онлайн</div>
+  <!-- Reconnect -->
+  <div class="reconnect-banner" id="reconnect-banner">🔄 Переподключаемся…</div>
+
+  <!-- Тело -->
+  <div class="tg-body" id="chat-messages">
+
+    <!-- Панель участников голосового -->
+    <div class="voice-panel" id="participants">
+      <div class="voice-panel-header">
+        <div class="voice-panel-title">🎙 Голосовой чат</div>
+        <div class="voice-panel-count" id="voice-count"></div>
       </div>
-      <div class="secure-badge" id="secure-badge">🔒 E2E шифрование</div>
-    </div>
-
-    <button class="btn btn-primary"   id="btn-join">🎙️ Войти в голосовой</button>
-    <button class="btn btn-secondary" id="btn-mic"   style="display:none">🔇 Выключить микрофон</button>
-    <button class="btn btn-danger"    id="btn-leave" style="display:none">📵 Выйти из голосового</button>
-
-    <button class="btn-chat-open" id="btn-chat-open">
-      💬 Открыть чат
-      <span class="chat-badge" id="chat-badge">0</span>
-    </button>
-
-    <div class="mic-status" id="mic-status"></div>
-    <div class="reconnect-banner" id="reconnect-banner">🔄 Переподключаемся…</div>
-
-    <div class="participants" id="participants">
-      <div class="participants-title">Участники голосового</div>
       <div id="participants-list"></div>
     </div>
-  </div>
-</div>
 
-<!-- Панель чата -->
-<div class="chat-panel" id="chat-panel">
-  <div class="chat-header">
-    <div>
-      <div class="chat-header-title">💬 Зашифрованный чат</div>
-      <div class="chat-header-sub">🔒 AES-256 · никто не читает кроме вас</div>
+    <!-- Приветствие -->
+    <div class="date-divider">Начало чата</div>
+    <div style="align-self:center;text-align:center;color:var(--tg-sub);font-size:12px;
+                background:rgba(23,33,43,0.7);padding:10px 16px;border-radius:12px;
+                max-width:280px;line-height:1.6;margin:4px 0 8px;">
+      🔒 Все сообщения зашифрованы.<br>
+      Сервер видит только случайный набор символов.
     </div>
-    <button class="btn-close-chat" id="btn-close-chat">✕</button>
-  </div>
 
-  <div class="chat-messages" id="chat-messages">
-    <div style="text-align:center;color:#444;font-size:12px;margin-top:20px;">
-      Все сообщения зашифрованы.<br>Сервер видит только случайный набор символов.
-    </div>
   </div>
 
-  <div class="chat-input-area">
-    <div class="chat-actions">
-      <button class="btn-attach" id="btn-photo">🖼 Фото</button>
-      <button class="btn-attach" id="btn-video">🎬 Видео</button>
-      <button class="btn-attach" id="btn-file">📎 Файл</button>
-    </div>
-    <div class="chat-input-row">
-      <textarea id="chat-input" placeholder="Сообщение…" rows="1"></textarea>
-      <button class="btn-send" id="btn-send">➤</button>
-    </div>
-    <div class="encrypt-note">🔐 Шифруется на устройстве перед отправкой</div>
-  </div>
-</div>
+  <!-- Нижний бар -->
+  <div class="tg-bottom">
 
-<!-- Lightbox -->
-<div class="lightbox" id="lightbox">
-  <span class="lightbox-close" id="lightbox-close">✕</span>
-  <div id="lightbox-content"></div>
-</div>
-
-<input type="file" id="file-input" accept="*/*">
-<audio id="keep-alive-audio" loop playsinline></audio>
-<div id="hidden-audios"></div>
-
-<script src="/socket.io/socket.io.js"></script>
-<script src="editor.js"></script>
-<script src="app.js"></script>
-</body>
-</html>
+    <!-- Голосовые кнопки -->
+    <div class="voice-bar visible">
+      <button class="btn-voice btn-voice-join"  id="btn-join">🎙 Войти в голосовой</button>
+      <button class="btn-voice btn-voice-
