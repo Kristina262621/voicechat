@@ -7,7 +7,7 @@ const path       = require('path');
 
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 const ROOM_PASSWORD = process.env.ROOM_PASSWORD || '333666';
 
@@ -24,9 +24,10 @@ try {
   console.log('HTTP server (no SSL)');
 }
 
+// Проверка пароля
 app.post('/auth', (req, res) => {
   const { password } = req.body;
-  if (!password) return res.status(400).json({ ok: false, error: 'no_password' });
+  if (!password) return res.status(400).json({ ok: false });
   if (password === ROOM_PASSWORD) return res.json({ ok: true });
   setTimeout(() => res.status(403).json({ ok: false, error: 'wrong_password' }), 1000);
 });
@@ -34,7 +35,9 @@ app.post('/auth', (req, res) => {
 const io = new Server(server, {
   pingTimeout:   60000,
   pingInterval:  10000,
-  upgradeTimeout: 30000,
+  upgradeTimeout:30000,
+  // Увеличиваем лимит для зашифрованных файлов
+  maxHttpBufferSize: 50 * 1024 * 1024,
   transports:    ['websocket', 'polling'],
   allowUpgrades: true,
   cors:          { origin: '*' }
@@ -43,9 +46,6 @@ const io = new Server(server, {
 const users         = new Set();
 const rooms         = new Map();
 const authenticated = new Set();
-
-// Сообщения НЕ сохраняем — только пересылаем
-// Сервер видит только зашифрованный blob, ключа у него нет
 
 io.on('connection', (socket) => {
   console.log('Connected:', socket.id);
@@ -56,7 +56,6 @@ io.on('connection', (socket) => {
     if (token === ROOM_PASSWORD) {
       authenticated.add(socket.id);
       socket.emit('auth-ok');
-      console.log('Authenticated:', socket.id);
     } else {
       socket.emit('auth-fail');
     }
@@ -70,8 +69,51 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('user-joined', socket.id);
   });
 
-  // Сообщение чата — просто relay, сервер не знает ключ
-  socket.on('chat-message', (payload) => {
+  // WebRTC сигнализация
+  socket.on('offer', ({ to, offer }) => {
     if (!authenticated.has(socket.id)) return;
-    // payload = { iv, data } — зашифрованный AES-GCM blob
-    // Добавляем только id отправителя (
+    io.to(to).emit('offer', { from: socket.id, offer });
+  });
+
+  socket.on('answer', ({ to, answer }) => {
+    if (!authenticated.has(socket.id)) return;
+    io.to(to).emit('answer', { from: socket.id, answer });
+  });
+
+  socket.on('ice-candidate', ({ to, candidate }) => {
+    if (!authenticated.has(socket.id)) return;
+    io.to(to).emit('ice-candidate', { from: socket.id, candidate });
+  });
+
+  // Чат — сервер видит только зашифрованный blob, не знает содержимого
+  socket.on('chat-message', (data) => {
+    if (!authenticated.has(socket.id)) return;
+    // Пересылаем всем остальным как есть — не трогаем
+    socket.broadcast.emit('chat-message', {
+      from:      socket.id,
+      encrypted: data.encrypted,   // зашифрованный текст/файл
+      iv:        data.iv,          // вектор инициализации
+      type:      data.type,        // 'text' | 'image' | 'video'
+      fileName:  data.fileName,    // только для файлов
+      fileSize:  data.fileSize,    // только для файлов
+      timestamp: Date.now()
+    });
+  });
+
+  socket.on('leave', () => handleLeave(socket));
+  socket.on('disconnect', () => handleLeave(socket));
+
+  function handleLeave(socket) {
+    users.delete(socket.id);
+    rooms.delete(socket.id);
+    authenticated.delete(socket.id);
+    socket.broadcast.emit('user-left', socket.id);
+    io.emit('user-count', users.size);
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Server on port ${PORT}`);
+  console.log(`Password: ${ROOM_PASSWORD}`);
+});
