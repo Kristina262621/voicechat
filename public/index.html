@@ -650,7 +650,7 @@
     <!-- Строка ввода -->
     <div class="tg-input-row">
 
-      <!-- Попап прикрепления -->
+           <!-- Попап прикрепления -->
       <div class="attach-popup" id="attach-popup">
         <button class="attach-item" id="btn-photo">
           <span class="attach-item-icon">🖼</span> Фото
@@ -659,4 +659,68 @@
           <span class="attach-item-icon">🎬</span> Видео
         </button>
         <button class="attach-item" id="btn-file">
-          <span class="
+          <span class="attach-item-icon">📎</span> Файл
+        </button>
+      </div>
+
+      <button class="btn-attach-tg" id="btn-attach-toggle" title="Прикрепить">📎</button>
+
+      <textarea id="chat-input" placeholder="Сообщение…" rows="1"></textarea>
+
+      <button id="btn-send">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
+          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+        </svg>
+      </button>
+
+    </div><!-- /tg-input-row -->
+
+  </div><!-- /tg-bottom -->
+
+</div><!-- /screen-main -->
+
+<!-- Скрытые элементы — app.js ищет все эти id -->
+<div id="btn-close-chat" style="display:none"></div>
+
+<!-- Lightbox -->
+<div id="lightbox">
+  <span id="lightbox-close">✕</span>
+  <div id="lightbox-content"></div>
+</div>
+
+<input type="file" id="file-input" accept="*/*">
+<audio id="keep-alive-audio" loop playsinline></audio>
+<div id="hidden-audios"></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="editor.js"></script>
+<script src="app.js"></script>
+
+<script>
+  // Попап прикрепления
+  const attachToggle = document.getElementById('btn-attach-toggle');
+  const attachPopup  = document.getElementById('attach-popup');
+
+  attachToggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    attachPopup.classList.toggle('open');
+  });
+
+  document.addEventListener('click', () => {
+    attachPopup.classList.remove('open');
+  });
+
+  attachPopup.addEventListener('click', (e) => {
+    e.stopPropagation();
+  });
+
+  // Закрываем попап после выбора файла
+  ['btn-photo','btn-video','btn-file'].forEach(id => {
+    document.getElementById(id)?.addEventListener('click', () => {
+      attachPopup.classList.remove('open');
+    });
+  });
+</script>
+
+</body>
+</html>
