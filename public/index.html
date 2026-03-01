@@ -56,11 +56,7 @@
       transition: all 0.2s;
     }
 
-    .btn-join {
-      background: #e94560;
-      color: white;
-    }
-
+    .btn-join { background: #e94560; color: white; }
     .btn-join:hover { background: #c73652; }
 
     .btn-leave {
@@ -68,7 +64,6 @@
       color: #aaa;
       margin-top: 12px;
     }
-
     .btn-leave:hover { background: #444; }
 
     .mic-status {
@@ -77,7 +72,6 @@
       color: #888;
       display: none;
     }
-
     .mic-status.active { display: block; color: #4caf50; }
     .mic-status.muted  { display: block; color: #e94560; }
 
@@ -95,15 +89,9 @@
       display: none;
       transition: all 0.2s;
     }
-
     .btn-mic:hover { background: #1a4a7a; }
 
-    /* Участники */
-    .participants {
-      margin-top: 24px;
-      display: none;
-    }
-
+    .participants { margin-top: 24px; display: none; }
     .participants-title {
       font-size: 13px;
       color: #888;
@@ -130,7 +118,6 @@
       text-overflow: ellipsis;
     }
 
-    /* Индикатор громкости */
     .volume-bar-wrap {
       width: 60px;
       height: 6px;
@@ -144,9 +131,8 @@
       width: 0%;
       border-radius: 3px;
       background: #4caf50;
-      transition: width 0.1s;
+      transition: width 0.08s;
     }
-
     .volume-bar.loud { background: #e94560; }
 
     #hidden-audios { display: none; }
@@ -163,7 +149,7 @@
     </div>
 
     <button class="btn btn-join" id="btn-join">🎙️ Войти в чат</button>
-    <button class="btn btn-mic" id="btn-mic">🔇 Выключить микрофон</button>
+    <button class="btn btn-mic" id="btn-mic" style="display:none">🔇 Выключить микрофон</button>
     <button class="btn btn-leave" id="btn-leave" style="display:none">Выйти из чата</button>
 
     <div class="mic-status" id="mic-status"></div>
