@@ -2153,13 +2153,14 @@ document.addEventListener('visibilitychange', async () => {
 // ═══════════════════════════════════════════════
 //  ЛИЧНЫЕ ЗВОНКИ (WebRTC)
 // ═══════════════════════════════════════════════
-let pcCallPeer        = null;
-let pcCallStream      = null;
-let pcCallRemoteId    = null;
-let pcCallRemoteNick  = '';
-let pcCallMuted       = false;
-let pcCallActive      = false;
-let incomingCallData  = null;
+let pcCallPeer           = null;
+let pcCallStream         = null;
+let pcCallRemoteId       = null;
+let pcCallRemoteNick     = '';
+let pcCallMuted          = false;
+let pcCallActive         = false;
+let incomingCallData     = null;
+let pcIceCandidateBuffer = []; // буфер ICE до получения answer
 
 const btnPrivateCall    = document.getElementById('btn-private-call');
 const modalIncomingCall = document.getElementById('modal-incoming-call');
@@ -2179,6 +2180,7 @@ function updateCallButton() {
   }
 }
 
+// ── Исходящий звонок ──
 btnPrivateCall.addEventListener('click', async () => {
   if (pcCallActive) { showToast('📞 Звонок уже активен'); return; }
   if (currentChatType !== 'private' || !currentChatId) return;
@@ -2194,13 +2196,16 @@ btnPrivateCall.addEventListener('click', async () => {
     showToast('❌ Нет доступа к микрофону'); return;
   }
 
-  pcCallPeer = createPrivateCallPeer();
+  // Узнать nickLower собеседника из chatId ДО создания peer
+  const parts = currentChatId.split('::');
+  const toNickLower = parts.find(p => p !== myNickname.toLowerCase());
+
+  // Передаём toNickLower чтобы ICE отправлялись сразу через сервер по нику
+  pcIceCandidateBuffer = [];
+  pcCallPeer = createPrivateCallPeer(toNickLower);
 
   const offer = await pcCallPeer.createOffer();
   await pcCallPeer.setLocalDescription(offer);
-
-  const parts = currentChatId.split('::');
-  const toNickLower = parts.find(p => p !== myNickname.toLowerCase());
 
   socket.emit('private-call-offer', {
     chatId: currentChatId,
@@ -2212,6 +2217,7 @@ btnPrivateCall.addEventListener('click', async () => {
   showToast('📞 Звоним ' + pcCallRemoteNick + '…', 4000);
 });
 
+// ── Входящий звонок ──
 socket.on('private-call-offer', async (data) => {
   if (pcCallActive) {
     socket.emit('private-call-reject', { to: data.from });
@@ -2229,6 +2235,7 @@ socket.on('private-call-offer', async (data) => {
   playIncomingRing();
 });
 
+// ── Принять звонок ──
 btnCallAccept.addEventListener('click', async () => {
   modalIncomingCall.classList.remove('open');
   stopIncomingRing();
@@ -2245,11 +2252,19 @@ btnCallAccept.addEventListener('click', async () => {
     incomingCallData = null; return;
   }
 
-  pcCallRemoteId   = incomingCallData.from;
+  pcCallRemoteId   = incomingCallData.from;   // socket.id звонящего известен сразу
   pcCallRemoteNick = incomingCallData.fromNick;
-  pcCallPeer = createPrivateCallPeer();
+  pcIceCandidateBuffer = [];
+  pcCallPeer = createPrivateCallPeer(pcCallRemoteId);
 
   await pcCallPeer.setRemoteDescription(new RTCSessionDescription(incomingCallData.offer));
+
+  // Добавить буферизованные ICE если успели накопиться
+  for (const c of pcIceCandidateBuffer) {
+    try { await pcCallPeer.addIceCandidate(new RTCIceCandidate(c)); } catch (_) {}
+  }
+  pcIceCandidateBuffer = [];
+
   const answer = await pcCallPeer.createAnswer();
   await pcCallPeer.setLocalDescription(answer);
   socket.emit('private-call-answer', { to: pcCallRemoteId, answer });
@@ -2266,6 +2281,7 @@ btnCallAccept.addEventListener('click', async () => {
   incomingCallData = null;
 });
 
+// ── Отклонить звонок ──
 btnCallReject.addEventListener('click', () => {
   modalIncomingCall.classList.remove('open');
   stopIncomingRing();
@@ -2275,25 +2291,41 @@ btnCallReject.addEventListener('click', () => {
   }
 });
 
+// ── Получить answer (звонящий) ──
 socket.on('private-call-answer', async ({ from, answer }) => {
   if (!pcCallPeer) return;
-  pcCallRemoteId = from;
+  pcCallRemoteId = from; // теперь знаем реальный socket.id
   pcCallActive   = true;
   pcPanelStatus.textContent = '🟢 Звонок активен';
+
   await pcCallPeer.setRemoteDescription(new RTCSessionDescription(answer));
+
+  // Отправить буферизованные ICE-кандидаты которые накопились до answer
+  for (const candidate of pcIceCandidateBuffer) {
+    socket.emit('private-call-ice', { to: from, candidate });
+  }
+  pcIceCandidateBuffer = [];
 });
 
+// ── ICE кандидаты ──
 socket.on('private-call-ice', async ({ from, candidate }) => {
-  if (pcCallPeer && candidate) {
+  if (!candidate) return;
+  if (pcCallPeer && pcCallPeer.remoteDescription) {
+    // remoteDescription уже установлен — добавляем сразу
     try { await pcCallPeer.addIceCandidate(new RTCIceCandidate(candidate)); } catch (_) {}
+  } else {
+    // remoteDescription ещё не установлен — буферизуем
+    pcIceCandidateBuffer.push(candidate);
   }
 });
 
+// ── Собеседник завершил звонок ──
 socket.on('private-call-ended', () => {
   showToast('📵 ' + (pcCallRemoteNick || '?') + ' завершил звонок', 3000);
   endPrivateCall(false);
 });
 
+// ── Звонок отклонён ──
 socket.on('private-call-rejected', () => {
   showToast('📵 ' + (pcCallRemoteNick || '?') + ' отклонил звонок', 3000);
   endPrivateCall(false);
@@ -2313,10 +2345,11 @@ function endPrivateCall(notify = true) {
   const el = document.getElementById('audio-pc-call');
   if (el) el.remove();
 
-  pcCallActive     = false;
-  pcCallRemoteId   = null;
-  pcCallRemoteNick = '';
-  pcCallMuted      = false;
+  pcCallActive         = false;
+  pcCallRemoteId       = null;
+  pcCallRemoteNick     = '';
+  pcCallMuted          = false;
+  pcIceCandidateBuffer = []; // очистить буфер
 
   hideCallPanel();
   stopIncomingRing();
@@ -2332,7 +2365,8 @@ btnPcMute.addEventListener('click', () => {
   btnPcMute.title       = pcCallMuted ? 'Включить микрофон' : 'Выключить микрофон';
 });
 
-function createPrivateCallPeer() {
+// ── Создать RTCPeerConnection ──
+function createPrivateCallPeer(targetId) {
   const peer = new RTCPeerConnection(iceServers);
 
   if (pcCallStream) {
@@ -2353,8 +2387,13 @@ function createPrivateCallPeer() {
   };
 
   peer.onicecandidate = e => {
-    if (e.candidate && pcCallRemoteId) {
-      socket.emit('private-call-ice', { to: pcCallRemoteId, candidate: e.candidate });
+    if (!e.candidate) return;
+    const sendTo = pcCallRemoteId || targetId;
+    if (sendTo) {
+      socket.emit('private-call-ice', { to: sendTo, candidate: e.candidate });
+    } else {
+      // Ни socket.id ни targetId не известен — буферизуем
+      pcIceCandidateBuffer.push(e.candidate);
     }
   };
 
