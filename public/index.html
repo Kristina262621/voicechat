@@ -1330,7 +1330,7 @@
     <div class="rooms-list" id="chat-private-list" style="display:none;padding-bottom:20px"></div>
   </div>
 
-  <!-- Основная панель чата -->
+ <!-- Основная панель чата -->
   <div class="chat-main-panel">
     <div class="tg-header">
       <button class="header-icon-btn" id="btn-back-lobby">←</button>
@@ -1342,6 +1342,7 @@
         </div>
       </div>
       <div class="tg-header-btns">
+        <button class="header-icon-btn" id="btn-private-call" title="Позвонить" style="display:none">📞</button>
         <button class="header-icon-btn" id="btn-invite-friend" title="Пригласить">👥</button>
         <button class="header-icon-btn" id="btn-room-members"  title="Настройки">⚙️</button>
       </div>
@@ -1401,6 +1402,69 @@
 <div id="lightbox">
   <span id="lightbox-close">✕</span>
   <div id="lightbox-content"></div>
+</div>
+
+<!-- МОДАЛКА: ВХОДЯЩИЙ ЗВОНОК -->
+<div class="modal-overlay" id="modal-incoming-call">
+  <div class="modal-sheet" style="text-align:center;max-width:340px;margin:auto;border-radius:22px;padding:32px 24px">
+    <div style="font-size:56px;margin-bottom:12px;line-height:1" id="incoming-call-avatar">👤</div>
+    <div style="font-size:18px;font-weight:700;margin-bottom:6px" id="incoming-call-name">—</div>
+    <div style="font-size:13px;color:var(--sub);margin-bottom:28px">
+      📞 Входящий голосовой звонок…
+    </div>
+    <div style="display:flex;gap:24px;justify-content:center;align-items:center">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+        <button id="btn-call-reject"
+          style="width:64px;height:64px;border-radius:50%;border:none;
+                 background:var(--red);color:white;font-size:26px;
+                 cursor:pointer;transition:opacity 0.2s;
+                 display:flex;align-items:center;justify-content:center">📵</button>
+        <span style="font-size:11px;color:var(--sub)">Отклонить</span>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+        <button id="btn-call-accept"
+          style="width:64px;height:64px;border-radius:50%;border:none;
+                 background:var(--green);color:white;font-size:26px;
+                 cursor:pointer;transition:opacity 0.2s;
+                 display:flex;align-items:center;justify-content:center">📞</button>
+        <span style="font-size:11px;color:var(--sub)">Принять</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ПАНЕЛЬ АКТИВНОГО ЛИЧНОГО ЗВОНКА -->
+<div id="private-call-panel" style="
+  display:none;
+  position:fixed;bottom:90px;left:50%;transform:translateX(-50%);
+  background:var(--surface);border-radius:18px;
+  padding:12px 18px;
+  box-shadow:0 8px 32px rgba(0,0,0,0.6);
+  z-index:600;
+  flex-direction:row;align-items:center;gap:14px;
+  min-width:240px;max-width:90vw;
+  border:1px solid rgba(255,255,255,0.07);
+">
+  <div style="font-size:22px">📞</div>
+  <div style="flex:1;min-width:0">
+    <div style="font-size:13px;font-weight:600;
+                white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
+         id="pc-panel-name">—</div>
+    <div style="font-size:11px;color:var(--green);margin-top:2px"
+         id="pc-panel-status">⏳ Соединение…</div>
+  </div>
+  <button id="btn-pc-mute"
+    style="width:36px;height:36px;border-radius:50%;border:none;
+           background:rgba(255,255,255,0.08);color:var(--text);
+           font-size:16px;cursor:pointer;flex-shrink:0;
+           display:flex;align-items:center;justify-content:center"
+    title="Заглушить микрофон">🔇</button>
+  <button id="btn-pc-hangup"
+    style="width:36px;height:36px;border-radius:50%;border:none;
+           background:var(--red);color:white;
+           font-size:16px;cursor:pointer;flex-shrink:0;
+           display:flex;align-items:center;justify-content:center"
+    title="Завершить звонок">📵</button>
 </div>
 
 <input type="file" id="file-input"       accept="*/*">
