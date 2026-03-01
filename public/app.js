@@ -325,6 +325,8 @@ function showScreen(name) {
   if (name === 'auth')  screenAuth.classList.add('active');
   if (name === 'lobby') screenLobby.classList.add('active');
   if (name === 'chat')  screenMain.classList.add('active');
+  // Обновить кнопку звонка — показывать только в личном чате
+  if (typeof updateCallButton === 'function') updateCallButton();
 }
 
 function avatarHtml(avatar, fallback = '👤', size = '100%') {
@@ -2146,4 +2148,262 @@ document.addEventListener('visibilitychange', async () => {
     } catch (_) {}
   } else { tracks.forEach(t=>{t.enabled=micEnabled;}); }
   if (audioCtx?.state==='suspended') await audioCtx.resume();
+}); // ← ЭТА ЗАКРЫВАЮЩАЯ СКОБКА БЫЛА ПОТЕРЯНА
+
+// ═══════════════════════════════════════════════
+//  ЛИЧНЫЕ ЗВОНКИ (WebRTC)
+// ═══════════════════════════════════════════════
+let pcCallPeer        = null;
+let pcCallStream      = null;
+let pcCallRemoteId    = null;
+let pcCallRemoteNick  = '';
+let pcCallMuted       = false;
+let pcCallActive      = false;
+let incomingCallData  = null;
+
+const btnPrivateCall    = document.getElementById('btn-private-call');
+const modalIncomingCall = document.getElementById('modal-incoming-call');
+const incomingCallAvatar= document.getElementById('incoming-call-avatar');
+const incomingCallName  = document.getElementById('incoming-call-name');
+const btnCallAccept     = document.getElementById('btn-call-accept');
+const btnCallReject     = document.getElementById('btn-call-reject');
+const pcCallPanel       = document.getElementById('private-call-panel');
+const pcPanelName       = document.getElementById('pc-panel-name');
+const pcPanelStatus     = document.getElementById('pc-panel-status');
+const btnPcMute         = document.getElementById('btn-pc-mute');
+const btnPcHangup       = document.getElementById('btn-pc-hangup');
+
+function updateCallButton() {
+  if (btnPrivateCall) {
+    btnPrivateCall.style.display = currentChatType === 'private' ? 'flex' : 'none';
+  }
+}
+
+btnPrivateCall.addEventListener('click', async () => {
+  if (pcCallActive) { showToast('📞 Звонок уже активен'); return; }
+  if (currentChatType !== 'private' || !currentChatId) return;
+
+  pcCallRemoteNick = chatRoomName.textContent;
+
+  try {
+    pcCallStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true },
+      video: false
+    });
+  } catch (e) {
+    showToast('❌ Нет доступа к микрофону'); return;
+  }
+
+  pcCallPeer = createPrivateCallPeer();
+
+  const offer = await pcCallPeer.createOffer();
+  await pcCallPeer.setLocalDescription(offer);
+
+  const parts = currentChatId.split('::');
+  const toNickLower = parts.find(p => p !== myNickname.toLowerCase());
+
+  socket.emit('private-call-offer', {
+    chatId: currentChatId,
+    to:     toNickLower,
+    offer
+  });
+
+  showCallPanel(pcCallRemoteNick);
+  showToast('📞 Звоним ' + pcCallRemoteNick + '…', 4000);
 });
+
+socket.on('private-call-offer', async (data) => {
+  if (pcCallActive) {
+    socket.emit('private-call-reject', { to: data.from });
+    return;
+  }
+  incomingCallData = data;
+  if (data.fromAvatar) {
+    incomingCallAvatar.innerHTML = `<img src="${data.fromAvatar}"
+      style="width:72px;height:72px;border-radius:50%;object-fit:cover">`;
+  } else {
+    incomingCallAvatar.textContent = '👤';
+  }
+  incomingCallName.textContent = data.fromNick;
+  modalIncomingCall.classList.add('open');
+  playIncomingRing();
+});
+
+btnCallAccept.addEventListener('click', async () => {
+  modalIncomingCall.classList.remove('open');
+  stopIncomingRing();
+  if (!incomingCallData) return;
+
+  try {
+    pcCallStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true },
+      video: false
+    });
+  } catch (e) {
+    showToast('❌ Нет доступа к микрофону');
+    socket.emit('private-call-reject', { to: incomingCallData.from });
+    incomingCallData = null; return;
+  }
+
+  pcCallRemoteId   = incomingCallData.from;
+  pcCallRemoteNick = incomingCallData.fromNick;
+  pcCallPeer = createPrivateCallPeer();
+
+  await pcCallPeer.setRemoteDescription(new RTCSessionDescription(incomingCallData.offer));
+  const answer = await pcCallPeer.createAnswer();
+  await pcCallPeer.setLocalDescription(answer);
+  socket.emit('private-call-answer', { to: pcCallRemoteId, answer });
+
+  pcCallActive = true;
+  showCallPanel(pcCallRemoteNick);
+
+  if (currentChatId !== incomingCallData.chatId) {
+    socket.emit('private-chat-open',
+      { withNickname: incomingCallData.fromNick }, res => {
+      if (res.ok) enterPrivateChat(res.chatId, res.withNickname, res.withAvatar);
+    });
+  }
+  incomingCallData = null;
+});
+
+btnCallReject.addEventListener('click', () => {
+  modalIncomingCall.classList.remove('open');
+  stopIncomingRing();
+  if (incomingCallData) {
+    socket.emit('private-call-reject', { to: incomingCallData.from });
+    incomingCallData = null;
+  }
+});
+
+socket.on('private-call-answer', async ({ from, answer }) => {
+  if (!pcCallPeer) return;
+  pcCallRemoteId = from;
+  pcCallActive   = true;
+  pcPanelStatus.textContent = '🟢 Звонок активен';
+  await pcCallPeer.setRemoteDescription(new RTCSessionDescription(answer));
+});
+
+socket.on('private-call-ice', async ({ from, candidate }) => {
+  if (pcCallPeer && candidate) {
+    try { await pcCallPeer.addIceCandidate(new RTCIceCandidate(candidate)); } catch (_) {}
+  }
+});
+
+socket.on('private-call-ended', () => {
+  showToast('📵 ' + (pcCallRemoteNick || '?') + ' завершил звонок', 3000);
+  endPrivateCall(false);
+});
+
+socket.on('private-call-rejected', () => {
+  showToast('📵 ' + (pcCallRemoteNick || '?') + ' отклонил звонок', 3000);
+  endPrivateCall(false);
+});
+
+btnPcHangup.addEventListener('click', () => endPrivateCall(true));
+
+function endPrivateCall(notify = true) {
+  if (notify && pcCallRemoteId) {
+    socket.emit('private-call-end', { to: pcCallRemoteId });
+  }
+  if (pcCallPeer)   { pcCallPeer.close();   pcCallPeer   = null; }
+  if (pcCallStream) {
+    pcCallStream.getTracks().forEach(t => t.stop());
+    pcCallStream = null;
+  }
+  const el = document.getElementById('audio-pc-call');
+  if (el) el.remove();
+
+  pcCallActive     = false;
+  pcCallRemoteId   = null;
+  pcCallRemoteNick = '';
+  pcCallMuted      = false;
+
+  hideCallPanel();
+  stopIncomingRing();
+  modalIncomingCall.classList.remove('open');
+}
+
+btnPcMute.addEventListener('click', () => {
+  pcCallMuted = !pcCallMuted;
+  if (pcCallStream) {
+    pcCallStream.getAudioTracks().forEach(t => { t.enabled = !pcCallMuted; });
+  }
+  btnPcMute.textContent = pcCallMuted ? '🎙️' : '🔇';
+  btnPcMute.title       = pcCallMuted ? 'Включить микрофон' : 'Выключить микрофон';
+});
+
+function createPrivateCallPeer() {
+  const peer = new RTCPeerConnection(iceServers);
+
+  if (pcCallStream) {
+    pcCallStream.getTracks().forEach(t => peer.addTrack(t, pcCallStream));
+  }
+
+  peer.ontrack = e => {
+    let audio = document.getElementById('audio-pc-call');
+    if (!audio) {
+      audio = document.createElement('audio');
+      audio.id = 'audio-pc-call';
+      audio.autoplay = true;
+      audio.playsInline = true;
+      document.body.appendChild(audio);
+    }
+    audio.srcObject = e.streams[0];
+    audio.play().catch(() => {});
+  };
+
+  peer.onicecandidate = e => {
+    if (e.candidate && pcCallRemoteId) {
+      socket.emit('private-call-ice', { to: pcCallRemoteId, candidate: e.candidate });
+    }
+  };
+
+  peer.onconnectionstatechange = () => {
+    if (peer.connectionState === 'connected') {
+      pcPanelStatus.textContent = '🟢 Звонок активен';
+    }
+    if (peer.connectionState === 'disconnected' || peer.connectionState === 'failed') {
+      showToast('📵 Соединение прервано', 3000);
+      endPrivateCall(false);
+    }
+  };
+
+  return peer;
+}
+
+function showCallPanel(name) {
+  pcPanelName.textContent   = name;
+  pcPanelStatus.textContent = '⏳ Соединение…';
+  btnPcMute.textContent     = '🔇';
+  pcCallPanel.style.display = 'flex';
+}
+function hideCallPanel() {
+  pcCallPanel.style.display = 'none';
+}
+
+let ringInterval = null;
+function playIncomingRing() {
+  stopIncomingRing();
+  let count = 0;
+  const ring = () => {
+    if (count++ > 20) { stopIncomingRing(); return; }
+    try {
+      const ctx  = new (window.AudioContext || window.webkitAudioContext)();
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(440, ctx.currentTime);
+      osc.frequency.setValueAtTime(480, ctx.currentTime + 0.15);
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.5);
+      osc.onended = () => ctx.close();
+    } catch (_) {}
+  };
+  ring();
+  ringInterval = setInterval(ring, 1000);
+}
+function stopIncomingRing() {
+  if (ringInterval) { clearInterval(ringInterval); ringInterval = null; }
+}
