@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Приватный чат</title>
@@ -23,14 +23,27 @@
       --sub:       #708499;
       --divider:   #0d1821;
       --radius:    12px;
+      --sat:        env(safe-area-inset-top,    0px);
+      --sab:        env(safe-area-inset-bottom, 0px);
     }
 
-    html, body {
+    /* ── Основа: занимаем ровно видимый экран ── */
+    html {
       height: 100%;
+      height: -webkit-fill-available;
+    }
+
+    body {
+      height: 100%;
+      height: -webkit-fill-available;
       font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
       background: var(--bg);
       color: var(--text);
       overflow: hidden;
+      /* Запрещаем прокрутку страницы на iOS */
+      position: fixed;
+      width: 100%;
+      top: 0; left: 0;
     }
 
     /* ══════════════════════════
@@ -43,23 +56,25 @@
       justify-content: center;
       background: var(--bg);
       z-index: 500;
+      /* iOS: сдвигаемся когда появляется клавиатура */
+      transition: transform 0.3s ease;
     }
 
     .login-card {
       width: 100%; max-width: 360px;
       margin: 0 16px;
-      padding: 40px 28px 32px;
+      padding: 36px 28px 28px;
       background: var(--surface);
       border-radius: 18px;
       box-shadow: 0 12px 48px rgba(0,0,0,0.6);
       display: flex; flex-direction: column; align-items: center;
     }
 
-    .login-icon  { font-size: 54px; margin-bottom: 16px; }
+    .login-icon  { font-size: 54px; margin-bottom: 14px; }
     .login-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; text-align: center; }
     .login-sub   {
       font-size: 13px; color: var(--sub);
-      text-align: center; margin-bottom: 28px; line-height: 1.5;
+      text-align: center; margin-bottom: 24px; line-height: 1.5;
     }
 
     .pw-wrap { position: relative; width: 100%; margin-bottom: 10px; }
@@ -67,7 +82,9 @@
       width: 100%; padding: 14px 46px 14px 16px;
       background: var(--bg); border: 2px solid #2a3a4e;
       border-radius: var(--radius); color: var(--text);
-      font-size: 15px; outline: none; transition: border-color 0.2s;
+      font-size: 16px; /* минимум 16px — предотвращает zoom на iOS */
+      outline: none; transition: border-color 0.2s;
+      -webkit-appearance: none;
     }
     .pw-wrap input:focus        { border-color: var(--accent); }
     .pw-wrap input.error        { border-color: var(--red); animation: shake 0.35s; }
@@ -78,6 +95,7 @@
       transform: translateY(-50%);
       background: none; border: none; cursor: pointer;
       font-size: 18px; color: var(--sub); line-height: 1;
+      -webkit-tap-highlight-color: transparent;
     }
     .toggle-pw:hover { color: var(--text); }
 
@@ -93,13 +111,14 @@
       border: none; border-radius: var(--radius);
       font-size: 15px; font-weight: 600;
       cursor: pointer; transition: background 0.2s, transform 0.1s;
+      -webkit-tap-highlight-color: transparent;
     }
     #btn-enter:hover    { background: #4070a8; }
     #btn-enter:active   { transform: scale(0.98); }
     #btn-enter:disabled { background: #2a3a4e; color: var(--sub); cursor: not-allowed; }
 
     .e2e-note {
-      margin-top: 20px; font-size: 11px;
+      margin-top: 18px; font-size: 11px;
       color: var(--sub); text-align: center; line-height: 1.7;
     }
     .e2e-note b { color: var(--green); }
@@ -114,17 +133,20 @@
 
     /* ══════════════════════════
        ГЛАВНЫЙ ЭКРАН
+       Используем JS для высоты — visualViewport
     ══════════════════════════ */
     #screen-main {
       display: none;
-      position: fixed; inset: 0;
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      /* высота будет задана через JS по visualViewport */
       flex-direction: column;
       background: var(--bg);
+      overflow: hidden;
     }
 
-    #screen-main[style*="block"],
-    #screen-main[style*="flex"] {
-      display: flex !important;
+    #screen-main.active {
+      display: flex;
     }
 
     /* ── Шапка ── */
@@ -135,6 +157,7 @@
       background: var(--header);
       border-bottom: 1px solid var(--divider);
       flex-shrink: 0; min-height: 56px;
+      z-index: 10;
     }
 
     .tg-avatar {
@@ -162,6 +185,7 @@
       display: none;
       align-items: center; justify-content: center;
       transition: background 0.15s, color 0.15s;
+      -webkit-tap-highlight-color: transparent;
     }
     #btn-chat-open.visible { display: flex; }
     #btn-chat-open:hover {
@@ -194,7 +218,7 @@
     @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.5;} }
 
     /* ══════════════════════════
-       ОСНОВНАЯ ОБЛАСТЬ
+       ОСНОВНАЯ ОБЛАСТЬ — скролл
     ══════════════════════════ */
     .main-body {
       flex: 1;
@@ -202,10 +226,13 @@
       flex-direction: column;
       overflow: hidden;
       position: relative;
+      min-height: 0; /* важно для flex + overflow */
     }
 
     #chat-messages {
-      flex: 1; overflow-y: auto;
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
       padding: 10px 10px 6px;
       display: flex; flex-direction: column; gap: 3px;
       background: var(--bg);
@@ -214,11 +241,9 @@
         rgba(255,255,255,0.012) 1px, transparent 0
       );
       background-size: 24px 24px;
-    }
-
-    #chat-panel {
-      display: none !important;
-      width: 0; height: 0; overflow: hidden;
+      /* плавный скролл на iOS */
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
     }
 
     /* ── Голосовая панель ── */
@@ -290,6 +315,7 @@
       font-size: 11px; font-weight: 600;
       cursor: pointer; transition: background 0.2s;
       white-space: nowrap; flex-shrink: 0;
+      -webkit-tap-highlight-color: transparent;
     }
     .btn-understood:hover    { background: rgba(76,175,80,0.22); }
     .btn-understood:disabled { opacity: 0.4; cursor: default; }
@@ -374,12 +400,19 @@
 
     /* ══════════════════════════
        НИЖНИЙ БАР
+       Липкий — следует за visualViewport
     ══════════════════════════ */
     .tg-bottom {
       background: var(--header);
       border-top: 1px solid var(--divider);
       flex-shrink: 0;
+      /* Safe area снизу — только когда клавиатуры нет */
       padding-bottom: max(6px, env(safe-area-inset-bottom));
+    }
+
+    /* Когда клавиатура открыта — убираем safe area padding */
+    body.keyboard-open .tg-bottom {
+      padding-bottom: 6px;
     }
 
     .voice-bar {
@@ -393,6 +426,7 @@
       font-size: 13px; font-weight: 600; cursor: pointer;
       background: var(--accent); color: white;
       transition: background 0.2s;
+      -webkit-tap-highlight-color: transparent;
     }
     #btn-join:hover { background: #4070a8; }
 
@@ -402,6 +436,7 @@
       font-size: 13px; font-weight: 600; cursor: pointer;
       background: rgba(255,255,255,0.07); color: var(--text);
       transition: background 0.2s;
+      -webkit-tap-highlight-color: transparent;
     }
     #btn-mic:hover { background: rgba(255,255,255,0.12); }
 
@@ -412,6 +447,7 @@
       font-size: 13px; font-weight: 600; cursor: pointer;
       background: rgba(239,83,80,0.13); color: var(--red);
       transition: background 0.2s;
+      -webkit-tap-highlight-color: transparent;
     }
     #btn-leave:hover { background: rgba(239,83,80,0.22); }
 
@@ -431,6 +467,7 @@
       font-size: 22px; border-radius: 50%; cursor: pointer;
       display: flex; align-items: center; justify-content: center;
       transition: color 0.15s;
+      -webkit-tap-highlight-color: transparent;
     }
     .btn-attach-tg:hover { color: var(--accent2); }
 
@@ -452,6 +489,7 @@
       cursor: pointer; font-size: 14px; color: var(--text);
       transition: background 0.15s;
       border: none; background: none; width: 100%; text-align: left;
+      -webkit-tap-highlight-color: transparent;
     }
     .attach-item:hover { background: rgba(255,255,255,0.06); }
     .attach-item-icon  { font-size: 20px; width: 24px; text-align: center; }
@@ -460,10 +498,14 @@
       flex: 1; padding: 10px 14px;
       background: var(--surface);
       border: none; border-radius: 22px;
-      color: var(--text); font-size: 14px; font-family: inherit;
+      color: var(--text);
+      font-size: 16px; /* минимум 16px — предотвращает zoom на iOS */
+      font-family: inherit;
       resize: none; outline: none;
       min-height: 38px; max-height: 120px; line-height: 1.45;
       transition: background 0.2s;
+      /* Отключаем авто-увеличение на iOS */
+      -webkit-text-size-adjust: 100%;
     }
     #chat-input::placeholder { color: var(--sub); }
     #chat-input:focus { background: #2a3a4e; }
@@ -475,6 +517,7 @@
       cursor: pointer;
       display: flex; align-items: center; justify-content: center;
       transition: background 0.2s, transform 0.1s;
+      -webkit-tap-highlight-color: transparent;
     }
     #btn-send:hover    { background: #4070a8; }
     #btn-send:active   { transform: scale(0.92); }
@@ -518,12 +561,27 @@
     }
     #lightbox-close:hover { color: white; }
 
+    /* ── Индикатор шумоподавления ── */
+    #noise-indicator {
+      display: none;
+      align-items: center; gap: 5px;
+      padding: 2px 8px 4px;
+      font-size: 10px; color: var(--sub);
+    }
+    #noise-indicator.visible { display: flex; }
+    #noise-indicator span { color: var(--green); font-weight: 600; }
+
+    /* ── Скроллбар ── */
     ::-webkit-scrollbar { width: 3px; }
     ::-webkit-scrollbar-thumb {
       background: rgba(255,255,255,0.08); border-radius: 2px;
     }
 
-    #keep-alive-audio, #hidden-audios, #file-input { display: none; }
+    #keep-alive-audio,
+    #hidden-audios,
+    #file-input,
+    #chat-panel,
+    #btn-close-chat { display: none !important; }
   </style>
 </head>
 <body>
@@ -604,9 +662,9 @@
         Сервер видит только случайный набор символов.
       </div>
 
-    </div>
+    </div><!-- /chat-messages -->
 
-    <!-- chat-panel — только для совместимости с app.js -->
+    <!-- Совместимость с app.js -->
     <div id="chat-panel"></div>
 
   </div><!-- /main-body -->
@@ -622,8 +680,12 @@
 
     <div id="mic-status" class="mic-status"></div>
 
-    <div class="tg-input-row">
+    <!-- Индикатор шумоподавления -->
+    <div id="noise-indicator">
+      <span>🎛 Шумоподавление активно</span>
+    </div>
 
+    <div class="tg-input-row">
       <div class="attach-popup" id="attach-popup">
         <button class="attach-item" id="btn-photo">
           <span class="attach-item-icon">🖼</span> Фото
@@ -645,15 +707,14 @@
           <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
         </svg>
       </button>
-
     </div><!-- /tg-input-row -->
 
   </div><!-- /tg-bottom -->
 
 </div><!-- /screen-main -->
 
-<!-- Скрытые элементы для совместимости с app.js -->
-<div id="btn-close-chat" style="display:none"></div>
+<!-- Совместимость -->
+<div id="btn-close-chat"></div>
 
 <!-- Lightbox -->
 <div id="lightbox">
@@ -670,7 +731,54 @@
 <script src="app.js"></script>
 
 <script>
-  // ── Попап прикрепления ──
+// ══════════════════════════════════════════
+//  АДАПТИВ ПОД КЛАВИАТУРУ iOS / Android
+//  visualViewport — единственный надёжный способ
+// ══════════════════════════════════════════
+(function () {
+  const screenMain = document.getElementById('screen-main');
+
+  function applyViewport() {
+    const vv = window.visualViewport;
+    if (!vv) return;
+
+    // Высота и позиция видимой области
+    const height    = vv.height;
+    const offsetTop = vv.offsetTop;
+
+    screenMain.style.top    = offsetTop + 'px';
+    screenMain.style.height = height + 'px';
+
+    // Признак открытой клавиатуры:
+    // если высота visualViewport значительно меньше window.innerHeight
+    const keyboardOpen = window.innerHeight - height > 100;
+    document.body.classList.toggle('keyboard-open', keyboardOpen);
+
+    // Прокручиваем чат вниз при открытии клавиатуры
+    if (keyboardOpen) {
+      const msgs = document.getElementById('chat-messages');
+      if (msgs) setTimeout(() => { msgs.scrollTop = msgs.scrollHeight; }, 50);
+    }
+  }
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize',  applyViewport);
+    window.visualViewport.addEventListener('scroll',  applyViewport);
+    applyViewport();
+    // Перепроверяем после загрузки
+    window.addEventListener('load', applyViewport);
+  }
+
+  // Фоллбэк для старых браузеров — слушаем изменение window
+  window.addEventListener('resize', () => {
+    if (!window.visualViewport) applyViewport();
+  });
+})();
+
+// ══════════════════════════════════════════
+//  ПОПАП ПРИКРЕПЛЕНИЯ
+// ══════════════════════════════════════════
+(function () {
   const attachToggle = document.getElementById('btn-attach-toggle');
   const attachPopup  = document.getElementById('attach-popup');
 
@@ -692,6 +800,7 @@
       attachPopup.classList.remove('open');
     });
   });
+})();
 </script>
 
 </body>
