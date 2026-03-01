@@ -194,6 +194,14 @@ function showPwError(msg) {
 function enterChat() {
   screenPassword.style.display = 'none';
   screenMain.classList.add('active');
+  // Принудительно применяем viewport после показа экрана
+  if (window.visualViewport) {
+    const vv = window.visualViewport;
+    screenMain.style.top    = vv.offsetTop + 'px';
+    screenMain.style.height = vv.height    + 'px';
+  } else {
+    screenMain.style.height = window.innerHeight + 'px';
+  }
   secureBadge.classList.add('visible');
   btnChatOpen.classList.add('visible');
   socket.connect();
@@ -963,6 +971,8 @@ socket.on('auth-fail', () => {
   savedPassword = '';
   screenPassword.style.display = 'block';
   screenMain.classList.remove('active');
+  screenMain.style.height = '';
+  screenMain.style.top    = '';
   secureBadge.classList.remove('visible');
   btnChatOpen.classList.remove('visible');
   showPwError('❌ Сессия истекла, войди заново');
