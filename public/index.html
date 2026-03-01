@@ -3,40 +3,128 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Voice Chat</title>
+  <title>Голосовой чат</title>
   <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
     body {
       font-family: Arial, sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      margin: 0;
       background: #1a1a2e;
       color: white;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
     }
-    h1 { margin-bottom: 30px; }
-    button {
-      padding: 15px 30px;
-      font-size: 18px;
+
+    .container {
+      text-align: center;
+      padding: 40px;
+      background: #16213e;
+      border-radius: 20px;
+      width: 340px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+
+    h1 { font-size: 28px; margin-bottom: 8px; }
+    p.subtitle { color: #888; margin-bottom: 30px; }
+
+    .status-box {
+      background: #0f3460;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 24px;
+    }
+
+    .user-count {
+      font-size: 36px;
+      font-weight: bold;
+      color: #e94560;
+    }
+
+    .user-label { font-size: 13px; color: #aaa; margin-top: 4px; }
+
+    .btn {
+      width: 100%;
+      padding: 14px;
       border: none;
-      border-radius: 10px;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: bold;
       cursor: pointer;
-      margin: 10px;
+      transition: all 0.2s;
     }
-    #joinBtn { background: #4ecca3; color: #000; }
-    #leaveBtn { background: #e94560; color: #fff; display: none; }
-    #status { margin-top: 20px; font-size: 14px; color: #aaa; }
-    #users { margin-top: 10px; font-size: 14px; }
+
+    .btn-join {
+      background: #e94560;
+      color: white;
+    }
+
+    .btn-join:hover { background: #c73652; }
+
+    .btn-leave {
+      background: #333;
+      color: #aaa;
+      margin-top: 12px;
+    }
+
+    .btn-leave:hover { background: #444; }
+
+    .mic-status {
+      margin-top: 20px;
+      font-size: 14px;
+      color: #888;
+      display: none;
+    }
+
+    .mic-status.active {
+      display: block;
+      color: #4caf50;
+    }
+
+    .mic-status.muted {
+      display: block;
+      color: #e94560;
+    }
+
+    .btn-mic {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: bold;
+      cursor: pointer;
+      margin-top: 12px;
+      background: #0f3460;
+      color: white;
+      display: none;
+      transition: all 0.2s;
+    }
+
+    .btn-mic:hover { background: #1a4a7a; }
+
+    #hidden-audios { display: none; }
   </style>
 </head>
 <body>
-  <h1>🎙️ Voice Chat</h1>
-  <button id="joinBtn">Войти в чат</button>
-  <button id="leaveBtn">Выйти</button>
-  <div id="status">Не подключён</div>
-  <div id="users"></div>
+  <div class="container">
+    <h1>🎙️ Голосовой чат</h1>
+    <p class="subtitle">Говори — тебя услышат</p>
+
+    <div class="status-box">
+      <div class="user-count" id="user-count">0</div>
+      <div class="user-label">участников онлайн</div>
+    </div>
+
+    <button class="btn btn-join" id="btn-join">🎙️ Войти в чат</button>
+    <button class="btn btn-mic" id="btn-mic">🔇 Выключить микрофон</button>
+    <button class="btn btn-leave" id="btn-leave" style="display:none">Выйти из чата</button>
+
+    <div class="mic-status" id="mic-status"></div>
+  </div>
+
+  <div id="hidden-audios"></div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="app.js"></script>
