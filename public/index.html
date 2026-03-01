@@ -174,8 +174,16 @@
       font-size:12px; color:var(--sub); margin-top:3px;
       display:flex; align-items:center; gap:6px;
     }
-    .room-badge-lock { color:#f9a825; }
+    .room-badge-lock    { color:#f9a825; }
     .room-badge-members { color:var(--green); }
+
+    /* ── Таймер удаления пустой комнаты ── */
+    .room-badge-timer {
+      color: #ff9800;
+      font-weight: 600;
+      font-size: 12px;
+      animation: pulse 1.5s infinite;
+    }
 
     /* ════════════════════════════
        МОДАЛКА: СОЗДАНИЕ КОМНАТЫ
