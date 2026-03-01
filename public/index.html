@@ -7,483 +7,399 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Приватный чат</title>
   <style>
-    /* ═══════════════════════════════════════════
-       RESET & BASE
-    ═══════════════════════════════════════════ */
     *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
 
     :root {
-      --tg-bg:        #17212b;
-      --tg-surface:   #232e3c;
-      --tg-header:    #17212b;
-      --tg-input-bg:  #17212b;
-      --tg-bubble-in: #182533;
-      --tg-bubble-me: #2b5278;
-      --tg-accent:    #5288c1;
-      --tg-accent2:   #64b5f6;
-      --tg-green:     #4caf50;
-      --tg-red:       #ef5350;
-      --tg-text:      #e8eaed;
-      --tg-sub:       #708499;
-      --tg-divider:   #0d1821;
-      --tg-radius:    12px;
+      --bg:         #17212b;
+      --surface:    #232e3c;
+      --header:     #17212b;
+      --bubble-in:  #182533;
+      --bubble-me:  #2b5278;
+      --accent:     #5288c1;
+      --accent2:    #64b5f6;
+      --green:      #4caf50;
+      --red:        #ef5350;
+      --text:       #e8eaed;
+      --sub:        #708499;
+      --divider:    #0d1821;
+      --radius:     12px;
     }
 
     html, body {
       height: 100%;
       font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
-      background: var(--tg-bg);
-      color: var(--tg-text);
+      background: var(--bg);
+      color: var(--text);
       overflow: hidden;
     }
 
-    /* ═══════════════════════════════════════════
+    /* ══════════════════════════════
        ЭКРАН ПАРОЛЯ
-    ═══════════════════════════════════════════ */
+    ══════════════════════════════ */
     #screen-password {
-      position: fixed;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: var(--tg-bg);
-      z-index: 500;
+      position: fixed; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--bg); z-index: 500;
     }
 
     .login-card {
-      width: 100%;
-      max-width: 360px;
+      width: 100%; max-width: 360px;
+      margin: 0 16px;
       padding: 40px 28px 32px;
-      background: var(--tg-surface);
+      background: var(--surface);
       border-radius: 18px;
       box-shadow: 0 12px 48px rgba(0,0,0,0.6);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 0;
-      margin: 0 16px;
+      display: flex; flex-direction: column; align-items: center;
     }
 
-    .login-icon {
-      font-size: 56px;
-      margin-bottom: 16px;
-      filter: drop-shadow(0 4px 12px rgba(82,136,193,0.4));
-    }
+    .login-icon  { font-size: 54px; margin-bottom: 16px; }
+    .login-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; text-align: center; }
+    .login-sub   { font-size: 13px; color: var(--sub); text-align: center;
+                   margin-bottom: 28px; line-height: 1.5; }
 
-    .login-title {
-      font-size: 22px;
-      font-weight: 700;
-      color: var(--tg-text);
-      margin-bottom: 6px;
-      text-align: center;
-    }
-
-    .login-sub {
-      font-size: 13px;
-      color: var(--tg-sub);
-      text-align: center;
-      margin-bottom: 28px;
-      line-height: 1.5;
-    }
-
-    .pw-wrap {
-      position: relative;
-      width: 100%;
-      margin-bottom: 10px;
-    }
-
+    .pw-wrap { position: relative; width: 100%; margin-bottom: 10px; }
     .pw-wrap input {
-      width: 100%;
-      padding: 14px 46px 14px 16px;
-      background: var(--tg-input-bg);
-      border: 2px solid #2a3a4e;
-      border-radius: var(--tg-radius);
-      color: var(--tg-text);
-      font-size: 15px;
-      outline: none;
-      transition: border-color 0.2s;
+      width: 100%; padding: 14px 46px 14px 16px;
+      background: var(--bg); border: 2px solid #2a3a4e;
+      border-radius: var(--radius); color: var(--text);
+      font-size: 15px; outline: none; transition: border-color 0.2s;
     }
-    .pw-wrap input:focus     { border-color: var(--tg-accent); }
-    .pw-wrap input.error     { border-color: var(--tg-red); animation: shake 0.35s; }
-    .pw-wrap input::placeholder { color: var(--tg-sub); }
+    .pw-wrap input:focus       { border-color: var(--accent); }
+    .pw-wrap input.error       { border-color: var(--red); animation: shake 0.35s; }
+    .pw-wrap input::placeholder { color: var(--sub); }
 
     .toggle-pw {
-      position: absolute; right: 13px; top: 50%;
-      transform: translateY(-50%);
-      background: none; border: none;
-      cursor: pointer; font-size: 18px; color: var(--tg-sub);
-      line-height: 1;
+      position: absolute; right: 13px; top: 50%; transform: translateY(-50%);
+      background: none; border: none; cursor: pointer;
+      font-size: 18px; color: var(--sub); line-height: 1;
     }
-    .toggle-pw:hover { color: var(--tg-text); }
+    .toggle-pw:hover { color: var(--text); }
 
     .pw-error {
-      font-size: 12px;
-      color: var(--tg-red);
-      min-height: 18px;
-      margin-bottom: 8px;
-      text-align: center;
+      font-size: 12px; color: var(--red);
+      min-height: 18px; margin-bottom: 10px; text-align: center;
     }
 
     .btn-login {
-      width: 100%;
-      padding: 14px;
-      background: var(--tg-accent);
-      color: white;
-      border: none;
-      border-radius: var(--tg-radius);
-      font-size: 15px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.2s, transform 0.1s;
+      width: 100%; padding: 14px;
+      background: var(--accent); color: white;
+      border: none; border-radius: var(--radius);
+      font-size: 15px; font-weight: 600;
+      cursor: pointer; transition: background 0.2s, transform 0.1s;
     }
     .btn-login:hover    { background: #4070a8; }
     .btn-login:active   { transform: scale(0.98); }
-    .btn-login:disabled { background: #2a3a4e; color: var(--tg-sub); cursor: not-allowed; }
+    .btn-login:disabled { background: #2a3a4e; color: var(--sub); cursor: not-allowed; }
 
     .e2e-note {
-      margin-top: 20px;
-      font-size: 11px;
-      color: var(--tg-sub);
-      text-align: center;
-      line-height: 1.6;
+      margin-top: 20px; font-size: 11px;
+      color: var(--sub); text-align: center; line-height: 1.7;
     }
-    .e2e-note span { color: var(--tg-green); }
+    .e2e-note b { color: var(--green); }
 
     @keyframes shake {
-      0%,100%{ transform:translateX(0);   }
+      0%,100%{ transform:translateX(0); }
       20%    { transform:translateX(-8px); }
       40%    { transform:translateX(8px);  }
       60%    { transform:translateX(-5px); }
       80%    { transform:translateX(5px);  }
     }
 
-    /* ═══════════════════════════════════════════
-       ГЛАВНЫЙ ЭКРАН — TG LAYOUT
-    ═══════════════════════════════════════════ */
+    /* ══════════════════════════════
+       ГЛАВНЫЙ ЭКРАН
+    ══════════════════════════════ */
     #screen-main {
-      display: none;
-      position: fixed;
-      inset: 0;
+      display: none; position: fixed; inset: 0;
       flex-direction: column;
     }
     #screen-main.visible { display: flex; }
 
     /* ── Шапка ── */
     .tg-header {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 10px 16px;
-      background: var(--tg-header);
-      border-bottom: 1px solid var(--tg-divider);
-      flex-shrink: 0;
-      min-height: 56px;
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 14px;
       padding-top: max(10px, env(safe-area-inset-top));
+      background: var(--header);
+      border-bottom: 1px solid var(--divider);
+      flex-shrink: 0; min-height: 56px;
     }
 
-    .tg-header-avatar {
-      width: 38px; height: 38px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, #2b5278, #5288c1);
+    .tg-avatar {
+      width: 40px; height: 40px; border-radius: 50%;
+      background: linear-gradient(135deg, #1e3a5a, #5288c1);
       display: flex; align-items: center; justify-content: center;
-      font-size: 18px; flex-shrink: 0;
+      font-size: 20px; flex-shrink: 0;
     }
 
     .tg-header-info { flex: 1; min-width: 0; }
     .tg-header-name {
       font-size: 15px; font-weight: 600;
-      color: var(--tg-text); white-space: nowrap;
-      overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .tg-header-status {
-      font-size: 12px; color: var(--tg-green);
-      margin-top: 1px;
-    }
-    .tg-header-status.offline { color: var(--tg-sub); }
+    .tg-header-sub  { font-size: 12px; color: var(--sub); margin-top: 1px; }
+    .tg-header-sub .online { color: var(--green); }
 
-    .tg-header-actions { display: flex; gap: 4px; }
+    .tg-header-btns { display: flex; gap: 2px; }
 
-    .tg-icon-btn {
-      width: 38px; height: 38px;
-      border: none; background: none;
-      color: var(--tg-sub); font-size: 20px;
-      border-radius: 50%; cursor: pointer;
+    .icon-btn {
+      width: 38px; height: 38px; position: relative;
+      border: none; background: none; color: var(--sub);
+      font-size: 20px; border-radius: 50%; cursor: pointer;
       display: flex; align-items: center; justify-content: center;
       transition: background 0.15s, color 0.15s;
     }
-    .tg-icon-btn:hover { background: rgba(255,255,255,0.07); color: var(--tg-text); }
-    .tg-icon-btn.active { color: var(--tg-accent2); }
+    .icon-btn:hover  { background: rgba(255,255,255,0.07); color: var(--text); }
+    .icon-btn.active { color: var(--accent2); }
 
-    /* Значок непрочитанных */
-    .tg-icon-btn .badge {
-      position: absolute;
-      top: 4px; right: 4px;
-      background: var(--tg-red);
-      color: white; font-size: 9px; font-weight: 700;
-      border-radius: 50%; min-width: 16px; height: 16px;
+    .icon-btn .bdg {
+      position: absolute; top: 3px; right: 3px;
+      background: var(--red); color: white;
+      font-size: 9px; font-weight: 700;
+      border-radius: 50%; min-width: 15px; height: 15px;
       display: none; align-items: center; justify-content: center;
-      padding: 0 3px;
+      padding: 0 2px;
     }
-    .tg-icon-btn .badge.visible { display: flex; }
-    .tg-icon-btn { position: relative; }
+    .icon-btn .bdg.on { display: flex; }
 
-    /* ── Тело (сообщения) ── */
+    /* ── Reconnect ── */
+    .reconnect-banner {
+      display: none; padding: 7px;
+      background: rgba(239,83,80,0.12);
+      border-bottom: 1px solid rgba(239,83,80,0.2);
+      font-size: 12px; color: #ff6b6b;
+      text-align: center; flex-shrink: 0;
+      animation: pulse 1.5s infinite;
+    }
+    .reconnect-banner.visible { display: block; }
+    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.5;} }
+
+    /* ── Тело (лента сообщений) ── */
     .tg-body {
-      flex: 1;
-      overflow-y: auto;
-      padding: 12px 10px;
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-      background: var(--tg-bg);
-      /* TG wallpaper pattern */
-      background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.015) 1px, transparent 0);
+      flex: 1; overflow-y: auto;
+      padding: 10px 10px 6px;
+      display: flex; flex-direction: column; gap: 3px;
+      background: var(--bg);
+      background-image: radial-gradient(
+        circle at 1px 1px,
+        rgba(255,255,255,0.012) 1px, transparent 0
+      );
       background-size: 24px 24px;
     }
 
-    /* ── Панель участников (внутри body) ── */
+    /* ── Голосовая панель ── */
     .voice-panel {
-      background: var(--tg-surface);
+      background: var(--surface);
       border-radius: 14px;
       padding: 12px 14px;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
       display: none;
     }
     .voice-panel.visible { display: block; }
 
-    .voice-panel-header {
+    .voice-panel-head {
       display: flex; align-items: center; justify-content: space-between;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
     .voice-panel-title {
-      font-size: 12px; font-weight: 600;
-      color: var(--tg-sub); text-transform: uppercase; letter-spacing: 0.5px;
-    }
-    .voice-panel-count {
-      font-size: 11px; color: var(--tg-sub);
+      font-size: 11px; font-weight: 700;
+      color: var(--sub); text-transform: uppercase; letter-spacing: 0.6px;
     }
 
     .participant {
       display: flex; align-items: center; gap: 10px;
-      padding: 7px 4px;
+      padding: 7px 0;
       border-bottom: 1px solid rgba(255,255,255,0.04);
     }
     .participant:last-child { border-bottom: none; }
 
-    .participant-avatar {
-      width: 32px; height: 32px; border-radius: 50%;
+    .p-avatar {
+      width: 34px; height: 34px; border-radius: 50%;
       background: linear-gradient(135deg, #1e3a5a, #2b5278);
       display: flex; align-items: center; justify-content: center;
-      font-size: 14px; flex-shrink: 0; position: relative;
-    }
-    .participant-avatar .mic-dot {
-      position: absolute; bottom: 0; right: 0;
-      width: 10px; height: 10px; border-radius: 50%;
-      background: var(--tg-green);
-      border: 2px solid var(--tg-surface);
+      font-size: 15px; flex-shrink: 0; position: relative;
     }
 
-    .participant-info { flex: 1; min-width: 0; }
-    .participant-name {
+    .p-info { flex: 1; min-width: 0; }
+    .p-name {
       font-size: 13px; font-weight: 500;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .participant-sub {
-      font-size: 11px; color: var(--tg-sub); margin-top: 1px;
-    }
 
     .volume-bar-wrap {
-      width: 36px; height: 4px;
+      width: 36px; height: 3px;
       background: rgba(255,255,255,0.08);
       border-radius: 2px; overflow: hidden;
     }
     .volume-bar {
       height: 100%; width: 0%;
-      border-radius: 2px;
-      background: var(--tg-green);
+      border-radius: 2px; background: var(--green);
       transition: width 0.08s;
     }
-    .volume-bar.loud { background: var(--tg-red); }
+    .volume-bar.loud { background: var(--red); }
 
-    .signal-wrap {
-      display: flex; align-items: flex-end; gap: 2px; height: 13px;
-    }
+    .signal-wrap { display: flex; align-items: flex-end; gap: 2px; height: 12px; }
     .signal-wrap .bar {
       width: 3px; border-radius: 1px;
-      background: rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.1);
       transition: background 0.4s;
     }
-    .signal-wrap .bar:nth-child(1) { height: 4px;  }
-    .signal-wrap .bar:nth-child(2) { height: 7px;  }
-    .signal-wrap .bar:nth-child(3) { height: 10px; }
-    .signal-wrap .bar:nth-child(4) { height: 13px; }
-    .signal-excellent .bar            { background: var(--tg-green); }
-    .signal-good .bar:nth-child(-n+3) { background: #8bc34a; }
-    .signal-fair .bar:nth-child(-n+2) { background: #ff9800; }
-    .signal-poor .bar:nth-child(1)    { background: var(--tg-red); }
+    .signal-wrap .bar:nth-child(1) { height: 3px;  }
+    .signal-wrap .bar:nth-child(2) { height: 6px;  }
+    .signal-wrap .bar:nth-child(3) { height: 9px;  }
+    .signal-wrap .bar:nth-child(4) { height: 12px; }
+    .signal-excellent .bar              { background: var(--green); }
+    .signal-good .bar:nth-child(-n+3)   { background: #8bc34a; }
+    .signal-fair .bar:nth-child(-n+2)   { background: #ff9800; }
+    .signal-poor .bar:nth-child(1)      { background: var(--red); }
 
     .btn-understood {
-      padding: 5px 12px;
-      background: rgba(76,175,80,0.15);
-      color: var(--tg-green);
-      border: 1px solid rgba(76,175,80,0.3);
+      padding: 5px 11px;
+      background: rgba(76,175,80,0.12);
+      color: var(--green);
+      border: 1px solid rgba(76,175,80,0.25);
       border-radius: 20px;
       font-size: 11px; font-weight: 600;
-      cursor: pointer;
-      transition: background 0.2s;
-      white-space: nowrap;
-      flex-shrink: 0;
+      cursor: pointer; transition: background 0.2s;
+      white-space: nowrap; flex-shrink: 0;
     }
-    .btn-understood:hover    { background: rgba(76,175,80,0.25); }
+    .btn-understood:hover    { background: rgba(76,175,80,0.22); }
     .btn-understood:disabled { opacity: 0.4; cursor: default; }
 
-    /* ── Сообщения ── */
+    /* ── Разделитель дат ── */
+    .date-divider {
+      align-self: center;
+      font-size: 11px; color: var(--sub);
+      background: rgba(23,33,43,0.9);
+      padding: 3px 12px; border-radius: 10px;
+      margin: 6px 0; flex-shrink: 0;
+    }
+
+    /* ── Пузыри ── */
     .msg {
-      max-width: 78%;
-      padding: 8px 12px 6px;
-      border-radius: 14px;
-      font-size: 14px;
-      line-height: 1.5;
-      word-break: break-word;
-      position: relative;
+      max-width: 78%; padding: 8px 12px 5px;
+      border-radius: 14px; font-size: 14px;
+      line-height: 1.5; word-break: break-word; position: relative;
     }
     .msg.mine {
       align-self: flex-end;
-      background: var(--tg-bubble-me);
-      border-bottom-right-radius: 4px;
+      background: var(--bubble-me);
+      border-bottom-right-radius: 3px;
     }
     .msg.theirs {
       align-self: flex-start;
-      background: var(--tg-bubble-in);
-      border-bottom-left-radius: 4px;
+      background: var(--bubble-in);
+      border-bottom-left-radius: 3px;
     }
 
-    /* Хвостик у пузыря */
+    /* Хвостики */
     .msg.mine::after {
       content: '';
-      position: absolute; bottom: 0; right: -6px;
-      width: 0; height: 0;
-      border-style: solid;
-      border-width: 0 0 8px 8px;
-      border-color: transparent transparent var(--tg-bubble-me) transparent;
+      position: absolute; bottom: 0; right: -7px;
+      border: 7px solid transparent;
+      border-bottom-color: var(--bubble-me);
+      border-right: 0; border-top: 0;
     }
     .msg.theirs::before {
       content: '';
-      position: absolute; bottom: 0; left: -6px;
-      width: 0; height: 0;
-      border-style: solid;
-      border-width: 0 8px 8px 0;
-      border-color: transparent var(--tg-bubble-in) transparent transparent;
+      position: absolute; bottom: 0; left: -7px;
+      border: 7px solid transparent;
+      border-bottom-color: var(--bubble-in);
+      border-left: 0; border-top: 0;
     }
 
-    .msg-sender {
-      font-size: 11px; font-weight: 600;
-      color: var(--tg-accent2);
-      margin-bottom: 3px;
-    }
+    .msg-sender { font-size: 11px; font-weight: 600; color: var(--accent2); margin-bottom: 3px; }
+    .msg-meta   { font-size: 10px; color: rgba(255,255,255,0.38); text-align: right; margin-top: 4px; }
+    .msg-decrypt-status { font-size: 10px; color: rgba(255,255,255,0.3); margin-top: 2px; }
+    .msg-decrypt-status.ok  { color: rgba(100,181,246,0.55); }
+    .msg-decrypt-status.err { color: var(--red); }
 
-    .msg-meta {
-      font-size: 10px;
-      color: rgba(255,255,255,0.4);
-      text-align: right;
-      margin-top: 3px;
-      display: flex; align-items: center; justify-content: flex-end; gap: 4px;
-    }
-
-    .msg-decrypt-status {
-      font-size: 10px; color: rgba(255,255,255,0.35);
-      margin-top: 2px;
-    }
-    .msg-decrypt-status.ok  { color: rgba(100,181,246,0.6); }
-    .msg-decrypt-status.err { color: var(--tg-red); }
-
-    .msg-media {
-      max-width: 100%; border-radius: 10px;
-      cursor: pointer; display: block; margin-bottom: 4px;
-    }
+    .msg-media { max-width: 100%; border-radius: 10px; cursor: pointer; display: block; margin-bottom: 3px; }
     .msg video.msg-media { max-height: 220px; width: 100%; }
 
-    .msg-file {
-      display: flex; align-items: center; gap: 10px;
-      padding: 4px 2px;
-    }
-    .msg-file-icon  { font-size: 26px; }
-    .msg-file-info  { flex: 1; min-width: 0; }
-    .msg-file-name  {
-      font-size: 13px; font-weight: 600;
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-      max-width: 160px;
-    }
-    .msg-file-size  { font-size: 11px; opacity: 0.55; margin-top: 1px; }
-    .msg-file-dl    {
-      font-size: 20px; cursor: pointer;
-      padding: 6px; text-decoration: none;
-      border-radius: 50%;
-      transition: background 0.15s;
-    }
+    .msg-file { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
+    .msg-file-icon { font-size: 26px; }
+    .msg-file-info { flex: 1; min-width: 0; }
+    .msg-file-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+    .msg-file-size { font-size: 11px; opacity: 0.5; margin-top: 1px; }
+    .msg-file-dl   { font-size: 20px; cursor: pointer; padding: 6px; text-decoration: none; border-radius: 50%; transition: background 0.15s; }
     .msg-file-dl:hover { background: rgba(255,255,255,0.08); }
 
-    /* Дата-разделитель */
-    .date-divider {
-      align-self: center;
-      font-size: 11px;
-      color: var(--tg-sub);
-      background: rgba(23,33,43,0.85);
-      padding: 3px 10px;
-      border-radius: 10px;
-      margin: 6px 0;
+    /* ══════════════════════════════
+       НИЖНИЙ БАР
+    ══════════════════════════════ */
+    .tg-bottom {
+      background: var(--header);
+      border-top: 1px solid var(--divider);
+      flex-shrink: 0;
+      padding-bottom: max(6px, env(safe-area-inset-bottom));
     }
 
-    /* ── Нижний бар ── */
-    .tg-bottom {
-      background: var(--tg-header);
-      border-top: 1px solid var(--tg-divider);
-      flex-shrink: 0;
-      padding-bottom: max(8px, env(safe-area-inset-bottom));
+    /* Голосовая строка */
+    .voice-bar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 12px 6px;
     }
+
+    .btn-v {
+      flex: 1; padding: 9px 0;
+      border: none; border-radius: 22px;
+      font-size: 13px; font-weight: 600;
+      cursor: pointer; transition: background 0.2s, transform 0.1s;
+    }
+    .btn-v:active { transform: scale(0.97); }
+
+    #btn-join  { background: var(--accent); color: white; }
+    #btn-join:hover { background: #4070a8; }
+
+    #btn-mic   { background: rgba(255,255,255,0.07); color: var(--text); display: none; }
+    #btn-mic:hover  { background: rgba(255,255,255,0.12); }
+    #btn-mic.muted  { color: var(--red); }
+
+    #btn-leave { background: rgba(239,83,80,0.13); color: var(--red); display: none;
+                 border: 1px solid rgba(239,83,80,0.25); }
+    #btn-leave:hover { background: rgba(239,83,80,0.22); }
+
+    .mic-status {
+      font-size: 11px; text-align: center;
+      padding: 2px 0 4px; display: none;
+    }
+    .mic-status.active { display: block; color: var(--green); }
+    .mic-status.muted  { display: block; color: var(--red); }
 
     /* Строка ввода */
     .tg-input-row {
-      display: flex;
-      align-items: flex-end;
-      gap: 8px;
-      padding: 8px 10px 8px;
+      display: flex; align-items: flex-end; gap: 6px;
+      padding: 6px 10px 8px;
+      position: relative;
     }
 
     .btn-attach-tg {
-      width: 38px; height: 38px;
+      width: 38px; height: 38px; flex-shrink: 0;
       border: none; background: none;
-      color: var(--tg-sub); font-size: 22px;
+      color: var(--sub); font-size: 22px;
       border-radius: 50%; cursor: pointer;
       display: flex; align-items: center; justify-content: center;
-      flex-shrink: 0;
       transition: color 0.15s;
     }
-    .btn-attach-tg:hover { color: var(--tg-accent2); }
+    .btn-attach-tg:hover { color: var(--accent2); }
 
     /* Попап прикрепления */
     .attach-popup {
-      position: absolute;
-      bottom: 62px; left: 10px;
-      background: var(--tg-surface);
+      position: absolute; bottom: 58px; left: 10px;
+      background: var(--surface);
       border-radius: 14px;
       box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-      padding: 8px;
+      padding: 6px;
+      flex-direction: column; gap: 2px;
+      z-index: 200; min-width: 170px;
       display: none;
-      flex-direction: column;
-      gap: 2px;
-      z-index: 200;
-      min-width: 160px;
     }
     .attach-popup.open { display: flex; }
 
     .attach-item {
       display: flex; align-items: center; gap: 10px;
-      padding: 10px 14px;
-      border-radius: 10px;
-      cursor: pointer;
-      font-size: 14px;
-      color: var(--tg-text);
+      padding: 10px 14px; border-radius: 10px;
+      cursor: pointer; font-size: 14px; color: var(--text);
       transition: background 0.15s;
       border: none; background: none; width: 100%; text-align: left;
     }
@@ -491,30 +407,22 @@
     .attach-item-icon  { font-size: 20px; width: 24px; text-align: center; }
 
     .tg-textarea {
-      flex: 1;
-      padding: 10px 14px;
-      background: var(--tg-surface);
-      border: none;
-      border-radius: 20px;
-      color: var(--tg-text);
-      font-size: 14px;
-      font-family: inherit;
-      resize: none;
-      outline: none;
-      min-height: 38px;
-      max-height: 120px;
-      line-height: 1.45;
+      flex: 1; padding: 10px 14px;
+      background: var(--surface);
+      border: none; border-radius: 22px;
+      color: var(--text); font-size: 14px; font-family: inherit;
+      resize: none; outline: none;
+      min-height: 38px; max-height: 120px; line-height: 1.45;
       transition: background 0.2s;
     }
-    .tg-textarea::placeholder { color: var(--tg-sub); }
+    .tg-textarea::placeholder { color: var(--sub); }
     .tg-textarea:focus { background: #2a3a4e; }
 
     .btn-send-tg {
-      width: 38px; height: 38px;
+      width: 38px; height: 38px; flex-shrink: 0;
       border: none; border-radius: 50%;
-      background: var(--tg-accent);
-      color: white; font-size: 17px;
-      cursor: pointer; flex-shrink: 0;
+      background: var(--accent); color: white;
+      font-size: 16px; cursor: pointer;
       display: flex; align-items: center; justify-content: center;
       transition: background 0.2s, transform 0.1s;
     }
@@ -522,93 +430,34 @@
     .btn-send-tg:active   { transform: scale(0.92); }
     .btn-send-tg:disabled { background: #2a3a4e; cursor: not-allowed; }
 
-    /* Голосовая панель внизу */
-    .voice-bar {
-      display: none;
-      align-items: center;
-      gap: 10px;
-      padding: 8px 14px 4px;
-      border-top: 1px solid rgba(255,255,255,0.04);
-    }
-    .voice-bar.visible { display: flex; }
-
-    .btn-voice {
-      flex: 1; padding: 9px 0;
-      border: none; border-radius: 20px;
-      font-size: 13px; font-weight: 600;
-      cursor: pointer; transition: background 0.2s, transform 0.1s;
-    }
-    .btn-voice:active { transform: scale(0.97); }
-
-    .btn-voice-join  { background: var(--tg-accent);   color: white; }
-    .btn-voice-join:hover  { background: #4070a8; }
-
-    .btn-voice-mic   {
-      background: rgba(255,255,255,0.07);
-      color: var(--tg-text); display:none;
-    }
-    .btn-voice-mic:hover  { background: rgba(255,255,255,0.12); }
-    .btn-voice-mic.muted  { color: var(--tg-red); }
-
-    .btn-voice-leave {
-      background: rgba(239,83,80,0.15);
-      color: var(--tg-red); display: none;
-      border: 1px solid rgba(239,83,80,0.3);
-    }
-    .btn-voice-leave:hover { background: rgba(239,83,80,0.25); }
-
-    /* ── Reconnect banner ── */
-    .reconnect-banner {
-      display: none;
-      padding: 7px 14px;
-      background: rgba(239,83,80,0.12);
-      border-bottom: 1px solid rgba(239,83,80,0.2);
-      font-size: 12px; color: #ff6b6b;
-      text-align: center;
-      animation: pulse 1.5s infinite;
-      flex-shrink: 0;
-    }
-    .reconnect-banner.visible { display: block; }
-
-    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.5;} }
-
-    /* ── Бейдж E2E ── */
-    .secure-badge {
-      display: none; align-items: center; gap: 4px;
-      font-size: 11px; color: var(--tg-green);
-    }
-    .secure-badge.visible { display: inline-flex; }
-
-    /* ── Баннер ПОНЯЛ ── */
+    /* ══════════════════════════════
+       БАННЕР "ПОНЯЛ"
+    ══════════════════════════════ */
     .understood-banner {
-      position: fixed;
-      top: 70px; left: 50%;
+      position: fixed; top: 68px; left: 50%;
       transform: translateX(-50%);
-      background: rgba(27,94,32,0.95);
+      background: rgba(27,80,32,0.95);
       backdrop-filter: blur(10px);
-      color: #fff;
-      padding: 11px 24px;
-      border-radius: 20px;
-      font-size: 15px; font-weight: 600;
-      z-index: 9999;
+      color: white; padding: 10px 24px;
+      border-radius: 20px; font-size: 14px; font-weight: 600;
+      z-index: 9999; pointer-events: none;
       box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-      pointer-events: none;
-      animation: understoodAnim 3s ease forwards;
       white-space: nowrap;
+      animation: understoodAnim 3s ease forwards;
     }
-
     @keyframes understoodAnim {
-      0%   { opacity:0; transform: translateX(-50%) translateY(-10px); }
-      12%  { opacity:1; transform: translateX(-50%) translateY(0);     }
-      75%  { opacity:1; }
-      100% { opacity:0; transform: translateX(-50%) translateY(-6px);  }
+      0%   { opacity:0; transform:translateX(-50%) translateY(-10px); }
+      12%  { opacity:1; transform:translateX(-50%) translateY(0);     }
+      80%  { opacity:1; }
+      100% { opacity:0; transform:translateX(-50%) translateY(-6px);  }
     }
 
-    /* ── Lightbox ── */
+    /* ══════════════════════════════
+       LIGHTBOX
+    ══════════════════════════════ */
     .lightbox {
       display: none; position: fixed; inset: 0;
-      background: rgba(0,0,0,0.94);
-      z-index: 3000;
+      background: rgba(0,0,0,0.95); z-index: 3000;
       align-items: center; justify-content: center;
     }
     .lightbox.open { display: flex; }
@@ -618,15 +467,18 @@
     }
     .lightbox-close {
       position: absolute; top: 14px; right: 18px;
-      font-size: 30px; color: rgba(255,255,255,0.7);
-      cursor: pointer; line-height: 1; z-index: 1;
+      font-size: 30px; color: rgba(255,255,255,0.65);
+      cursor: pointer; z-index: 1;
     }
     .lightbox-close:hover { color: white; }
 
-    /* ── Скролл ── */
-    ::-webkit-scrollbar { width: 4px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+    /* Secure badge */
+    .secure-badge { display: none; }
+    .secure-badge.visible { display: inline; color: var(--green); }
+
+    /* Скролл */
+    ::-webkit-scrollbar { width: 3px; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
 
     #keep-alive-audio, #hidden-audios, #file-input { display: none; }
   </style>
@@ -653,7 +505,7 @@
     <button class="btn-login" id="btn-enter">Войти</button>
 
     <div class="e2e-note">
-      <span>🔒 AES-256-GCM</span> · Ключ не покидает устройство<br>
+      <b>🔒 AES-256-GCM</b> · Ключ не покидает устройство<br>
       Сервер видит только зашифрованный набор байт
     </div>
   </div>
@@ -666,18 +518,18 @@
 
   <!-- Шапка -->
   <div class="tg-header">
-    <div class="tg-header-avatar">🔐</div>
+    <div class="tg-avatar">🔐</div>
     <div class="tg-header-info">
       <div class="tg-header-name">Приватный чат</div>
-      <div class="tg-header-status" id="header-status">
+      <div class="tg-header-sub">
         <span class="secure-badge" id="secure-badge">🔒 E2E · </span>
-        <span id="user-count">0</span> онлайн
+        <span class="online"><span id="user-count">0</span> онлайн</span>
       </div>
     </div>
-    <div class="tg-header-actions">
-      <button class="tg-icon-btn" id="btn-chat-open" title="Чат" style="display:none">
+    <div class="tg-header-btns">
+      <button class="icon-btn" id="btn-chat-open" title="Чат" style="display:none">
         💬
-        <span class="badge" id="chat-badge">0</span>
+        <span class="bdg" id="chat-badge">0</span>
       </button>
     </div>
   </div>
@@ -685,23 +537,23 @@
   <!-- Reconnect -->
   <div class="reconnect-banner" id="reconnect-banner">🔄 Переподключаемся…</div>
 
-  <!-- Тело -->
+  <!-- Лента -->
   <div class="tg-body" id="chat-messages">
 
-    <!-- Панель участников голосового -->
+    <!-- Голосовая панель -->
     <div class="voice-panel" id="participants">
-      <div class="voice-panel-header">
+      <div class="voice-panel-head">
         <div class="voice-panel-title">🎙 Голосовой чат</div>
-        <div class="voice-panel-count" id="voice-count"></div>
       </div>
       <div id="participants-list"></div>
     </div>
 
-    <!-- Приветствие -->
+    <!-- Старт -->
     <div class="date-divider">Начало чата</div>
-    <div style="align-self:center;text-align:center;color:var(--tg-sub);font-size:12px;
-                background:rgba(23,33,43,0.7);padding:10px 16px;border-radius:12px;
-                max-width:280px;line-height:1.6;margin:4px 0 8px;">
+    <div style="align-self:center; text-align:center; color:var(--sub);
+                font-size:12px; background:rgba(23,33,43,0.85);
+                padding:10px 18px; border-radius:12px;
+                max-width:280px; line-height:1.65; margin:4px 0 8px;">
       🔒 Все сообщения зашифрованы.<br>
       Сервер видит только случайный набор символов.
     </div>
@@ -712,6 +564,76 @@
   <div class="tg-bottom">
 
     <!-- Голосовые кнопки -->
-    <div class="voice-bar visible">
-      <button class="btn-voice btn-voice-join"  id="btn-join">🎙 Войти в голосовой</button>
-      <button class="btn-voice btn-voice-
+    <div class="voice-bar">
+      <button class="btn-v" id="btn-join">🎙 Войти в голосовой</button>
+      <button class="btn-v" id="btn-mic">🔇 Выкл. микрофон</button>
+      <button class="btn-v" id="btn-leave">📵 Выйти</button>
+    </div>
+
+    <div class="mic-status" id="mic-status"></div>
+
+    <!-- Строка ввода -->
+    <div class="tg-input-row">
+
+      <!-- Попап прикрепления -->
+      <div class="attach-popup" id="attach-popup">
+        <button class="attach-item" id="btn-photo">
+          <span class="attach-item-icon">🖼</span> Фото
+        </button>
+        <button class="attach-item" id="btn-video">
+          <span class="attach-item-icon">🎬</span> Видео
+        </button>
+        <button class="attach-item" id="btn-file">
+          <span class="attach-item-icon">📎</span> Файл
+        </button>
+      </div>
+
+      <button class="btn-attach-tg" id="btn-attach-toggle" title="Прикрепить">📎</button>
+
+      <textarea class="tg-textarea" id="chat-input"
+                placeholder="Сообщение…" rows="1"></textarea>
+
+      <button class="btn-send-tg" id="btn-send">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
+          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+        </svg>
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<!-- Lightbox -->
+<div class="lightbox" id="lightbox">
+  <span class="lightbox-close" id="lightbox-close">✕</span>
+  <div id="lightbox-content"></div>
+</div>
+
+<input type="file" id="file-input" accept="*/*">
+<audio id="keep-alive-audio" loop playsinline></audio>
+<div id="hidden-audios"></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="editor.js"></script>
+<script src="app.js"></script>
+
+<script>
+  // Попап прикрепления — открыть/закрыть
+  const attachToggle = document.getElementById('btn-attach-toggle');
+  const attachPopup  = document.getElementById('attach-popup');
+
+  attachToggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    attachPopup.classList.toggle('open');
+  });
+
+  document.addEventListener('click', () => {
+    attachPopup.classList.remove('open');
+  });
+
+  attachPopup.addEventListener('click', (e) => {
+    e.stopPropagation();
+  });
+</script>
+</body>
+</html>
