@@ -34,9 +34,6 @@
       overflow: hidden; position: fixed; width: 100%; top:0; left:0;
     }
 
-    /* ════════════════════════════
-       ОБЩИЕ СТИЛИ ЭКРАНОВ
-    ════════════════════════════ */
     .screen {
       position: fixed; inset: 0;
       display: none; flex-direction: column;
@@ -44,9 +41,6 @@
     }
     .screen.active { display: flex; }
 
-    /* ════════════════════════════
-       ЭКРАН: ВВОД НИКА
-    ════════════════════════════ */
     #screen-nick {
       align-items: center; justify-content: center;
     }
@@ -97,9 +91,6 @@
       min-height:18px; margin-top:6px; text-align:center;
     }
 
-    /* ════════════════════════════
-       ЭКРАН: СПИСОК КОМНАТ
-    ════════════════════════════ */
     #screen-lobby { z-index: 20; }
 
     .lobby-header {
@@ -161,9 +152,7 @@
       display:flex; align-items:center; justify-content:center;
       font-size:22px;
     }
-    .room-avatar img {
-      width:100%; height:100%; object-fit:cover;
-    }
+    .room-avatar img { width:100%; height:100%; object-fit:cover; }
 
     .room-info { flex:1; min-width:0; }
     .room-name {
@@ -185,9 +174,6 @@
       animation: pulse 1.5s infinite;
     }
 
-    /* ════════════════════════════
-       МОДАЛКА: СОЗДАНИЕ КОМНАТЫ
-    ════════════════════════════ */
     .modal-overlay {
       position:fixed; inset:0;
       background:rgba(0,0,0,0.7);
@@ -224,7 +210,6 @@
     }
     .modal-close:hover { color:var(--text); }
 
-    /* Аватар комнаты (выбор фото) */
     .room-photo-picker {
       display:flex; justify-content:center; margin-bottom:20px;
     }
@@ -259,16 +244,8 @@
       -webkit-tap-highlight-color:transparent;
     }
 
-    /* ════════════════════════════
-       МОДАЛКА: ВВОД ПАРОЛЯ КОМНАТЫ
-    ════════════════════════════ */
-    #modal-room-password .modal-sheet {
-      padding-bottom:32px;
-    }
+    #modal-room-password .modal-sheet { padding-bottom:32px; }
 
-    /* ════════════════════════════
-       ЭКРАН: ЧАТ
-    ════════════════════════════ */
     #screen-main { z-index: 30; }
 
     .tg-header {
@@ -350,11 +327,43 @@
     .participant {
       display:flex; align-items:center; gap:10px;
       padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.05);
+      border-radius:8px;
+      transition: background 0.15s;
     }
     .participant:last-child { border-bottom:none; }
+
+    /* ── Подсветка говорящего ── */
+    .participant.speaking {
+      background: rgba(76, 175, 80, 0.10);
+      border-radius: 8px;
+      padding-left: 8px;
+      padding-right: 8px;
+    }
+    .participant.speaking .participant-name {
+      color: #81c784;
+      font-weight: 700;
+    }
+    /* Мигающая точка рядом с именем говорящего */
+    .participant.speaking .participant-name::before {
+      content: '';
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      background: var(--green);
+      border-radius: 50%;
+      margin-right: 6px;
+      vertical-align: middle;
+      animation: speakingPulse 0.7s ease-in-out infinite;
+    }
+    @keyframes speakingPulse {
+      0%,100% { opacity: 1;   transform: scale(1);    }
+      50%      { opacity: 0.4; transform: scale(0.75); }
+    }
+
     .participant-name {
       font-size:13px; font-weight:500; flex:1;
       white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+      transition: color 0.15s;
     }
     .volume-bar-wrap {
       width:36px; height:4px; background:rgba(255,255,255,0.08);
@@ -535,7 +544,6 @@
     #btn-send:active  { transform:scale(0.92); }
     #btn-send:disabled{ background:#2a3a4e; cursor:not-allowed; }
 
-    /* ── Банер "Понял" ── */
     .understood-banner {
       position:fixed; top:68px; left:50%; transform:translateX(-50%);
       background:rgba(27,80,32,0.95); backdrop-filter:blur(10px);
@@ -551,7 +559,6 @@
       100%{ opacity:0; transform:translateX(-50%) translateY(-6px); }
     }
 
-    /* ── Lightbox ── */
     #lightbox {
       display:none; position:fixed; inset:0;
       background:rgba(0,0,0,0.95); z-index:3000;
@@ -586,36 +593,28 @@
 </head>
 <body>
 
-<!-- ══════════════════════════════
-     ЭКРАН 1: ВВОД НИКА
-══════════════════════════════ -->
+<!-- ЭКРАН 1: ВВОД НИКА -->
 <div id="screen-nick" class="screen active">
   <div class="login-card">
     <div class="login-icon">💬</div>
     <div class="login-title">Приватный чат</div>
     <div class="login-sub">Введи своё имя, чтобы войти</div>
-
     <div class="field-wrap">
-      <input type="text" id="nick-input"
-             placeholder="Твоё имя…"
+      <input type="text" id="nick-input" placeholder="Твоё имя…"
              autocomplete="nickname" maxlength="32"/>
     </div>
     <div class="field-error" id="nick-error"></div>
-
     <button class="btn-primary" id="btn-nick-enter">Войти →</button>
   </div>
 </div>
 
-<!-- ══════════════════════════════
-     ЭКРАН 2: СПИСОК КОМНАТ
-══════════════════════════════ -->
+<!-- ЭКРАН 2: СПИСОК КОМНАТ -->
 <div id="screen-lobby" class="screen">
   <div class="lobby-header">
     <div class="lobby-header-title">💬 Комнаты</div>
     <div class="lobby-nick" id="lobby-nick-label">Аноним</div>
     <button id="btn-create-room" title="Создать комнату">＋</button>
   </div>
-
   <div class="rooms-list" id="rooms-list">
     <div class="rooms-empty">
       <div class="rooms-empty-icon">🏠</div>
@@ -624,57 +623,44 @@
   </div>
 </div>
 
-<!-- ══════════════════════════════
-     МОДАЛКА: СОЗДАНИЕ КОМНАТЫ
-══════════════════════════════ -->
+<!-- МОДАЛКА: СОЗДАНИЕ КОМНАТЫ -->
 <div class="modal-overlay" id="modal-create-room">
   <div class="modal-sheet" style="position:relative">
     <div class="modal-title">Создать комнату</div>
     <button class="modal-close" id="btn-close-create">✕</button>
-
-    <!-- Фото комнаты -->
     <div class="room-photo-picker">
       <div class="room-photo-btn" id="room-photo-btn">
         <span class="cam-icon">📷</span>
         <span>Фото</span>
       </div>
     </div>
-
     <div class="field-wrap">
       <div class="field-label">Название комнаты</div>
       <input type="text" id="create-room-name"
-             placeholder="Например: Команда А"
-             maxlength="50"/>
+             placeholder="Например: Команда А" maxlength="50"/>
     </div>
-
     <div class="field-wrap">
       <div class="field-label">Пароль (необязательно)</div>
       <div class="pw-row">
         <input type="password" id="create-room-pw"
-               placeholder="Без пароля — комната открытая"
-               maxlength="64"/>
+               placeholder="Без пароля — комната открытая" maxlength="64"/>
         <button class="pw-toggle" id="btn-toggle-create-pw" type="button">👁</button>
       </div>
     </div>
-
     <div class="field-error" id="create-room-error"></div>
     <button class="btn-primary" id="btn-submit-create">Создать комнату</button>
   </div>
 </div>
 
-<!-- ══════════════════════════════
-     МОДАЛКА: ПАРОЛЬ ДЛЯ ВХОДА
-══════════════════════════════ -->
+<!-- МОДАЛКА: ПАРОЛЬ ДЛЯ ВХОДА -->
 <div class="modal-overlay" id="modal-room-password">
   <div class="modal-sheet" style="position:relative">
     <div class="modal-title">🔐 Комната защищена</div>
     <button class="modal-close" id="btn-close-pw-modal">✕</button>
-
     <div style="text-align:center;color:var(--sub);font-size:13px;margin-bottom:18px">
       Введи пароль для входа в комнату<br>
       <b id="pw-modal-room-name" style="color:var(--text)"></b>
     </div>
-
     <div class="field-wrap">
       <div class="pw-row">
         <input type="password" id="room-pw-input"
@@ -682,17 +668,13 @@
         <button class="pw-toggle" id="btn-toggle-room-pw" type="button">👁</button>
       </div>
     </div>
-
     <div class="field-error" id="room-pw-error"></div>
     <button class="btn-primary" id="btn-submit-room-pw">Войти в комнату</button>
   </div>
 </div>
 
-<!-- ══════════════════════════════
-     ЭКРАН 3: ЧАТ
-══════════════════════════════ -->
+<!-- ЭКРАН 3: ЧАТ -->
 <div id="screen-main" class="screen">
-
   <div class="tg-header">
     <button id="btn-back-lobby" title="Назад">←</button>
     <div class="tg-avatar" id="chat-room-avatar">💬</div>
@@ -710,12 +692,10 @@
 
   <div class="main-body">
     <div id="chat-messages">
-
       <div id="participants" style="display:none">
         <div class="voice-panel-title">🎙 Голосовой чат</div>
         <div id="participants-list"></div>
       </div>
-
       <div class="date-divider">Начало чата</div>
       <div style="align-self:center; text-align:center; color:var(--sub);
                   font-size:12px; background:rgba(23,33,43,0.85);
@@ -724,7 +704,6 @@
         🔒 Все сообщения зашифрованы.<br>
         Сервер видит только случайный набор символов.
       </div>
-
     </div>
   </div>
 
@@ -734,13 +713,10 @@
       <button id="btn-mic"   style="display:none">🔇 Выкл. микрофон</button>
       <button id="btn-leave" style="display:none">📵 Выйти</button>
     </div>
-
     <div id="mic-status" class="mic-status"></div>
-
     <div id="noise-indicator">
       <span>🎛 Шумоподавление активно</span>
     </div>
-
     <div class="tg-input-row">
       <div class="attach-popup" id="attach-popup">
         <button class="attach-item" id="btn-photo">
@@ -753,7 +729,6 @@
           <span class="attach-item-icon">📎</span> Файл
         </button>
       </div>
-
       <button class="btn-attach-tg" id="btn-attach-toggle" title="Прикрепить">📎</button>
       <textarea id="chat-input" placeholder="Сообщение…" rows="1"></textarea>
       <button id="btn-send">
@@ -763,8 +738,7 @@
       </button>
     </div>
   </div>
-
-</div><!-- /screen-main -->
+</div>
 
 <!-- Lightbox -->
 <div id="lightbox">
@@ -782,12 +756,8 @@
 <script src="app.js"></script>
 
 <script>
-/* ══════════════════════════════════════
-   АДАПТИВ ПОД КЛАВИАТУРУ iOS/Android
-══════════════════════════════════════ */
 (function () {
   const screenMain = document.getElementById('screen-main');
-
   function applyViewport() {
     const vv = window.visualViewport;
     if (!vv) return;
@@ -800,7 +770,6 @@
       if (msgs) setTimeout(() => { msgs.scrollTop = msgs.scrollHeight; }, 50);
     }
   }
-
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', applyViewport);
     window.visualViewport.addEventListener('scroll', applyViewport);
@@ -812,13 +781,9 @@
   });
 })();
 
-/* ══════════════════════════════════════
-   ПОПАП ПРИКРЕПЛЕНИЯ
-══════════════════════════════════════ */
 (function () {
   const attachToggle = document.getElementById('btn-attach-toggle');
   const attachPopup  = document.getElementById('attach-popup');
-
   attachToggle.addEventListener('click', (e) => {
     e.stopPropagation();
     attachPopup.classList.toggle('open');
