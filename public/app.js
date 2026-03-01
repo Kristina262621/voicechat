@@ -152,6 +152,9 @@ const qualityTimers = {};
 // Таймеры комнат (для отображения обратного отсчёта)
 const roomDeleteTimers = {};
 
+// Порог громкости для индикатора «говорит» (% от 0..100)
+const SPEAKING_THRESHOLD = 8;
+
 // ═══════════════════════════════════════════════
 //  УТИЛИТЫ
 // ═══════════════════════════════════════════════
@@ -180,6 +183,28 @@ function showScreen(name) {
   if (name === 'nick')  screenNick.classList.add('active');
   if (name === 'lobby') screenLobby.classList.add('active');
   if (name === 'chat')  screenMain.classList.add('active');
+}
+
+// ═══════════════════════════════════════════════
+//  ЗВУК НОВОГО СООБЩЕНИЯ
+// ═══════════════════════════════════════════════
+function playMsgSound() {
+  try {
+    var ctx  = new (window.AudioContext || window.webkitAudioContext)();
+    var osc  = ctx.createOscillator();
+    var gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.06);
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.18);
+    osc.onended = function () { ctx.close(); };
+  } catch (_) {}
 }
 
 // ═══════════════════════════════════════════════
@@ -613,6 +638,9 @@ async function sendMediaBlob(blob, mimeType, fileName, type) {
 //  ЧАТ: ПОЛУЧЕНИЕ СООБЩЕНИЙ
 // ═══════════════════════════════════════════════
 socket.on('chat-message', async (data) => {
+  // Звук нового сообщения (только от других)
+  playMsgSound();
+
   const msgId = appendMessage({
     from:      data.from,
     nickname:  data.nickname,
@@ -975,8 +1003,20 @@ function removeParticipant(userId) {
 }
 
 // ═══════════════════════════════════════════════
-//  ГРОМКОСТЬ
+//  ГРОМКОСТЬ + ИНДИКАТОР «ГОВОРИТ»
 // ═══════════════════════════════════════════════
+
+// Устанавливает/снимает подсветку «говорит» у участника
+function setSpeaking(userId, isSpeaking) {
+  var row = document.getElementById('p-' + userId);
+  if (!row) return;
+  if (isSpeaking) {
+    row.classList.add('speaking');
+  } else {
+    row.classList.remove('speaking');
+  }
+}
+
 function startVolumeAnalysis(userId, stream) {
   var ctx = audioCtx || new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
   if (!audioCtx) audioCtx = ctx;
@@ -985,15 +1025,30 @@ function startVolumeAnalysis(userId, stream) {
   var analyser = ctx.createAnalyser();
   analyser.fftSize = 512;
   source.connect(analyser);
-  var data = new Uint8Array(analyser.frequencyBinCount);
+  var data        = new Uint8Array(analyser.frequencyBinCount);
+  var wasSpeaking = false;
+
   function tick() {
     if (!analysers[userId]) return;
     analyser.getByteFrequencyData(data);
     var sum = 0;
     for (var i = 0; i < data.length; i++) sum += data[i];
     var pct = Math.min(100, (sum / data.length) * 3);
+
+    // Обновляем полоску громкости
     var bar = document.getElementById('vol-' + userId);
-    if (bar) { bar.style.width = pct + '%'; bar.className = 'volume-bar' + (pct > 60 ? ' loud' : ''); }
+    if (bar) {
+      bar.style.width = pct + '%';
+      bar.className   = 'volume-bar' + (pct > 60 ? ' loud' : '');
+    }
+
+    // Обновляем подсветку «говорит»
+    var nowSpeaking = pct > SPEAKING_THRESHOLD;
+    if (nowSpeaking !== wasSpeaking) {
+      setSpeaking(userId, nowSpeaking);
+      wasSpeaking = nowSpeaking;
+    }
+
     analysers[userId].animFrame = requestAnimationFrame(tick);
   }
   analysers[userId] = { analyser: analyser, source: source, animFrame: requestAnimationFrame(tick) };
@@ -1005,6 +1060,8 @@ function stopVolumeAnalysis(userId) {
     try { analysers[userId].source.disconnect(); } catch (_) {}
     delete analysers[userId];
   }
+  // Снимаем подсветку при остановке
+  setSpeaking(userId, false);
 }
 
 // ═══════════════════════════════════════════════
