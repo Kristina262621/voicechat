@@ -33,15 +33,16 @@ const io = new Server(server, {
 });
 
 // ── Хранилище комнат ──
-// rooms: Map<roomId, { id, name, passwordHash, photo, ownerId, members: Set<socketId>, createdAt }>
+// rooms: Map<roomId, { id, name, passwordHash, photo, ownerId, members: Set<socketId>, createdAt, emptyTimer, emptyAt }>
 const rooms   = new Map();
 const clients = new Map(); // socketId → { nickname, roomId }
+
+const ROOM_EMPTY_TIMEOUT = 60 * 60 * 1000; // 60 минут
 
 function generateRoomId() {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
 }
 
-// Простое хэширование пароля (без bcrypt — нет зависимостей)
 function hashPassword(pw) {
   if (!pw) return null;
   let hash = 0;
@@ -53,25 +54,64 @@ function hashPassword(pw) {
   return String(hash);
 }
 
-// Отдаём список комнат (без паролей)
 function getRoomList() {
   const list = [];
+  const now  = Date.now();
   for (const [id, room] of rooms) {
-    list.push({
+    const entry = {
       id,
       name:        room.name,
       hasPassword: !!room.passwordHash,
       photo:       room.photo || null,
       memberCount: room.members.size,
       createdAt:   room.createdAt
-    });
+    };
+    // Если комната пустая — добавляем время до удаления
+    if (room.members.size === 0 && room.emptyAt) {
+      const msLeft = ROOM_EMPTY_TIMEOUT - (now - room.emptyAt);
+      entry.deleteAt = now + Math.max(0, msLeft);
+    }
+    list.push(entry);
   }
   return list;
 }
 
-// Рассылаем обновлённый список всем в лобби
 function broadcastRoomList() {
   io.emit('room-list', getRoomList());
+}
+
+// Запускаем таймер удаления пустой комнаты
+function scheduleRoomDelete(roomId) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+
+  // Уже есть таймер — не дублируем
+  if (room.emptyTimer) return;
+
+  room.emptyAt    = Date.now();
+  room.emptyTimer = setTimeout(() => {
+    // Удаляем только если всё ещё пустая
+    const r = rooms.get(roomId);
+    if (r && r.members.size === 0) {
+      rooms.delete(roomId);
+      console.log(`Room ${roomId} deleted after 60min empty`);
+      broadcastRoomList();
+    }
+  }, ROOM_EMPTY_TIMEOUT);
+
+  broadcastRoomList(); // обновляем список с таймером
+}
+
+// Отменяем таймер удаления (кто-то вошёл)
+function cancelRoomDelete(roomId) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+  if (room.emptyTimer) {
+    clearTimeout(room.emptyTimer);
+    room.emptyTimer = null;
+    room.emptyAt    = null;
+    broadcastRoomList();
+  }
 }
 
 io.on('connection', (socket) => {
@@ -83,7 +123,6 @@ io.on('connection', (socket) => {
     const nick = String(nickname || '').trim().slice(0, 32);
     if (!nick) { cb && cb({ ok: false, error: 'empty' }); return; }
     clients.get(socket.id).nickname = nick;
-    // Отправляем список комнат
     socket.emit('room-list', getRoomList());
     cb && cb({ ok: true });
   });
@@ -104,7 +143,9 @@ io.on('connection', (socket) => {
       photo:        photo || null,
       ownerId:      socket.id,
       members:      new Set(),
-      createdAt:    Date.now()
+      createdAt:    Date.now(),
+      emptyTimer:   null,
+      emptyAt:      null
     });
 
     broadcastRoomList();
@@ -119,7 +160,6 @@ io.on('connection', (socket) => {
     const room = rooms.get(roomId);
     if (!room) { cb && cb({ ok: false, error: 'not_found' }); return; }
 
-    // Проверка пароля
     if (room.passwordHash) {
       const inputHash = hashPassword(password || '');
       if (inputHash !== room.passwordHash) {
@@ -128,16 +168,17 @@ io.on('connection', (socket) => {
       }
     }
 
-    // Покидаем предыдущую комнату
     if (client.roomId && client.roomId !== roomId) {
       leaveRoom(socket, client.roomId);
     }
+
+    // Отменяем таймер удаления — кто-то вошёл
+    cancelRoomDelete(roomId);
 
     client.roomId = roomId;
     room.members.add(socket.id);
     socket.join(roomId);
 
-    // Сообщаем остальным участникам комнаты
     const others = [...room.members].filter(id => id !== socket.id);
     const membersInfo = others.map(id => ({
       id,
@@ -158,17 +199,18 @@ io.on('connection', (socket) => {
     }});
   });
 
-  // ── WebRTC сигнализация (только внутри комнаты) ──
+  // ── WebRTC сигнализация ──
   socket.on('offer', ({ to, offer }) => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
-    io.to(to).emit('offer', { from: socket.id, offer });
+    // Передаём ник вместе с оффером
+    io.to(to).emit('offer', { from: socket.id, offer, nickname: client.nickname });
   });
 
   socket.on('answer', ({ to, answer }) => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
-    io.to(to).emit('answer', { from: socket.id, answer });
+    io.to(to).emit('answer', { from: socket.id, answer, nickname: client.nickname });
   });
 
   socket.on('ice-candidate', ({ to, candidate }) => {
@@ -177,15 +219,24 @@ io.on('connection', (socket) => {
     io.to(to).emit('ice-candidate', { from: socket.id, candidate });
   });
 
-  // ── Голосовой чат: join/leave комнаты ──
+  // ── Голосовой чат: join/leave ──
   socket.on('voice-join', () => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
     const room = rooms.get(client.roomId);
     if (!room) return;
     const others = [...room.members].filter(id => id !== socket.id);
-    socket.emit('existing-voice-users', others);
-    socket.to(client.roomId).emit('voice-user-joined', socket.id);
+    // Отправляем другим участникам ник нового пользователя
+    socket.to(client.roomId).emit('voice-user-joined', {
+      id:       socket.id,
+      nickname: client.nickname
+    });
+    // Текущему пользователю отправляем список участников с никами
+    const othersWithNicks = others.map(id => ({
+      id,
+      nickname: clients.get(id)?.nickname || shortId(id)
+    }));
+    socket.emit('existing-voice-users', othersWithNicks);
   });
 
   socket.on('voice-leave', () => {
@@ -194,7 +245,7 @@ io.on('connection', (socket) => {
     socket.to(client.roomId).emit('voice-user-left', socket.id);
   });
 
-  // ── Чат-сообщение (только в комнату) ──
+  // ── Чат-сообщение ──
   socket.on('chat-message', (data) => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
@@ -221,7 +272,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  // ── Покинуть комнату (вернуться в лобби) ──
+  // ── Покинуть комнату ──
   socket.on('leave-room', () => {
     const client = clients.get(socket.id);
     if (client?.roomId) leaveRoom(socket, client.roomId);
@@ -242,11 +293,13 @@ io.on('connection', (socket) => {
       socket.to(roomId).emit('room-user-left', socket.id);
       socket.to(roomId).emit('voice-user-left', socket.id);
       socket.leave(roomId);
-      // Удаляем пустые комнаты
+
+      // Если комната опустела — запускаем таймер вместо мгновенного удаления
       if (room.members.size === 0) {
-        rooms.delete(roomId);
+        scheduleRoomDelete(roomId);
+      } else {
+        broadcastRoomList();
       }
-      broadcastRoomList();
     }
     if (client) client.roomId = null;
   }
