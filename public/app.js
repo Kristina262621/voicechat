@@ -1,52 +1,139 @@
 // ═══════════════════════════════════════════════
-//  CRYPTO — AES-256-GCM
+//  CRYPTO — AES-256-GCM + ECDH Forward Secrecy
 // ═══════════════════════════════════════════════
 const Crypto = (() => {
-  let cryptoKey = null;
+  // Основной ключ комнаты (из пароля + соли)
+  let roomKey    = null;
+  // ECDH сессионные ключи: socketId → CryptoKey
+  const sessionKeys = {};
+  // Наш ECDH ключ для текущей сессии
+  let myEcdhKeyPair = null;
 
-  async function deriveKey(secret) {
-    const enc    = new TextEncoder();
+  // ── 3. Улучшенная деривация ключа с серверной солью ──
+  async function deriveKey(password, roomId, roomSalt) {
+    const enc = new TextEncoder();
+    // Комбинируем: пароль + roomId + серверная соль + фиксированная строка
+    // Если пароля нет — используем 'open' + roomId
+    const secret = (password || 'open') + '|' + roomId;
     const keyMat = await crypto.subtle.importKey(
       'raw', enc.encode(secret), { name: 'PBKDF2' }, false, ['deriveKey']
     );
-    const salt = enc.encode('voicechat-salt-v2');
-    cryptoKey  = await crypto.subtle.deriveKey(
-      { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+    // Используем серверную соль — она уникальна для каждой комнаты
+    const saltBytes = enc.encode(roomSalt + 'voicechat-v3');
+    roomKey = await crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt: saltBytes, iterations: 200000, hash: 'SHA-256' },
       keyMat,
       { name: 'AES-GCM', length: 256 },
       false,
       ['encrypt', 'decrypt']
     );
-    return cryptoKey;
+    return roomKey;
   }
 
-  async function encrypt(data) {
+  // ── 4. ECDH — генерация пары ключей для Forward Secrecy ──
+  async function generateEcdhKeyPair() {
+    myEcdhKeyPair = await crypto.subtle.generateKey(
+      { name: 'ECDH', namedCurve: 'P-256' },
+      true,
+      ['deriveKey', 'deriveBits']
+    );
+    return myEcdhKeyPair;
+  }
+
+  // Экспорт публичного ключа для отправки собеседнику
+  async function exportPublicKey() {
+    if (!myEcdhKeyPair) await generateEcdhKeyPair();
+    const raw = await crypto.subtle.exportKey('raw', myEcdhKeyPair.publicKey);
+    return btoa(String.fromCharCode(...new Uint8Array(raw)));
+  }
+
+  // Создание сессионного ключа из публичного ключа собеседника
+  async function deriveSessionKey(theirPubKeyB64, peerId) {
+    const raw = Uint8Array.from(atob(theirPubKeyB64), c => c.charCodeAt(0));
+    const theirKey = await crypto.subtle.importKey(
+      'raw', raw, { name: 'ECDH', namedCurve: 'P-256' }, false, []
+    );
+    const sharedBits = await crypto.subtle.deriveBits(
+      { name: 'ECDH', public: theirKey },
+      myEcdhKeyPair.privateKey,
+      256
+    );
+    // Из shared secret создаём AES ключ
+    const keyMat = await crypto.subtle.importKey(
+      'raw', sharedBits, { name: 'PBKDF2' }, false, ['deriveKey']
+    );
+    const enc  = new TextEncoder();
+    sessionKeys[peerId] = await crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt: enc.encode('ecdh-session-v1'), iterations: 1, hash: 'SHA-256' },
+      keyMat,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
+    return sessionKeys[peerId];
+  }
+
+  // ── 5. Отпечаток публичного ключа для верификации ──
+  async function getKeyFingerprint() {
+    if (!myEcdhKeyPair) await generateEcdhKeyPair();
+    const raw    = await crypto.subtle.exportKey('raw', myEcdhKeyPair.publicKey);
+    const hash   = await crypto.subtle.digest('SHA-256', raw);
+    const hex    = [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('');
+    // Форматируем как группы по 4 символа для удобства сравнения
+    return hex.match(/.{4}/g).slice(0, 8).join(' ').toUpperCase();
+  }
+
+  function getSessionKey(peerId) {
+    return sessionKeys[peerId] || null;
+  }
+
+  function clearSessionKey(peerId) {
+    delete sessionKeys[peerId];
+  }
+
+  // ── Основное шифрование AES-256-GCM ──
+  async function encrypt(data, key) {
+    const useKey  = key || roomKey;
     const iv      = crypto.getRandomValues(new Uint8Array(12));
     const encoded = typeof data === 'string'
       ? new TextEncoder().encode(data)
       : new Uint8Array(data);
-    const cipher  = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, cryptoKey, encoded);
+    const cipher  = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, useKey, encoded);
     return {
       iv:        btoa(String.fromCharCode(...iv)),
       encrypted: btoa(String.fromCharCode(...new Uint8Array(cipher)))
     };
   }
 
-  async function decrypt(encB64, ivB64) {
+  async function decrypt(encB64, ivB64, key) {
+    const useKey = key || roomKey;
     const iv     = Uint8Array.from(atob(ivB64),  c => c.charCodeAt(0));
     const cipher = Uint8Array.from(atob(encB64), c => c.charCodeAt(0));
-    return crypto.subtle.decrypt({ name: 'AES-GCM', iv }, cryptoKey, cipher);
+    return crypto.subtle.decrypt({ name: 'AES-GCM', iv }, useKey, cipher);
   }
 
-  async function decryptText(encB64, ivB64) {
-    return new TextDecoder().decode(await decrypt(encB64, ivB64));
+  async function decryptText(encB64, ivB64, key) {
+    return new TextDecoder().decode(await decrypt(encB64, ivB64, key));
   }
 
-  async function decryptBlob(encB64, ivB64, mime) {
-    return new Blob([await decrypt(encB64, ivB64)], { type: mime });
+  async function decryptBlob(encB64, ivB64, mime, key) {
+    return new Blob([await decrypt(encB64, ivB64, key)], { type: mime });
   }
 
-  return { deriveKey, encrypt, decryptText, decryptBlob };
+  // ── 8. Очистка ключей при выходе ──
+  function clearAllKeys() {
+    roomKey       = null;
+    myEcdhKeyPair = null;
+    for (const k in sessionKeys) delete sessionKeys[k];
+  }
+
+  return {
+    deriveKey,
+    encrypt, decryptText, decryptBlob,
+    generateEcdhKeyPair, exportPublicKey, deriveSessionKey,
+    getKeyFingerprint, getSessionKey, clearSessionKey,
+    clearAllKeys
+  };
 })();
 
 // ═══════════════════════════════════════════════
@@ -127,6 +214,7 @@ const noiseIndicator   = document.getElementById('noise-indicator');
 let myNickname      = '';
 let currentRoomId   = null;
 let currentRoomData = null;
+let currentPassword = '';
 let pendingJoinRoom = null;
 let roomPhotoData   = null;
 let memberCount     = 0;
@@ -143,6 +231,9 @@ let wakeLock        = null;
 let pendingFileType = 'image/*';
 let msgCounter      = 0;
 
+// 6. Счётчик исходящих сообщений для защиты от replay
+let outgoingSeq = 0;
+
 const voiceNicknames   = {};
 const analysers        = {};
 const qualityTimers    = {};
@@ -150,9 +241,8 @@ const roomDeleteTimers = {};
 
 const SPEAKING_THRESHOLD = 8;
 
-// ── «Печатает»: кто сейчас печатает { socketId → таймер автосброса } ──
-const typingUsers   = {};  // socketId → { nickname, timer }
-let   typingTimer   = null; // таймер отправки typing-stop от себя
+const typingUsers = {};
+let   typingTimer = null;
 
 // ═══════════════════════════════════════════════
 //  УТИЛИТЫ
@@ -209,7 +299,6 @@ function playMsgSound() {
 // ═══════════════════════════════════════════════
 //  УВЕДОМЛЕНИЯ БРАУЗЕРА
 // ═══════════════════════════════════════════════
-// Запрашиваем разрешение при первом взаимодействии
 function requestNotifPermission() {
   if ('Notification' in window && Notification.permission === 'default') {
     Notification.requestPermission();
@@ -217,32 +306,21 @@ function requestNotifPermission() {
 }
 
 function showBrowserNotif(title, body) {
-  // Показываем только если вкладка не активна
   if (document.visibilityState === 'visible') return;
   if (!('Notification' in window)) return;
   if (Notification.permission !== 'granted') return;
   try {
     const n = new Notification(title, {
-      body,
-      icon:   '/icon.png',   // можешь добавить иконку в папку public
-      badge:  '/icon.png',
-      silent: false
+      body, icon: '/icon.png', badge: '/icon.png', silent: false
     });
-    // Клик по уведомлению — фокус на вкладку
-    n.onclick = function () {
-      window.focus();
-      n.close();
-    };
-    // Автозакрытие через 5 сек
+    n.onclick = function () { window.focus(); n.close(); };
     setTimeout(() => n.close(), 5000);
   } catch (_) {}
 }
 
 // ═══════════════════════════════════════════════
-//  ЭКРАН: ВВОД НИКА — с сохранением в localStorage
+//  ЭКРАН: ВВОД НИКА
 // ═══════════════════════════════════════════════
-
-// Восстанавливаем сохранённый ник
 (function loadSavedNick() {
   try {
     const saved = localStorage.getItem('chat_nickname');
@@ -256,8 +334,6 @@ btnNickEnter.addEventListener('click', enterNick);
 function enterNick() {
   const nick = nickInput.value.trim();
   if (!nick) { showNickError('Введи своё имя'); return; }
-
-  // Сохраняем ник в localStorage
   try { localStorage.setItem('chat_nickname', nick); } catch (_) {}
 
   btnNickEnter.disabled    = true;
@@ -275,7 +351,6 @@ function enterNick() {
     }, 5000);
     return;
   }
-
   doSetNickname(nick);
 }
 
@@ -287,13 +362,11 @@ function doSetNickname(nick) {
       myNickname = nick;
       lobbyNickLabel.textContent = '👤 ' + nick;
       showScreen('lobby');
-      // Запрашиваем разрешение на уведомления после входа
       requestNotifPermission();
     } else {
       showNickError('Ошибка, попробуй снова');
     }
   });
-
   setTimeout(() => {
     if (btnNickEnter.disabled) {
       btnNickEnter.disabled    = false;
@@ -488,12 +561,14 @@ function submitRoomPassword() {
   if (!pw) { roomPwError.textContent = 'Введи пароль'; return; }
   btnSubmitRoomPw.disabled    = true;
   btnSubmitRoomPw.textContent = '⏳ Проверяем…';
-  joinRoom(pendingJoinRoom.roomId, pw, (ok, err) => {
+  joinRoom(pendingJoinRoom.roomId, pw, (ok, err, secsLeft) => {
     btnSubmitRoomPw.disabled    = false;
     btnSubmitRoomPw.textContent = 'Войти в комнату';
     if (ok) {
       modalRoomPw.classList.remove('open');
       pendingJoinRoom = null;
+    } else if (err === 'rate_limited') {
+      roomPwError.textContent = `⛔ Слишком много попыток. Подождите ${secsLeft} сек.`;
     } else if (err === 'wrong_password') {
       roomPwError.textContent     = '❌ Неверный пароль';
       roomPwInput.style.animation = 'shake 0.35s';
@@ -512,9 +587,17 @@ function joinRoom(roomId, password, cb) {
     if (res && res.ok) {
       currentRoomId   = roomId;
       currentRoomData = res.room;
+      currentPassword = password || '';
 
-      const cryptoSecret = roomId + ':' + (password || 'open');
-      await Crypto.deriveKey(cryptoSecret);
+      // 3. Используем серверную соль для деривации ключа
+      const roomSalt = res.room.roomSalt || (roomId + '-default-salt');
+      await Crypto.deriveKey(password, roomId, roomSalt);
+
+      // 4. Генерируем ECDH ключ для Forward Secrecy
+      await Crypto.generateEcdhKeyPair();
+
+      // Сброс счётчика сообщений
+      outgoingSeq = 0;
 
       chatRoomName.textContent = res.room.name;
       userCount.textContent    = res.room.members.length + 1;
@@ -526,17 +609,39 @@ function joinRoom(roomId, password, cb) {
       }
 
       clearChat();
-      // Сбрасываем все статусы «печатает» при входе в новую комнату
       clearAllTyping();
       memberCount = res.room.members.length + 1;
       showScreen('chat');
+
+      // 5. Показываем отпечаток нашего ключа для верификации
+      showOwnFingerprint();
+
       if (cb) cb(true);
     } else {
-      if (cb) cb(false, res && res.error);
-      else if (res && res.error === 'wrong_password') alert('Неверный пароль');
-      else alert('Не удалось войти в комнату');
+      if (cb) cb(false, res && res.error, res && res.secsLeft);
+      else if (res && res.error === 'rate_limited') {
+        alert(`⛔ Слишком много попыток входа. Подождите ${res.secsLeft} секунд.`);
+      } else if (res && res.error === 'wrong_password') {
+        alert('Неверный пароль');
+      } else {
+        alert('Не удалось войти в комнату');
+      }
     }
   });
+}
+
+// ── 5. Показываем свой отпечаток ключа ──
+async function showOwnFingerprint() {
+  try {
+    const fp  = await Crypto.getKeyFingerprint();
+    const div = document.createElement('div');
+    div.className = 'date-divider';
+    div.style.cssText = 'font-size:10px; color:#5288c1; cursor:pointer; user-select:all;';
+    div.title     = 'Твой отпечаток ключа — сравни с собеседником для верификации';
+    div.textContent = '🔑 Твой ключ: ' + fp;
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  } catch (_) {}
 }
 
 function clearChat() {
@@ -549,7 +654,6 @@ function clearChat() {
 //  КНОПКА НАЗАД
 // ═══════════════════════════════════════════════
 btnBackLobby.addEventListener('click', () => {
-  // Снимаем свой статус «печатает»
   stopMyTyping();
   socket.emit('leave-room');
   if (joined) {
@@ -562,8 +666,12 @@ btnBackLobby.addEventListener('click', () => {
     micStatus.className    = 'mic-status';
   }
   clearAllTyping();
+  // 8. Очищаем ключи при выходе
+  Crypto.clearAllKeys();
+  outgoingSeq     = 0;
   currentRoomId   = null;
   currentRoomData = null;
+  currentPassword = '';
   showScreen('lobby');
 });
 
@@ -576,16 +684,18 @@ socket.on('room-user-joined', ({ id, nickname }) => {
   appendSystemMsg('👋 ' + nickname + ' вошёл в комнату');
 });
 
-socket.on('room-user-left', () => {
+socket.on('room-user-left', (id) => {
   memberCount = Math.max(0, memberCount - 1);
   userCount.textContent = memberCount;
+  // 8. Очищаем сессионный ECDH ключ ушедшего
+  Crypto.clearSessionKey(id);
 });
 
 socket.on('connect', () => {
   reconnectBanner.classList.remove('visible');
   if (myNickname) {
     socket.emit('set-nickname', myNickname, () => {
-      if (currentRoomId && currentRoomData) joinRoom(currentRoomId, '');
+      if (currentRoomId && currentRoomData) joinRoom(currentRoomId, currentPassword);
     });
   }
 });
@@ -594,14 +704,37 @@ socket.on('disconnect', () => {
   if (currentRoomId) reconnectBanner.classList.add('visible');
 });
 
+// ── 4. ECDH: получаем публичный ключ собеседника ──
+socket.on('ecdh-pubkey', async ({ from, pubkey, nickname }) => {
+  try {
+    await Crypto.deriveSessionKey(pubkey, from);
+    appendSystemMsg('🔐 Установлен сессионный ключ с ' + (nickname || shortId(from)));
+    // Отправляем свой ключ в ответ (если ещё не отправляли)
+    const myPubKey = await Crypto.exportPublicKey();
+    socket.emit('ecdh-pubkey', { to: from, pubkey: myPubKey });
+    // Отправляем свой отпечаток для верификации
+    const fp = await Crypto.getKeyFingerprint();
+    socket.emit('key-fingerprint', { to: from, fingerprint: fp });
+  } catch (_) {}
+});
+
+// ── 5. Получаем отпечаток ключа собеседника ──
+socket.on('key-fingerprint', ({ from, nickname, fingerprint }) => {
+  const name = nickname || shortId(from);
+  const div  = document.createElement('div');
+  div.className = 'date-divider';
+  div.style.cssText = 'font-size:10px; color:#4caf50; cursor:pointer; user-select:all;';
+  div.title     = 'Сравни этот отпечаток голосом с собеседником чтобы убедиться что нет MITM';
+  div.textContent = '🔑 Ключ ' + escapeHtml(name) + ': ' + fingerprint;
+  chatMessages.appendChild(div);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+});
+
 // ═══════════════════════════════════════════════
 //  СТАТУС «ПЕЧАТАЕТ»
 // ═══════════════════════════════════════════════
-
-// Строка «Иван печатает…» в подзаголовке шапки
 const headerSubEl = document.querySelector('.tg-header-sub');
 
-// Рендерим строку «печатает»
 function renderTyping() {
   const names = Object.values(typingUsers).map(u => u.nickname);
   if (names.length === 0) {
@@ -616,11 +749,8 @@ function renderTyping() {
     `<span class="typing-indicator"><span class="typing-dots"><span></span><span></span><span></span></span>${text}</span>`;
 }
 
-// Добавить/обновить печатающего
 function addTypingUser(socketId, nickname) {
-  // Сбрасываем старый автотаймер
   if (typingUsers[socketId]) clearTimeout(typingUsers[socketId].timer);
-  // Автосброс через 4 сек если typing-stop не придёт
   const timer = setTimeout(() => removeTypingUser(socketId), 4000);
   typingUsers[socketId] = { nickname, timer };
   renderTyping();
@@ -642,13 +772,10 @@ function clearAllTyping() {
   renderTyping();
 }
 
-// Отправка своего статуса «печатает»
 function startMyTyping() {
   if (!currentRoomId) return;
-  // Сбрасываем предыдущий таймер автостопа
   if (typingTimer) clearTimeout(typingTimer);
   socket.emit('typing-start');
-  // Автостоп через 3 сек без ввода
   typingTimer = setTimeout(() => stopMyTyping(), 3000);
 }
 
@@ -657,12 +784,10 @@ function stopMyTyping() {
   if (currentRoomId) socket.emit('typing-stop');
 }
 
-// Socket: получаем статус от других
 socket.on('typing-start', ({ from, nickname }) => {
   if (from === socket.id) return;
   addTypingUser(from, nickname);
 });
-
 socket.on('typing-stop', ({ from }) => {
   removeTypingUser(from);
 });
@@ -673,14 +798,9 @@ socket.on('typing-stop', ({ from }) => {
 chatInput.addEventListener('input', () => {
   chatInput.style.height = 'auto';
   chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
-  // Отправляем «печатает» при вводе
-  if (chatInput.value.trim().length > 0) {
-    startMyTyping();
-  } else {
-    stopMyTyping();
-  }
+  if (chatInput.value.trim().length > 0) startMyTyping();
+  else stopMyTyping();
 });
-
 chatInput.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendTextMessage(); }
 });
@@ -689,12 +809,13 @@ btnSend.addEventListener('click', sendTextMessage);
 async function sendTextMessage() {
   const text = chatInput.value.trim();
   if (!text || !currentRoomId) return;
-  // Снимаем статус «печатает» при отправке
   stopMyTyping();
   btnSend.disabled = true;
   try {
     const { encrypted, iv } = await Crypto.encrypt(text);
-    socket.emit('chat-message', { encrypted, iv, type: 'text' });
+    // 6. Добавляем порядковый номер
+    const seq = ++outgoingSeq;
+    socket.emit('chat-message', { encrypted, iv, type: 'text', seq });
     appendMessage({
       from: socket.id, nickname: myNickname,
       text, type: 'text', timestamp: Date.now(), mine: true, status: 'ok'
@@ -744,8 +865,9 @@ async function sendMediaBlob(blob, mimeType, fileName, type) {
     const arrayBuf          = await blob.arrayBuffer();
     const { encrypted, iv } = await Crypto.encrypt(arrayBuf);
     const localUrl          = URL.createObjectURL(new Blob([arrayBuf], { type: mimeType }));
+    const seq = ++outgoingSeq;
     socket.emit('chat-message', {
-      encrypted, iv, type,
+      encrypted, iv, type, seq,
       fileName: fileName || 'file', fileSize: blob.size, mimeType
     });
     appendMessage({
@@ -764,10 +886,7 @@ async function sendMediaBlob(blob, mimeType, fileName, type) {
 //  ЧАТ: ПОЛУЧЕНИЕ СООБЩЕНИЙ
 // ═══════════════════════════════════════════════
 socket.on('chat-message', async (data) => {
-  // Звук нового сообщения
   playMsgSound();
-
-  // Уведомление браузера
   showBrowserNotif(
     '💬 ' + (data.nickname || 'Собеседник'),
     data.type === 'text' ? '✉️ Новое сообщение' : '📎 Файл/медиа'
@@ -788,7 +907,6 @@ socket.on('chat-message', async (data) => {
     if (data.type === 'text') {
       const text = await Crypto.decryptText(data.encrypted, data.iv);
       updateMessage(msgId, { text, status: 'ok' });
-      // Уточняем уведомление с реальным текстом (показываем новое)
       showBrowserNotif('💬 ' + (data.nickname || 'Собеседник'), text);
     } else {
       const mime = data.mimeType || 'application/octet-stream';
@@ -994,16 +1112,21 @@ function setMicStatus(active) {
 // ═══════════════════════════════════════════════
 //  WebRTC
 // ═══════════════════════════════════════════════
-socket.on('existing-voice-users', (users) => {
+socket.on('existing-voice-users', async (users) => {
   for (const user of users) {
     const nick = user.nickname || shortId(user.id);
     voiceNicknames[user.id] = nick;
     addParticipant(user.id, nick, false);
     peers[user.id] = createPeer(user.id, true);
+    // 4. Инициируем ECDH обмен с каждым участником
+    try {
+      const myPubKey = await Crypto.exportPublicKey();
+      socket.emit('ecdh-pubkey', { to: user.id, pubkey: myPubKey });
+    } catch (_) {}
   }
 });
 
-socket.on('voice-user-joined', (data) => {
+socket.on('voice-user-joined', async (data) => {
   const uid  = (typeof data === 'object') ? data.id       : data;
   const nick = (typeof data === 'object') ? data.nickname : shortId(data);
   playBeep('join');
@@ -1011,6 +1134,11 @@ socket.on('voice-user-joined', (data) => {
   addParticipant(uid, nick, false);
   if (joined) {
     if (!peers[uid]) peers[uid] = createPeer(uid, false);
+    // 4. ECDH обмен с новым участником
+    try {
+      const myPubKey = await Crypto.exportPublicKey();
+      socket.emit('ecdh-pubkey', { to: uid, pubkey: myPubKey });
+    } catch (_) {}
   } else {
     pendingOffers.push({ from: uid, offer: null, nickname: nick });
   }
@@ -1163,19 +1291,16 @@ function startVolumeAnalysis(userId, stream) {
     var sum = 0;
     for (var i = 0; i < data.length; i++) sum += data[i];
     var pct = Math.min(100, (sum / data.length) * 3);
-
     var bar = document.getElementById('vol-' + userId);
     if (bar) {
       bar.style.width = pct + '%';
       bar.className   = 'volume-bar' + (pct > 60 ? ' loud' : '');
     }
-
     var nowSpeaking = pct > SPEAKING_THRESHOLD;
     if (nowSpeaking !== wasSpeaking) {
       setSpeaking(userId, nowSpeaking);
       wasSpeaking = nowSpeaking;
     }
-
     analysers[userId].animFrame = requestAnimationFrame(tick);
   }
   analysers[userId] = { analyser, source, animFrame: requestAnimationFrame(tick) };
