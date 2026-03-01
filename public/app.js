@@ -17,7 +17,7 @@ let joined        = false;
 let audioCtx      = null;
 const analysers   = {};
 
-// ───── Лог на экране ─────
+// ───── Лог ─────
 function log(msg) {
   console.log(msg);
   let logBox = document.getElementById('log-box');
@@ -42,14 +42,13 @@ function log(msg) {
 // ───── Звуки входа / выхода ─────
 function playBeep(type) {
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx  = new (window.AudioContext || window.webkitAudioContext)();
     const osc  = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain);
     gain.connect(ctx.destination);
     gain.gain.setValueAtTime(0.3, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
-
     if (type === 'join') {
       osc.frequency.setValueAtTime(600, ctx.currentTime);
       osc.frequency.setValueAtTime(900, ctx.currentTime + 0.12);
@@ -57,7 +56,6 @@ function playBeep(type) {
       osc.frequency.setValueAtTime(900, ctx.currentTime);
       osc.frequency.setValueAtTime(500, ctx.currentTime + 0.12);
     }
-
     osc.start(ctx.currentTime);
     osc.stop(ctx.currentTime + 0.35);
     osc.onended = () => ctx.close();
@@ -89,6 +87,44 @@ const iceServers = {
   ]
 };
 
+// ───── SDP: форсируем Opus с максимальным битрейтом ─────
+function forceOpusMaxQuality(sdp) {
+  const lines = sdp.split('\r\n');
+  const result = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+
+    // Находим payload type для opus
+    if (line.includes('a=rtpmap') && line.toLowerCase().includes('opus')) {
+      result.push(line);
+
+      // Ищем следующую fmtp строку для opus и заменяем/добавляем параметры
+      const pt = line.split(':')[1].split(' ')[0];
+
+      // Удаляем старую fmtp если есть
+      if (i + 1 < lines.length && lines[i + 1].startsWith('a=fmtp:' + pt)) {
+        i++; // пропускаем старую
+      }
+
+      // Вставляем улучшенную fmtp
+      result.push(
+        `a=fmtp:${pt} minptime=10;useinbandfec=1;stereo=1;sprop-stereo=1;maxaveragebitrate=510000`
+      );
+      continue;
+    }
+
+    // Убираем старые ограничения битрейта
+    if (line.startsWith('b=AS:') || line.startsWith('b=TIAS:')) {
+      continue;
+    }
+
+    result.push(line);
+  }
+
+  return result.join('\r\n');
+}
+
 // ───── Участники UI ─────
 function shortId(id) { return id.slice(0, 6); }
 
@@ -115,22 +151,21 @@ function removeParticipant(userId) {
   }
 }
 
-// ───── Анализ громкости (БЕЗ подключения к destination — нет эха) ─────
+// ───── Анализ громкости (только analyser, не destination) ─────
 function startVolumeAnalysis(userId, stream) {
   if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)({
+      sampleRate: 48000
+    });
   }
 
-  // Если уже запущен — останавливаем старый
   stopVolumeAnalysis(userId);
 
-  const source  = audioCtx.createMediaStreamSource(stream);
+  const source   = audioCtx.createMediaStreamSource(stream);
   const analyser = audioCtx.createAnalyser();
   analyser.fftSize = 512;
-
-  // source -> analyser ТОЛЬКО, НЕ -> destination
-  // Это гарантирует что локальный mic не попадёт в колонки
   source.connect(analyser);
+  // НЕ подключаем к destination
 
   const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
@@ -141,13 +176,11 @@ function startVolumeAnalysis(userId, stream) {
     for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
     const avg = sum / dataArray.length;
     const pct = Math.min(100, avg * 3);
-
     const bar = document.getElementById('vol-' + userId);
     if (bar) {
       bar.style.width = pct + '%';
-      bar.className = 'volume-bar' + (pct > 60 ? ' loud' : '');
+      bar.className   = 'volume-bar' + (pct > 60 ? ' loud' : '');
     }
-
     analysers[userId].animFrame = requestAnimationFrame(tick);
   }
 
@@ -166,7 +199,6 @@ function stopVolumeAnalysis(userId) {
 // ───── Socket ─────
 socket.on('connect', () => log('Socket connected: ' + socket.id));
 socket.on('disconnect', () => log('Socket disconnected'));
-
 socket.on('user-count', (count) => {
   userCount.textContent = count;
   log('User count: ' + count);
@@ -178,17 +210,26 @@ btnJoin.addEventListener('click', async () => {
   try {
     log('Requesting microphone...');
     localStream = await navigator.mediaDevices.getUserMedia({
+      video: false,
       audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true
-      },
-      video: false
+        echoCancellation: true,       // подавление эха
+        noiseSuppression: true,       // подавление шума
+        autoGainControl: true,        // автоусиление
+        sampleRate: 48000,            // 48 кГц — стандарт Opus
+        sampleSize: 16,               // 16 бит
+        channelCount: 2,              // стерео (если микрофон поддерживает)
+        latency: 0,                   // минимальная задержка
+        volume: 1.0
+      }
     });
 
     const tracks = localStream.getAudioTracks();
     log('Got stream. Tracks: ' + tracks.length);
-    tracks.forEach(t => log('Track: ' + t.label + ' enabled=' + t.enabled));
+    tracks.forEach(t => {
+      log('Track: ' + t.label);
+      const settings = t.getSettings();
+      log('Settings: ' + JSON.stringify(settings));
+    });
 
     setMicStatus(true);
     btnJoin.style.display  = 'none';
@@ -197,8 +238,6 @@ btnJoin.addEventListener('click', async () => {
     joined = true;
 
     addParticipant(socket.id, '🟢 Вы (' + shortId(socket.id) + ')');
-
-    // Анализируем свой mic — только через analyser, не в колонки
     startVolumeAnalysis(socket.id, localStream);
 
     socket.emit('join');
@@ -281,8 +320,15 @@ async function handleOffer(from, offer) {
   peers[from] = peer;
   await peer.setRemoteDescription(new RTCSessionDescription(offer));
   const answer = await peer.createAnswer();
-  await peer.setLocalDescription(answer);
-  socket.emit('answer', { to: from, answer });
+
+  // Применяем улучшение качества к answer
+  const improvedAnswer = {
+    type: answer.type,
+    sdp: forceOpusMaxQuality(answer.sdp)
+  };
+
+  await peer.setLocalDescription(improvedAnswer);
+  socket.emit('answer', { to: from, answer: improvedAnswer });
   log('Sent answer to ' + from);
 }
 
@@ -291,7 +337,7 @@ socket.on('answer', async ({ from, answer }) => {
   const peer = peers[from];
   if (peer && peer.signalingState === 'have-local-offer') {
     await peer.setRemoteDescription(new RTCSessionDescription(answer));
-    log('Set remote description (answer) from ' + from);
+    log('Set remote description from ' + from);
   } else {
     log('WARNING: peer state is ' + (peer ? peer.signalingState : 'no peer'));
   }
@@ -314,7 +360,6 @@ socket.on('user-left', (userId) => {
   playBeep('leave');
   removeParticipant(userId);
   stopVolumeAnalysis(userId);
-
   if (peers[userId]) {
     peers[userId].close();
     delete peers[userId];
@@ -333,9 +378,20 @@ function createPeer(userId, isInitiator) {
     log('Added track: ' + track.kind);
   });
 
+  // Устанавливаем параметры кодека через sender
+  peer.getSenders().forEach(sender => {
+    if (sender.track && sender.track.kind === 'audio') {
+      const params = sender.getParameters();
+      if (!params.encodings) params.encodings = [{}];
+      params.encodings[0].maxBitrate  = 510000; // 510 kbps
+      params.encodings[0].priority    = 'high';
+      params.encodings[0].networkPriority = 'high';
+      sender.setParameters(params).catch(e => log('setParameters error: ' + e.message));
+    }
+  });
+
   peer.ontrack = (event) => {
     log('Got remote track from ' + userId);
-
     let audio = document.getElementById('audio-' + userId);
     if (!audio) {
       audio = document.createElement('audio');
@@ -347,14 +403,10 @@ function createPeer(userId, isInitiator) {
       audio.setAttribute('webkit-playsinline', '');
       hiddenAudios.appendChild(audio);
     }
-
-    // Назначаем поток — это воспроизведение удалённого звука
     audio.srcObject = event.streams[0];
-
     audio.play()
       .then(() => {
         log('Audio playing for ' + userId);
-        // Анализируем громкость удалённого потока — тоже только через analyser
         startVolumeAnalysis(userId, event.streams[0]);
       })
       .catch(e => log('Autoplay BLOCKED for ' + userId + ': ' + e.message));
@@ -382,8 +434,15 @@ function createPeer(userId, isInitiator) {
       log('Negotiation needed for ' + userId);
       try {
         const offer = await peer.createOffer();
-        await peer.setLocalDescription(offer);
-        socket.emit('offer', { to: userId, offer });
+
+        // Применяем улучшение качества к offer
+        const improvedOffer = {
+          type: offer.type,
+          sdp: forceOpusMaxQuality(offer.sdp)
+        };
+
+        await peer.setLocalDescription(improvedOffer);
+        socket.emit('offer', { to: userId, offer: improvedOffer });
         log('Sent offer to ' + userId);
       } catch (e) {
         log('Offer error: ' + e.message);
@@ -397,7 +456,6 @@ function createPeer(userId, isInitiator) {
 // ───── Завершение ─────
 function hangUp() {
   log('Hanging up');
-
   Object.keys(analysers).forEach(id => stopVolumeAnalysis(id));
   Object.values(peers).forEach(peer => peer.close());
   peers = {};
@@ -412,8 +470,8 @@ function hangUp() {
     audioCtx = null;
   }
 
-  hiddenAudios.innerHTML    = '';
-  pendingOffers             = [];
+  hiddenAudios.innerHTML     = '';
+  pendingOffers              = [];
   participantsList.innerHTML = '';
   participantsBox.style.display = 'none';
 }
