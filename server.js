@@ -32,12 +32,10 @@ const io = new Server(server, {
   cors:              { origin: '*' }
 });
 
-// ── Хранилище комнат ──
-// rooms: Map<roomId, { id, name, passwordHash, photo, ownerId, members: Set<socketId>, createdAt, emptyTimer, emptyAt }>
 const rooms   = new Map();
-const clients = new Map(); // socketId → { nickname, roomId }
+const clients = new Map();
 
-const ROOM_EMPTY_TIMEOUT = 60 * 60 * 1000; // 60 минут
+const ROOM_EMPTY_TIMEOUT = 60 * 60 * 1000;
 
 function generateRoomId() {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -66,7 +64,6 @@ function getRoomList() {
       memberCount: room.members.size,
       createdAt:   room.createdAt
     };
-    // Если комната пустая — добавляем время до удаления
     if (room.members.size === 0 && room.emptyAt) {
       const msLeft = ROOM_EMPTY_TIMEOUT - (now - room.emptyAt);
       entry.deleteAt = now + Math.max(0, msLeft);
@@ -80,17 +77,12 @@ function broadcastRoomList() {
   io.emit('room-list', getRoomList());
 }
 
-// Запускаем таймер удаления пустой комнаты
 function scheduleRoomDelete(roomId) {
   const room = rooms.get(roomId);
   if (!room) return;
-
-  // Уже есть таймер — не дублируем
   if (room.emptyTimer) return;
-
   room.emptyAt    = Date.now();
   room.emptyTimer = setTimeout(() => {
-    // Удаляем только если всё ещё пустая
     const r = rooms.get(roomId);
     if (r && r.members.size === 0) {
       rooms.delete(roomId);
@@ -98,11 +90,9 @@ function scheduleRoomDelete(roomId) {
       broadcastRoomList();
     }
   }, ROOM_EMPTY_TIMEOUT);
-
-  broadcastRoomList(); // обновляем список с таймером
+  broadcastRoomList();
 }
 
-// Отменяем таймер удаления (кто-то вошёл)
 function cancelRoomDelete(roomId) {
   const room = rooms.get(roomId);
   if (!room) return;
@@ -131,10 +121,8 @@ io.on('connection', (socket) => {
   socket.on('create-room', ({ name, password, photo }, cb) => {
     const client = clients.get(socket.id);
     if (!client?.nickname) { cb && cb({ ok: false, error: 'no_nick' }); return; }
-
     const roomName = String(name || '').trim().slice(0, 50);
     if (!roomName) { cb && cb({ ok: false, error: 'empty_name' }); return; }
-
     const id = generateRoomId();
     rooms.set(id, {
       id,
@@ -147,7 +135,6 @@ io.on('connection', (socket) => {
       emptyTimer:   null,
       emptyAt:      null
     });
-
     broadcastRoomList();
     cb && cb({ ok: true, roomId: id });
   });
@@ -156,10 +143,8 @@ io.on('connection', (socket) => {
   socket.on('join-room', ({ roomId, password }, cb) => {
     const client = clients.get(socket.id);
     if (!client?.nickname) { cb && cb({ ok: false, error: 'no_nick' }); return; }
-
     const room = rooms.get(roomId);
     if (!room) { cb && cb({ ok: false, error: 'not_found' }); return; }
-
     if (room.passwordHash) {
       const inputHash = hashPassword(password || '');
       if (inputHash !== room.passwordHash) {
@@ -167,29 +152,22 @@ io.on('connection', (socket) => {
         return;
       }
     }
-
     if (client.roomId && client.roomId !== roomId) {
       leaveRoom(socket, client.roomId);
     }
-
-    // Отменяем таймер удаления — кто-то вошёл
     cancelRoomDelete(roomId);
-
     client.roomId = roomId;
     room.members.add(socket.id);
     socket.join(roomId);
-
     const others = [...room.members].filter(id => id !== socket.id);
     const membersInfo = others.map(id => ({
       id,
       nickname: clients.get(id)?.nickname || shortId(id)
     }));
-
     socket.to(roomId).emit('room-user-joined', {
       id:       socket.id,
       nickname: client.nickname
     });
-
     broadcastRoomList();
     cb && cb({ ok: true, room: {
       id:      room.id,
@@ -203,7 +181,6 @@ io.on('connection', (socket) => {
   socket.on('offer', ({ to, offer }) => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
-    // Передаём ник вместе с оффером
     io.to(to).emit('offer', { from: socket.id, offer, nickname: client.nickname });
   });
 
@@ -219,19 +196,17 @@ io.on('connection', (socket) => {
     io.to(to).emit('ice-candidate', { from: socket.id, candidate });
   });
 
-  // ── Голосовой чат: join/leave ──
+  // ── Голосовой чат ──
   socket.on('voice-join', () => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
     const room = rooms.get(client.roomId);
     if (!room) return;
     const others = [...room.members].filter(id => id !== socket.id);
-    // Отправляем другим участникам ник нового пользователя
     socket.to(client.roomId).emit('voice-user-joined', {
       id:       socket.id,
       nickname: client.nickname
     });
-    // Текущему пользователю отправляем список участников с никами
     const othersWithNicks = others.map(id => ({
       id,
       nickname: clients.get(id)?.nickname || shortId(id)
@@ -245,10 +220,29 @@ io.on('connection', (socket) => {
     socket.to(client.roomId).emit('voice-user-left', socket.id);
   });
 
+  // ── Статус «печатает» ──
+  // Пересылаем остальным участникам комнаты
+  socket.on('typing-start', () => {
+    const client = clients.get(socket.id);
+    if (!client?.roomId || !client.nickname) return;
+    socket.to(client.roomId).emit('typing-start', {
+      from:     socket.id,
+      nickname: client.nickname
+    });
+  });
+
+  socket.on('typing-stop', () => {
+    const client = clients.get(socket.id);
+    if (!client?.roomId) return;
+    socket.to(client.roomId).emit('typing-stop', { from: socket.id });
+  });
+
   // ── Чат-сообщение ──
   socket.on('chat-message', (data) => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
+    // При отправке сообщения — автоматически снимаем статус «печатает»
+    socket.to(client.roomId).emit('typing-stop', { from: socket.id });
     socket.to(client.roomId).emit('chat-message', {
       from:      socket.id,
       nickname:  client.nickname,
@@ -292,9 +286,9 @@ io.on('connection', (socket) => {
       room.members.delete(socket.id);
       socket.to(roomId).emit('room-user-left', socket.id);
       socket.to(roomId).emit('voice-user-left', socket.id);
+      // Снимаем статус «печатает» при выходе
+      socket.to(roomId).emit('typing-stop', { from: socket.id });
       socket.leave(roomId);
-
-      // Если комната опустела — запускаем таймер вместо мгновенного удаления
       if (room.members.size === 0) {
         scheduleRoomDelete(roomId);
       } else {
