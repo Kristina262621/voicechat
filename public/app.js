@@ -118,7 +118,6 @@ const screenAuth  = document.getElementById('screen-auth');
 const screenLobby = document.getElementById('screen-lobby');
 const screenMain  = document.getElementById('screen-main');
 
-// Auth
 const tabLogin     = document.getElementById('tab-login');
 const tabRegister  = document.getElementById('tab-register');
 const formLogin    = document.getElementById('form-login');
@@ -134,30 +133,25 @@ const regHint      = document.getElementById('reg-hint');
 const regError     = document.getElementById('reg-error');
 const btnRegister  = document.getElementById('btn-register');
 
-// Drawer
 const drawer        = document.getElementById('drawer');
 const drawerOverlay = document.getElementById('drawer-overlay');
 const drawerAvatar  = document.getElementById('drawer-avatar');
 const drawerName    = document.getElementById('drawer-name');
 const drawerNick    = document.getElementById('drawer-nick');
 
-// Lobby
 const btnOpenProfile = document.getElementById('btn-open-profile');
 const roomsList      = document.getElementById('rooms-list');
 const privateList    = document.getElementById('private-list');
 const btnCreateRoom  = document.getElementById('btn-create-room');
 
-// Lobby tabs
 const lobbyTabGroups  = document.getElementById('lobby-tab-groups');
 const lobbyTabPrivate = document.getElementById('lobby-tab-private');
 
-// Chat sidebar (desktop)
 const chatRoomsList   = document.getElementById('chat-rooms-list');
 const chatPrivateList = document.getElementById('chat-private-list');
 const chatTabGroups   = document.getElementById('chat-tab-groups');
 const chatTabPrivate  = document.getElementById('chat-tab-private');
 
-// Modals
 const modalCreate       = document.getElementById('modal-create-room');
 const btnCloseCreate    = document.getElementById('btn-close-create');
 const roomPhotoBtn      = document.getElementById('room-photo-btn');
@@ -232,7 +226,6 @@ const modalInvite       = document.getElementById('modal-invite');
 const btnCloseInvite    = document.getElementById('btn-close-invite');
 const inviteFriendsList = document.getElementById('invite-friends-list');
 
-// Chat
 const chatRoomAvatar  = document.getElementById('chat-room-avatar');
 const chatRoomName    = document.getElementById('chat-room-name');
 const chatHeaderInfo  = document.getElementById('chat-header-info');
@@ -261,6 +254,27 @@ const noiseIndicator  = document.getElementById('noise-indicator');
 const btnRoomMembers  = document.getElementById('btn-room-members');
 const btnInviteFriend = document.getElementById('btn-invite-friend');
 
+// Экран звонка
+const callScreen       = document.getElementById('call-screen');
+const callScreenAvatar = document.getElementById('call-screen-avatar');
+const callScreenName   = document.getElementById('call-screen-name');
+const callScreenStatus = document.getElementById('call-screen-status');
+const callStatusDot    = document.getElementById('call-status-dot');
+const callBtnSpeaker   = document.getElementById('call-btn-speaker');
+const callBtnVideo     = document.getElementById('call-btn-video');
+const callBtnMute      = document.getElementById('call-btn-mute');
+const callBtnHangup    = document.getElementById('call-btn-hangup');
+const btnCallMinimize  = document.getElementById('btn-call-minimize');
+
+// Входящий звонок
+const modalIncomingCall = document.getElementById('modal-incoming-call');
+const incomingCallAvatar= document.getElementById('incoming-call-avatar');
+const incomingCallName  = document.getElementById('incoming-call-name');
+const btnCallAccept     = document.getElementById('btn-call-accept');
+const btnCallReject     = document.getElementById('btn-call-reject');
+
+const btnPrivateCall    = document.getElementById('btn-private-call');
+
 // ═══════════════════════════════════════════════
 //  СОСТОЯНИЕ
 // ═══════════════════════════════════════════════
@@ -274,8 +288,8 @@ let pendingJoinRoom = null;
 let roomPhotoData   = null;
 let memberCount     = 0;
 let isRoomOwner     = false;
-let currentChatType = 'group'; // 'group' | 'private'
-let currentChatId   = null;    // для личных чатов
+let currentChatType = 'group';
+let currentChatId   = null;
 
 let localStream     = null;
 let processedStream = null;
@@ -297,12 +311,15 @@ const SPEAKING_THRESHOLD = 8;
 
 const typingUsers = {};
 let typingTimer   = null;
-
 const ecdhExchanged = new Set();
 
-// ═══════════════════════════════════════════════
+// ── Личные чаты: кеш сообщений ──
+// chatId → [{ from, fromNick, type, text, localUrl, fileName, fileSize, mimeType, timestamp, mine }]
+const privateChatCache = {};
+
+// ─────────────────────────────
 //  УТИЛИТЫ
-// ═══════════════════════════════════════════════
+// ─────────────────────────────
 function escapeHtml(str) {
   return String(str)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;')
@@ -324,9 +341,13 @@ function showScreen(name) {
   [screenAuth, screenLobby, screenMain].forEach(s => s.classList.remove('active'));
   if (name === 'auth')  screenAuth.classList.add('active');
   if (name === 'lobby') screenLobby.classList.add('active');
-  if (name === 'chat')  screenMain.classList.add('active');
-  // Обновить кнопку звонка — показывать только в личном чате
-  if (typeof updateCallButton === 'function') updateCallButton();
+  if (name === 'chat')  {
+    screenMain.classList.add('active');
+    // Сброс высоты — VisualViewport сам подстроит
+    screenMain.style.height = '';
+    screenMain.style.top    = '';
+  }
+  updateCallButton();
 }
 
 function avatarHtml(avatar, fallback = '👤', size = '100%') {
@@ -334,9 +355,9 @@ function avatarHtml(avatar, fallback = '👤', size = '100%') {
   return fallback;
 }
 
-// ═══════════════════════════════════════════════
+// ─────────────────────────────
 //  TOAST
-// ═══════════════════════════════════════════════
+// ─────────────────────────────
 function showToast(text, duration = 3000, onClick = null) {
   const container = document.getElementById('toast-container');
   const el = document.createElement('div');
@@ -379,17 +400,11 @@ function showBrowserNotif(title, body) {
   } catch (_) {}
 }
 
-// ═══════════════════════════════════════════════
-//  DRAWER (боковое меню)
-// ═══════════════════════════════════════════════
-function openDrawer() {
-  drawer.classList.add('open');
-  drawerOverlay.classList.add('open');
-}
-function closeDrawer() {
-  drawer.classList.remove('open');
-  drawerOverlay.classList.remove('open');
-}
+// ─────────────────────────────
+//  DRAWER
+// ─────────────────────────────
+function openDrawer()  { drawer.classList.add('open');    drawerOverlay.classList.add('open'); }
+function closeDrawer() { drawer.classList.remove('open'); drawerOverlay.classList.remove('open'); }
 
 document.getElementById('btn-open-drawer').addEventListener('click', openDrawer);
 document.getElementById('btn-open-drawer-chat').addEventListener('click', openDrawer);
@@ -405,31 +420,17 @@ function updateDrawer() {
   }
 }
 
-// Меню пункты
-document.getElementById('dm-profile').addEventListener('click', () => {
-  closeDrawer(); openProfileModal();
-});
-document.getElementById('dm-contacts').addEventListener('click', () => {
-  closeDrawer(); openContactsModal();
-});
-document.getElementById('dm-private-chats').addEventListener('click', () => {
-  closeDrawer(); openPrivateChatsModal();
-});
-document.getElementById('dm-create-group').addEventListener('click', () => {
-  closeDrawer(); openCreateRoomModal();
-});
-document.getElementById('dm-settings').addEventListener('click', () => {
-  closeDrawer(); modalSettings.classList.add('open');
-});
-document.getElementById('dm-invite').addEventListener('click', () => {
-  closeDrawer();
-  showToast('🔗 Пригласить: поделись ссылкой на сайт!', 4000);
-});
+document.getElementById('dm-profile').addEventListener('click', () => { closeDrawer(); openProfileModal(); });
+document.getElementById('dm-contacts').addEventListener('click', () => { closeDrawer(); openContactsModal(); });
+document.getElementById('dm-private-chats').addEventListener('click', () => { closeDrawer(); openPrivateChatsModal(); });
+document.getElementById('dm-create-group').addEventListener('click', () => { closeDrawer(); openCreateRoomModal(); });
+document.getElementById('dm-settings').addEventListener('click', () => { closeDrawer(); modalSettings.classList.add('open'); });
+document.getElementById('dm-invite').addEventListener('click', () => { closeDrawer(); showToast('🔗 Поделись ссылкой на сайт!', 4000); });
 drawerAvatar.addEventListener('click', () => { closeDrawer(); openProfileModal(); });
 
-// ═══════════════════════════════════════════════
-//  LOBBY AVATAR BUTTON
-// ═══════════════════════════════════════════════
+// ─────────────────────────────
+//  LOBBY AVATAR
+// ─────────────────────────────
 function updateLobbyAvatarBtn() {
   if (myAvatar) {
     btnOpenProfile.innerHTML = `<img src="${myAvatar}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
@@ -454,7 +455,6 @@ function switchTab(tab) {
   }
 }
 
-// Авто-вход
 (function tryAutoLogin() {
   try {
     const token = localStorage.getItem('chat_token');
@@ -476,7 +476,7 @@ function switchTab(tab) {
 
 btnLogin.addEventListener('click', doLogin);
 loginNick.addEventListener('keydown', e => { if (e.key === 'Enter') loginPw.focus(); });
-loginPw.addEventListener('keydown',  e => { if (e.key === 'Enter') doLogin(); });
+loginPw.addEventListener('keydown',   e => { if (e.key === 'Enter') doLogin(); });
 function doLogin() {
   const nick = loginNick.value.trim();
   const pw   = loginPw.value;
@@ -486,7 +486,7 @@ function doLogin() {
   socket.emit('auth-login', { nickname: nick, password: pw }, res => {
     btnLogin.disabled = false; btnLogin.textContent = 'Войти';
     if (res.ok) {
-      authToken  = res.token; myNickname = res.nickname; myAvatar = res.avatar || null;
+      authToken = res.token; myNickname = res.nickname; myAvatar = res.avatar || null;
       try { localStorage.setItem('chat_token', authToken); } catch (_) {}
       onAuthSuccess();
     } else {
@@ -512,7 +512,7 @@ function doRegister() {
   socket.emit('auth-register', { nickname: nick, password: pw, hint }, res => {
     btnRegister.disabled = false; btnRegister.textContent = 'Создать аккаунт';
     if (res.ok) {
-      authToken  = res.token; myNickname = res.nickname; myAvatar = null;
+      authToken = res.token; myNickname = res.nickname; myAvatar = null;
       try { localStorage.setItem('chat_token', authToken); } catch (_) {}
       onAuthSuccess();
     } else {
@@ -540,7 +540,6 @@ function onAuthSuccess() {
   requestNotifPermission();
 }
 
-// Выход
 btnLogout.addEventListener('click', doLogout);
 document.getElementById('settings-go-logout').addEventListener('click', doLogout);
 function doLogout() {
@@ -565,7 +564,6 @@ lobbyTabPrivate.addEventListener('click', () => {
   loadPrivateChatsList();
 });
 
-// Chat sidebar tabs (desktop)
 if (chatTabGroups) chatTabGroups.addEventListener('click', () => {
   chatTabGroups.classList.add('active'); chatTabPrivate.classList.remove('active');
   chatRoomsList.style.display = ''; chatPrivateList.style.display = 'none';
@@ -589,21 +587,14 @@ function openProfileModal() {
   renderProfileAvatar();
   modalProfile.classList.add('open');
   loadFriends();
-  // Загрузить bio
-  socket.emit('profile-get', res => {
-    if (res.ok) profileEditBio.value = res.bio || '';
-  });
+  socket.emit('profile-get', res => { if (res.ok) profileEditBio.value = res.bio || ''; });
 }
 
 function renderProfileAvatar() {
-  if (myAvatar) {
-    profileAvatarDisplay.innerHTML = `<img src="${myAvatar}" alt="">`;
-  } else {
-    profileAvatarDisplay.textContent = '👤';
-  }
+  if (myAvatar) profileAvatarDisplay.innerHTML = `<img src="${myAvatar}" alt="">`;
+  else profileAvatarDisplay.textContent = '👤';
 }
 
-// Сохранить профиль
 btnSaveProfile.addEventListener('click', () => {
   const newName = profileEditName.value.trim();
   const newBio  = profileEditBio.value.trim();
@@ -617,7 +608,6 @@ btnSaveProfile.addEventListener('click', () => {
   });
 });
 
-// Аватар
 profileAvatarWrap.addEventListener('click', () => avatarInput.click());
 avatarInput.addEventListener('change', () => {
   const file = avatarInput.files[0]; if (!file) return;
@@ -634,7 +624,6 @@ avatarInput.addEventListener('change', () => {
   reader.readAsDataURL(file);
 });
 
-// Друзья
 function loadFriends() {
   socket.emit('friends-list', res => {
     if (!res.ok) return;
@@ -644,9 +633,7 @@ function loadFriends() {
 }
 
 function renderFriendsList(friends, container) {
-  if (!friends.length) {
-    container.innerHTML = '<div class="empty-list">Друзей пока нет</div>'; return;
-  }
+  if (!friends.length) { container.innerHTML = '<div class="empty-list">Друзей пока нет</div>'; return; }
   container.innerHTML = friends.map(f => `
     <div class="friend-item">
       <div class="friend-avatar">${avatarHtml(f.avatar, '👤')}</div>
@@ -665,16 +652,12 @@ function renderFriendsList(friends, container) {
     });
   });
   container.querySelectorAll('[data-action="private-chat"]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      openPrivateChatWith(btn.dataset.nick);
-    });
+    btn.addEventListener('click', () => openPrivateChatWith(btn.dataset.nick));
   });
 }
 
 function renderFriendRequests(requests, container) {
-  if (!requests.length) {
-    container.innerHTML = '<div class="empty-list">Нет входящих запросов</div>'; return;
-  }
+  if (!requests.length) { container.innerHTML = '<div class="empty-list">Нет входящих запросов</div>'; return; }
   container.innerHTML = requests.map(r => `
     <div class="friend-item">
       <div class="friend-avatar">${avatarHtml(r.avatar, '👤')}</div>
@@ -695,7 +678,6 @@ function renderFriendRequests(requests, container) {
   });
 }
 
-// Поиск для добавления друга
 btnFriendSearch.addEventListener('click', () => searchUserForFriend(friendSearchInput, friendSearchResult));
 friendSearchInput.addEventListener('keydown', e => { if (e.key === 'Enter') searchUserForFriend(friendSearchInput, friendSearchResult); });
 
@@ -707,11 +689,12 @@ function searchUserForFriend(inputEl, resultEl) {
     resultEl.innerHTML = `
       <div class="friend-item">
         <div class="friend-avatar">${avatarHtml(res.avatar, '👤')}</div>
-        <div class="friend-info"><div class="friend-name">${escapeHtml(res.nickname)}</div>
+        <div class="friend-info">
+          <div class="friend-name">${escapeHtml(res.nickname)}</div>
           ${res.bio ? `<div style="font-size:12px;color:var(--sub)">${escapeHtml(res.bio)}</div>` : ''}
         </div>
         <div class="friend-actions">
-          <button class="btn-sm blue" id="btn-add-found-${resultEl.id}">➕</button>
+          <button class="btn-sm blue" id="btn-add-found-res">➕</button>
         </div>
       </div>`;
     resultEl.querySelector('.btn-sm').addEventListener('click', () => {
@@ -744,32 +727,17 @@ socket.on('friend-accepted', ({ byNick }) => {
 // ═══════════════════════════════════════════════
 btnCloseSettings.addEventListener('click', () => modalSettings.classList.remove('open'));
 modalSettings.addEventListener('click', e => { if (e.target === modalSettings) modalSettings.classList.remove('open'); });
-document.getElementById('settings-go-profile').addEventListener('click', () => {
-  modalSettings.classList.remove('open'); openProfileModal();
-});
-document.getElementById('settings-go-privacy').addEventListener('click', () => {
-  showToast('🔒 Раздел в разработке');
-});
-document.getElementById('settings-go-notifs').addEventListener('click', () => {
-  requestNotifPermission(); showToast('🔔 Уведомления: ' + (Notification.permission === 'granted' ? 'включены' : 'выкл/заблокированы'));
-});
-document.getElementById('settings-go-data').addEventListener('click', () => {
-  showToast('💾 Раздел в разработке');
-});
-document.getElementById('settings-go-lang').addEventListener('click', () => {
-  showToast('🌐 Язык: Русский');
-});
-document.getElementById('settings-go-chats').addEventListener('click', () => {
-  showToast('💬 Раздел в разработке');
-});
+document.getElementById('settings-go-profile').addEventListener('click', () => { modalSettings.classList.remove('open'); openProfileModal(); });
+document.getElementById('settings-go-privacy').addEventListener('click', () => showToast('🔒 Раздел в разработке'));
+document.getElementById('settings-go-notifs').addEventListener('click', () => { requestNotifPermission(); showToast('🔔 Уведомления: ' + (Notification.permission === 'granted' ? 'включены' : 'выкл')); });
+document.getElementById('settings-go-data').addEventListener('click', () => showToast('💾 Раздел в разработке'));
+document.getElementById('settings-go-lang').addEventListener('click', () => showToast('🌐 Язык: Русский'));
+document.getElementById('settings-go-chats').addEventListener('click', () => showToast('💬 Раздел в разработке'));
 
 // ═══════════════════════════════════════════════
 //  КОНТАКТЫ
 // ═══════════════════════════════════════════════
-function openContactsModal() {
-  modalContacts.classList.add('open');
-  loadContactsFriends();
-}
+function openContactsModal() { modalContacts.classList.add('open'); loadContactsFriends(); }
 btnCloseContacts.addEventListener('click', () => modalContacts.classList.remove('open'));
 modalContacts.addEventListener('click', e => { if (e.target === modalContacts) modalContacts.classList.remove('open'); });
 btnContactsSearch.addEventListener('click', () => searchUserForFriend(contactsSearchInput, contactsSearchResult));
@@ -786,10 +754,7 @@ function loadContactsFriends() {
 // ═══════════════════════════════════════════════
 //  ЛИЧНЫЕ ЧАТЫ
 // ═══════════════════════════════════════════════
-function openPrivateChatsModal() {
-  modalPrivateChats.classList.add('open');
-  loadPrivateChatsList(pcListContainer);
-}
+function openPrivateChatsModal() { modalPrivateChats.classList.add('open'); loadPrivateChatsList(pcListContainer); }
 btnClosePrivChats.addEventListener('click', () => modalPrivateChats.classList.remove('open'));
 modalPrivateChats.addEventListener('click', e => { if (e.target === modalPrivateChats) modalPrivateChats.classList.remove('open'); });
 
@@ -816,7 +781,6 @@ function openPrivateChatWith(nickname) {
 }
 
 async function enterPrivateChat(chatId, withNickname, withAvatar) {
-  // Закрыть текущую комнату если есть
   if (currentRoomId) {
     socket.emit('leave-room');
     if (joined) { socket.emit('voice-leave'); hangUp(); joined = false; }
@@ -828,32 +792,62 @@ async function enterPrivateChat(chatId, withNickname, withAvatar) {
   isRoomOwner     = false;
   memberCount     = 2;
 
-  // ── КЛЮЧ ДЛЯ ЛИЧНОГО ЧАТА ──
-  // Деривируем детерминированный ключ из chatId (без пароля)
-  // Оба участника получат одинаковый ключ т.к. chatId = sort([nickA, nickB]).join('::')
   try {
     await Crypto.deriveKey('', chatId, chatId + '-private-v1');
-  } catch (e) {
-    console.error('Ошибка деривации ключа личного чата:', e);
-  }
+  } catch (e) { console.error('Ошибка деривации ключа:', e); }
 
   chatRoomName.textContent = withNickname;
   userCount.textContent    = '2';
-  chatRoomAvatar.innerHTML = withAvatar
-    ? `<img src="${withAvatar}" alt="">` : '👤';
+  chatRoomAvatar.innerHTML = withAvatar ? `<img src="${withAvatar}" alt="">` : '👤';
 
   clearChat(); clearAllTyping();
 
-  // Скрыть голосовые кнопки для личных чатов
   btnJoin.style.display  = 'none';
   btnLeave.style.display = 'none';
   btnMic.style.display   = 'none';
 
-  // Вступить в socket-комнату чата
   socket.emit('private-chat-join', { chatId });
 
   showScreen('chat');
+
+  // Загрузить историю с сервера
+  await loadPrivateChatHistory(chatId);
+
   showToast('💬 Личный чат: ' + withNickname, 2500);
+}
+
+// Загрузить историю личного чата с сервера
+async function loadPrivateChatHistory(chatId) {
+  return new Promise(resolve => {
+    socket.emit('private-chat-history', { chatId }, async res => {
+      if (!res.ok || !res.messages || !res.messages.length) { resolve(); return; }
+      for (const msg of res.messages) {
+        const mine = msg.from === myNickname.toLowerCase();
+        if (msg.type === 'text') {
+          try {
+            const text = await Crypto.decryptText(msg.encrypted, msg.iv);
+            appendMessage({
+              nickname: msg.fromNick, text, type: 'text',
+              timestamp: msg.timestamp, mine, status: 'ok'
+            });
+          } catch (_) {
+            appendMessage({
+              nickname: msg.fromNick, text: '[зашифровано]', type: 'text',
+              timestamp: msg.timestamp, mine, status: 'error'
+            });
+          }
+        } else {
+          // Файлы из истории показываем как недоступные (blob не хранится)
+          appendMessage({
+            nickname: msg.fromNick, type: msg.type,
+            fileName: msg.fileName, fileSize: msg.fileSize, mimeType: msg.mimeType,
+            timestamp: msg.timestamp, mine, status: 'ok'
+          });
+        }
+      }
+      resolve();
+    });
+  });
 }
 
 function loadPrivateChatsList(container) {
@@ -867,7 +861,9 @@ function loadPrivateChatsList(container) {
       return;
     }
     el.innerHTML = res.chats.map(c => `
-      <div class="pc-card" data-chatid="${c.chatId}" data-with="${escapeHtml(c.withNickname)}" data-avatar="${c.withAvatar||''}">
+      <div class="pc-card" data-chatid="${c.chatId}"
+           data-with="${escapeHtml(c.withNickname)}"
+           data-avatar="${escapeHtml(c.withAvatar||'')}">
         <div class="room-avatar">
           ${c.withAvatar ? `<img src="${c.withAvatar}" alt="">` : '👤'}
         </div>
@@ -887,7 +883,7 @@ function loadPrivateChatsList(container) {
   });
 }
 
-// Получение личного сообщения
+// Получение личного сообщения в реальном времени
 socket.on('private-message', async data => {
   if (currentChatType !== 'private' || currentChatId !== data.chatId) {
     showToast('💬 ' + (data.fromNick || '?') + ': новое сообщение', 4000, () => {
@@ -926,7 +922,6 @@ socket.on('room-list', list => {
 });
 
 const roomDeleteTimersMap = {};
-
 function clearAllDeleteTimers() {
   for (const id in roomDeleteTimersMap) { clearInterval(roomDeleteTimersMap[id]); delete roomDeleteTimersMap[id]; }
 }
@@ -941,7 +936,6 @@ function renderRoomList(list, container) {
     return;
   }
   container.innerHTML = list.map(room => {
-    const now = Date.now();
     const isEmpty = room.memberCount === 0 && room.deleteAt;
     const timerAttr = isEmpty ? ` data-delete-at="${room.deleteAt}"` : '';
     const timerHtml = isEmpty
@@ -960,9 +954,7 @@ function renderRoomList(list, container) {
         <div class="room-info">
           <div class="room-name">${escapeHtml(room.name)}</div>
           <div class="room-meta">
-            ${room.hasPassword
-              ? '<span class="room-badge-lock">🔐 Закрытая</span>'
-              : '<span>🌐 Открытая</span>'}
+            ${room.hasPassword ? '<span class="room-badge-lock">🔐 Закрытая</span>' : '<span>🌐 Открытая</span>'}
             ${timerHtml} ${joinBadge}
           </div>
         </div>
@@ -987,13 +979,9 @@ function renderRoomList(list, container) {
   container.querySelectorAll('.room-card').forEach(card => {
     card.addEventListener('click', () => {
       const joinMode = card.dataset.joinmode;
-      if (card.dataset.hasPw === 'true') {
-        openRoomPasswordModal(card.dataset.id, card.dataset.name, joinMode);
-      } else if (joinMode === 'approval') {
-        handleApprovalJoin(card.dataset.id, card.dataset.name);
-      } else {
-        joinRoom(card.dataset.id, '');
-      }
+      if (card.dataset.hasPw === 'true') openRoomPasswordModal(card.dataset.id, card.dataset.name, joinMode);
+      else if (joinMode === 'approval')  handleApprovalJoin(card.dataset.id, card.dataset.name);
+      else joinRoom(card.dataset.id, '');
     });
   });
 }
@@ -1016,48 +1004,31 @@ function renderRoomListInChat(list) {
       </div>
       <div class="room-info">
         <div class="room-name" style="font-size:13px">${escapeHtml(room.name)}</div>
-        <div class="room-meta" style="font-size:11px">
-          ${room.memberCount} чел.
-          ${room.joinMode === 'approval' ? '· 📋' : ''}
-        </div>
+        <div class="room-meta" style="font-size:11px">${room.memberCount} чел.${room.joinMode === 'approval' ? ' · 📋' : ''}</div>
       </div>
     </div>
   `).join('');
   chatRoomsList.querySelectorAll('.room-card').forEach(card => {
     card.addEventListener('click', () => {
       const joinMode = card.dataset.joinmode;
-      if (card.dataset.hasPw === 'true') {
-        openRoomPasswordModal(card.dataset.id, card.dataset.name, joinMode);
-      } else if (joinMode === 'approval') {
-        handleApprovalJoin(card.dataset.id, card.dataset.name);
-      } else {
-        joinRoom(card.dataset.id, '');
-      }
+      if (card.dataset.hasPw === 'true') openRoomPasswordModal(card.dataset.id, card.dataset.name, joinMode);
+      else if (joinMode === 'approval')  handleApprovalJoin(card.dataset.id, card.dataset.name);
+      else joinRoom(card.dataset.id, '');
     });
   });
 }
 
 socket.on('room-renamed', ({ roomId, newName }) => {
-  if (currentRoomId === roomId) {
-    chatRoomName.textContent = newName;
-    appendSystemMsg('✏️ Переименовано: ' + newName);
-  }
+  if (currentRoomId === roomId) { chatRoomName.textContent = newName; appendSystemMsg('✏️ Переименовано: ' + newName); }
 });
-
-// Комната удалена сервером
 socket.on('room-deleted', ({ roomId, roomName }) => {
   if (currentRoomId === roomId) {
-    showToast('🗑 Группа «' + roomName + '» удалена создателем', 5000);
-    leaveCurrentRoom();
-    showScreen('lobby');
+    showToast('🗑 Группа «' + roomName + '» удалена', 5000);
+    leaveCurrentRoom(); showScreen('lobby');
   }
 });
-
-// Настройки группы изменены
-socket.on('room-settings-changed', ({ roomId, autoDelete, joinMode }) => {
-  if (currentRoomId === roomId) {
-    appendSystemMsg('⚙️ Настройки группы обновлены');
-  }
+socket.on('room-settings-changed', ({ roomId }) => {
+  if (currentRoomId === roomId) appendSystemMsg('⚙️ Настройки группы обновлены');
 });
 
 // ═══════════════════════════════════════════════
@@ -1104,19 +1075,13 @@ function submitCreateRoom() {
   if (!name) { createRoomError.textContent = 'Введи название'; return; }
   btnSubmitCreate.disabled = true; btnSubmitCreate.textContent = '⏳';
   socket.emit('create-room', {
-    name,
-    password: createRoomPw.value || '',
+    name, password: createRoomPw.value || '',
     photo: roomPhotoData || null,
-    autoDelete: createAutoDelete.value,
-    joinMode: createJoinMode.value
+    autoDelete: createAutoDelete.value, joinMode: createJoinMode.value
   }, res => {
     btnSubmitCreate.disabled = false; btnSubmitCreate.textContent = 'Создать группу';
-    if (res?.ok) {
-      modalCreate.classList.remove('open');
-      joinRoom(res.roomId, createRoomPw.value || '');
-    } else {
-      createRoomError.textContent = 'Ошибка. Попробуй снова.';
-    }
+    if (res?.ok) { modalCreate.classList.remove('open'); joinRoom(res.roomId, createRoomPw.value || ''); }
+    else createRoomError.textContent = 'Ошибка. Попробуй снова.';
   });
 }
 
@@ -1150,12 +1115,10 @@ function submitRoomPassword() {
   btnSubmitRoomPw.disabled = true; btnSubmitRoomPw.textContent = '⏳';
 
   if (pendingJoinRoomMode === 'approval') {
-    // Сначала ввели пароль, потом надо подать заявку
     modalRoomPw.classList.remove('open');
     btnSubmitRoomPw.disabled = false; btnSubmitRoomPw.textContent = 'Войти в группу';
     handleApprovalJoin(pendingJoinRoom.roomId, pendingJoinRoom.roomName, pw);
-    pendingJoinRoom = null;
-    return;
+    pendingJoinRoom = null; return;
   }
 
   joinRoom(pendingJoinRoom.roomId, pw, (ok, err, secsLeft) => {
@@ -1174,34 +1137,24 @@ function submitRoomPassword() {
 //  ЗАЯВКИ НА ВСТУПЛЕНИЕ
 // ═══════════════════════════════════════════════
 function handleApprovalJoin(roomId, roomName, _pw) {
-  if (!confirm(`📋 Для вступления в «${roomName}» требуется одобрение создателя.\nОтправить заявку?`)) return;
+  if (!confirm(`📋 Для вступления в «${roomName}» требуется одобрение.\nОтправить заявку?`)) return;
   socket.emit('room-request-join', { roomId }, res => {
-    if (res.ok) showToast('📨 Заявка отправлена! Ждём одобрения.', 5000);
+    if (res.ok) showToast('📨 Заявка отправлена!', 5000);
     else if (res.error === 'already_requested') showToast('⏳ Заявка уже отправлена');
     else if (res.error === 'already_member') joinRoom(roomId, _pw || '');
     else showToast('⚠️ Ошибка: ' + res.error);
   });
 }
 
-// Заявка одобрена
 socket.on('room-request-accepted', ({ roomId, roomName }) => {
-  showToast(`✅ Заявка в «${roomName}» одобрена!`, 6000, () => {
-    joinRoom(roomId, '');
-  });
+  showToast(`✅ Заявка в «${roomName}» одобрена!`, 6000, () => joinRoom(roomId, ''));
 });
-// Заявка отклонена
 socket.on('room-request-declined', ({ roomId, roomName }) => {
   showToast(`❌ Заявка в «${roomName}» отклонена`, 5000);
 });
-// Входящая заявка (для создателя)
-socket.on('room-join-request', ({ roomId, roomName, nickLower, nickname, avatar }) => {
-  showToast(`📋 ${nickname} хочет вступить в «${roomName}»`, 8000, () => {
-    openMembersModal();
-  });
-  // Если модалка открыта — обновить список заявок
-  if (modalMembers.classList.contains('open') && currentRoomId === roomId) {
-    loadJoinRequests(roomId);
-  }
+socket.on('room-join-request', ({ roomId, nickname }) => {
+  showToast(`📋 ${nickname} хочет вступить`, 8000, () => { if (currentRoomId === roomId) openMembersModal(); });
+  if (modalMembers.classList.contains('open') && currentRoomId === roomId) loadJoinRequests(roomId);
 });
 
 function loadJoinRequests(roomId) {
@@ -1214,9 +1167,7 @@ function loadJoinRequests(roomId) {
 function renderJoinRequests(requests, roomId) {
   const count = requests.length;
   joinRequestsCount.textContent = count ? `(${count})` : '';
-  if (!count) {
-    joinRequestsList.innerHTML = '<div class="empty-list">Нет заявок</div>'; return;
-  }
+  if (!count) { joinRequestsList.innerHTML = '<div class="empty-list">Нет заявок</div>'; return; }
   joinRequestsList.innerHTML = requests.map(r => `
     <div class="request-item">
       <div class="friend-avatar">${avatarHtml(r.avatar, '👤')}</div>
@@ -1231,10 +1182,7 @@ function renderJoinRequests(requests, roomId) {
     btn.addEventListener('click', () => {
       const accept = btn.dataset.action === 'accept';
       socket.emit('room-request-respond', { roomId, nickLower: btn.dataset.nick, accept }, res => {
-        if (res.ok) {
-          showToast(accept ? '✅ Заявка принята' : 'Отклонено');
-          loadJoinRequests(roomId);
-        }
+        if (res.ok) { showToast(accept ? '✅ Принята' : 'Отклонено'); loadJoinRequests(roomId); }
       });
     });
   });
@@ -1263,7 +1211,6 @@ function joinRoom(roomId, password, cb) {
       memberCount              = res.room.members.length + 1;
       chatRoomAvatar.innerHTML = res.room.photo ? `<img src="${res.room.photo}" alt="">` : '💬';
 
-      // Восстановить голосовые кнопки
       btnJoin.style.display  = 'block';
       btnLeave.style.display = 'none';
       btnMic.style.display   = 'none';
@@ -1271,17 +1218,34 @@ function joinRoom(roomId, password, cb) {
       clearChat(); clearAllTyping();
       showScreen('chat');
       showOwnFingerprint();
+
+      // Загрузить историю группы
+      socket.emit('room-history', { roomId }, async histRes => {
+        if (histRes.ok && histRes.messages && histRes.messages.length) {
+          for (const msg of histRes.messages) {
+            const mine = msg.from === socket.id;
+            if (msg.type === 'text') {
+              try {
+                const text = await Crypto.decryptText(msg.encrypted, msg.iv);
+                appendMessage({ nickname: msg.nickname, text, type: 'text', timestamp: msg.timestamp, mine, status: 'ok' });
+              } catch (_) {
+                appendMessage({ nickname: msg.nickname, text: '[зашифровано]', type: 'text', timestamp: msg.timestamp, mine, status: 'error' });
+              }
+            } else {
+              appendMessage({ nickname: msg.nickname, type: msg.type, fileName: msg.fileName, fileSize: msg.fileSize, mimeType: msg.mimeType, timestamp: msg.timestamp, mine, status: 'ok' });
+            }
+          }
+        }
+      });
+
       if (cb) cb(true);
 
-      // Если создатель — предзагрузить заявки
-      if (isRoomOwner && res.room.pendingRequests?.length) {
-        showToast(`📋 ${res.room.pendingRequests.length} заявок на вступление`, 5000);
-      }
+      if (isRoomOwner && res.room.pendingRequests?.length)
+        showToast(`📋 ${res.room.pendingRequests.length} заявок`, 5000);
     } else {
       if (res?.error === 'approval_required') {
         handleApprovalJoin(roomId, 'группу');
-        if (cb) cb(false, 'approval_required');
-        return;
+        if (cb) cb(false, 'approval_required'); return;
       }
       if (cb) cb(false, res?.error, res?.secsLeft);
       else if (res?.error === 'rate_limited') alert(`⛔ Подождите ${res.secsLeft} сек.`);
@@ -1319,22 +1283,16 @@ btnCloseMembers.addEventListener('click', () => modalMembers.classList.remove('o
 modalMembers.addEventListener('click', e => { if (e.target === modalMembers) modalMembers.classList.remove('open'); });
 
 function openMembersModal() {
-  // В личном чате — показать имя собеседника, не открывать модалку группы
-  if (currentChatType === 'private') {
-    showToast('💬 Личный чат с ' + chatRoomName.textContent, 2500);
-    return;
-  }
+  if (currentChatType === 'private') { showToast('💬 Личный чат с ' + chatRoomName.textContent, 2500); return; }
   if (!currentRoomId) return;
 
-  membersModalTitle.textContent = 'Участники';
-  renameSection.style.display         = isRoomOwner ? '' : 'none';
-  groupSettingsSection.style.display  = isRoomOwner ? '' : 'none';
-  joinRequestsSection.style.display   = isRoomOwner ? '' : 'none';
+  renameSection.style.display        = isRoomOwner ? '' : 'none';
+  groupSettingsSection.style.display = isRoomOwner ? '' : 'none';
+  joinRequestsSection.style.display  = isRoomOwner ? '' : 'none';
 
   if (isRoomOwner && currentRoomData) {
     renameInput.value = currentRoomData.name || '';
-    groupAutodelSelect.value  = currentRoomData.autoDelete
-      ? String(currentRoomData.autoDelete) : 'never';
+    groupAutodelSelect.value = currentRoomData.autoDelete ? String(currentRoomData.autoDelete) : 'never';
     groupJoinmodeSelect.value = currentRoomData.joinMode || 'open';
   }
 
@@ -1342,14 +1300,8 @@ function openMembersModal() {
   modalMembers.classList.add('open');
 
   socket.emit('room-members', { roomId: currentRoomId }, res => {
-    if (!res.ok) {
-      membersListContainer.innerHTML = '<div class="empty-list">Ошибка</div>';
-      return;
-    }
-    if (!res.members.length) {
-      membersListContainer.innerHTML = '<div class="empty-list">Пусто</div>';
-      return;
-    }
+    if (!res.ok) { membersListContainer.innerHTML = '<div class="empty-list">Ошибка</div>'; return; }
+    if (!res.members.length) { membersListContainer.innerHTML = '<div class="empty-list">Пусто</div>'; return; }
     membersListContainer.innerHTML = res.members.map(m => `
       <div class="member-item">
         <div class="member-avatar">${avatarHtml(m.avatar, '👤')}</div>
@@ -1359,60 +1311,42 @@ function openMembersModal() {
         </div>
       </div>
     `).join('');
-    if (isRoomOwner) {
-      renderJoinRequests(res.pendingRequests || [], currentRoomId);
-    }
+    if (isRoomOwner) renderJoinRequests(res.pendingRequests || [], currentRoomId);
   });
 }
 
-// Переименование
 btnRenameRoom.addEventListener('click', () => {
   const name = renameInput.value.trim();
   if (!name) { renameError.textContent = 'Введи название'; return; }
   renameError.textContent = '';
   socket.emit('room-rename', { roomId: currentRoomId, newName: name }, res => {
-    if (res.ok) {
-      showToast('✅ Переименовано');
-      if (currentRoomData) currentRoomData.name = name;
-    } else {
-      renameError.textContent = res.error === 'not_owner' ? '❌ Нет прав' : '⚠️ Ошибка';
-    }
+    if (res.ok) { showToast('✅ Переименовано'); if (currentRoomData) currentRoomData.name = name; }
+    else renameError.textContent = res.error === 'not_owner' ? '❌ Нет прав' : '⚠️ Ошибка';
   });
 });
 renameInput.addEventListener('keydown', e => { if (e.key === 'Enter') btnRenameRoom.click(); });
 
-// Сохранить настройки группы
 btnSaveGroupSettings.addEventListener('click', () => {
   socket.emit('room-settings-update', {
-    roomId:     currentRoomId,
+    roomId: currentRoomId,
     autoDelete: groupAutodelSelect.value,
-    joinMode:   groupJoinmodeSelect.value
+    joinMode: groupJoinmodeSelect.value
   }, res => {
     if (res.ok) {
       showToast('✅ Настройки сохранены');
       if (currentRoomData) {
-        currentRoomData.autoDelete = groupAutodelSelect.value === 'never'
-          ? null : parseInt(groupAutodelSelect.value);
+        currentRoomData.autoDelete = groupAutodelSelect.value === 'never' ? null : parseInt(groupAutodelSelect.value);
         currentRoomData.joinMode = groupJoinmodeSelect.value;
       }
-    } else {
-      showToast('⚠️ Ошибка сохранения');
-    }
+    } else showToast('⚠️ Ошибка');
   });
 });
 
-// Удалить группу
 btnDeleteGroup.addEventListener('click', () => {
-  if (!confirm('🗑 Удалить группу? Это действие необратимо.')) return;
+  if (!confirm('🗑 Удалить группу?')) return;
   socket.emit('room-delete', { roomId: currentRoomId }, res => {
-    if (res.ok) {
-      modalMembers.classList.remove('open');
-      leaveCurrentRoom();
-      showScreen('lobby');
-      showToast('🗑 Группа удалена');
-    } else {
-      showToast('⚠️ Ошибка: ' + res.error);
-    }
+    if (res.ok) { modalMembers.classList.remove('open'); leaveCurrentRoom(); showScreen('lobby'); showToast('🗑 Удалено'); }
+    else showToast('⚠️ Ошибка');
   });
 });
 
@@ -1420,14 +1354,10 @@ btnDeleteGroup.addEventListener('click', () => {
 //  ПРИГЛАШЕНИЯ
 // ═══════════════════════════════════════════════
 btnInviteFriend.addEventListener('click', () => {
-  // В личном чате кнопка 👥 открывает поиск для нового личного чата
-  if (currentChatType === 'private') {
-    openPrivateChatsModal();
-    return;
-  }
+  if (currentChatType === 'private') { openPrivateChatsModal(); return; }
   openInviteModal();
 });
-btnCloseInvite.addEventListener('click',  () => modalInvite.classList.remove('open'));
+btnCloseInvite.addEventListener('click', () => modalInvite.classList.remove('open'));
 modalInvite.addEventListener('click', e => { if (e.target === modalInvite) modalInvite.classList.remove('open'); });
 
 function openInviteModal() {
@@ -1436,8 +1366,7 @@ function openInviteModal() {
   inviteFriendsList.innerHTML = '<div class="empty-list">Загрузка…</div>';
   socket.emit('friends-list', res => {
     if (!res.ok || !res.friends.length) {
-      inviteFriendsList.innerHTML = '<div class="empty-list">Нет друзей для приглашения</div>';
-      return;
+      inviteFriendsList.innerHTML = '<div class="empty-list">Нет друзей для приглашения</div>'; return;
     }
     inviteFriendsList.innerHTML = res.friends.map(f => `
       <div class="friend-item">
@@ -1452,7 +1381,7 @@ function openInviteModal() {
       btn.addEventListener('click', () => {
         socket.emit('room-invite', { toNickname: btn.dataset.nick, roomId: currentRoomId }, res => {
           btn.textContent = res.online ? '✅ Отправлено' : '📨 Будет доставлено';
-          btn.disabled    = true;
+          btn.disabled = true;
         });
       });
     });
@@ -1463,49 +1392,30 @@ socket.on('room-invite', ({ fromNick, roomId, roomName, hasPassword, joinMode })
   showToast(`📨 ${fromNick} приглашает в «${roomName}»`, 8000, () => {
     if (hasPassword) openRoomPasswordModal(roomId, roomName, joinMode);
     else if (joinMode === 'approval') handleApprovalJoin(roomId, roomName);
-    else {
-      socket.emit('leave-room');
-      if (joined) { socket.emit('voice-leave'); hangUp(); joined = false; }
-      joinRoom(roomId, '');
-    }
+    else { socket.emit('leave-room'); if (joined) { socket.emit('voice-leave'); hangUp(); joined = false; } joinRoom(roomId, ''); }
   });
 });
 
 // ═══════════════════════════════════════════════
 //  НАЗАД
 // ═══════════════════════════════════════════════
-btnBackLobby.addEventListener('click', () => {
-  leaveCurrentRoom();
-  showScreen('lobby');
-});
+btnBackLobby.addEventListener('click', () => { leaveCurrentRoom(); showScreen('lobby'); });
 
 function leaveCurrentRoom() {
   stopMyTyping();
-
   if (currentChatType === 'group' && currentRoomId) {
     socket.emit('leave-room');
-    if (joined) {
-      socket.emit('voice-leave'); hangUp(); joined = false;
-      micStatus.className = 'mic-status';
-    }
+    if (joined) { socket.emit('voice-leave'); hangUp(); joined = false; micStatus.className = 'mic-status'; }
   }
-
-  // Восстановить голосовые кнопки для следующего входа в группу
   btnJoin.style.display  = 'block';
   btnLeave.style.display = 'none';
   btnMic.style.display   = 'none';
-
   clearAllTyping();
   Crypto.clearAllKeys();
   ecdhExchanged.clear();
   outgoingSeq = 0;
-
-  currentRoomId   = null;
-  currentRoomData = null;
-  currentPassword = '';
-  currentChatType = 'group';
-  currentChatId   = null;
-  isRoomOwner     = false;
+  currentRoomId = null; currentRoomData = null; currentPassword = '';
+  currentChatType = 'group'; currentChatId = null; isRoomOwner = false;
 }
 
 // ═══════════════════════════════════════════════
@@ -1525,11 +1435,12 @@ socket.on('connect', () => {
   if (myNickname) {
     socket.emit('set-nickname', myNickname, () => {
       if (currentRoomId && currentChatType === 'group') joinRoom(currentRoomId, currentPassword);
+      if (currentChatId && currentChatType === 'private') socket.emit('private-chat-join', { chatId: currentChatId });
     });
   }
 });
 socket.on('disconnect', () => {
-  if (currentRoomId) reconnectBanner.classList.add('visible');
+  if (currentRoomId || currentChatId) reconnectBanner.classList.add('visible');
 });
 socket.on('ecdh-pubkey', async ({ from, pubkey, nickname }) => {
   try {
@@ -1630,7 +1541,7 @@ async function sendTextMessage() {
   finally { btnSend.disabled = false; }
 }
 
-// Файлы
+// Файлы — лимит 100 МБ
 btnPhoto.addEventListener('click', () => { fileInput.accept = 'image/*'; fileInput.click(); });
 btnVideo.addEventListener('click', () => { fileInput.accept = 'video/*'; fileInput.click(); });
 btnFile.addEventListener('click',  () => { fileInput.accept = '*/*';     fileInput.click(); });
@@ -1638,7 +1549,10 @@ btnFile.addEventListener('click',  () => { fileInput.accept = '*/*';     fileInp
 fileInput.addEventListener('change', async () => {
   const file = fileInput.files[0]; if (!file) return;
   fileInput.value = '';
-  if (file.size > 50*1024*1024) { alert('Файл слишком большой. Макс 50 МБ.'); return; }
+  const MAX_MB = 100;
+  if (file.size > MAX_MB * 1024 * 1024) {
+    showToast(`⚠️ Файл слишком большой. Макс ${MAX_MB} МБ.`); return;
+  }
   const isImage = file.type.startsWith('image/');
   const isVideo = file.type.startsWith('video/');
   if (isImage) { MediaEditor.openPhoto(file, async (b,mt,fn) => await sendMediaBlob(b,mt,fn,'image'), ()=>{}); return; }
@@ -1659,8 +1573,12 @@ async function sendMediaBlob(blob, mimeType, fileName, type) {
     } else if (currentRoomId) {
       socket.emit('chat-message', payload);
     }
-    appendMessage({ from: socket.id, nickname: myNickname, type, localUrl, fileName: fileName||'file', fileSize: blob.size, mimeType, timestamp: Date.now(), mine: true, status: 'ok' });
-  } catch (e) { alert('Ошибка отправки: ' + e.message); }
+    appendMessage({
+      from: socket.id, nickname: myNickname, type, localUrl,
+      fileName: fileName||'file', fileSize: blob.size, mimeType,
+      timestamp: Date.now(), mine: true, status: 'ok'
+    });
+  } catch (e) { showToast('❌ Ошибка отправки: ' + e.message); }
 }
 
 // Получение сообщений группы
@@ -1713,7 +1631,10 @@ function updateMessage(id, updates) {
   const div = document.getElementById(id); if (!div) return;
   const content = div.querySelector('.msg-content');
   if (content) {
-    content.innerHTML = buildContentHTML({ type: div.dataset.type, mimeType: div.dataset.mimeType, fileName: div.dataset.fileName, fileSize: div.dataset.fileSize, ...updates });
+    content.innerHTML = buildContentHTML({
+      type: div.dataset.type, mimeType: div.dataset.mimeType,
+      fileName: div.dataset.fileName, fileSize: div.dataset.fileSize, ...updates
+    });
     bindMediaEvents(div);
   }
   const st = div.querySelector('.msg-decrypt-status');
@@ -1725,7 +1646,7 @@ function updateMessage(id, updates) {
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 function buildMsgHTML(msg) {
-  const time = new Date(msg.timestamp||Date.now()).toLocaleTimeString('ru', { hour:'2-digit', minute:'2-digit' });
+  const time   = new Date(msg.timestamp||Date.now()).toLocaleTimeString('ru', { hour:'2-digit', minute:'2-digit' });
   const sender = msg.mine ? '' : `<div class="msg-sender">👤 ${escapeHtml(msg.nickname||'?')}</div>`;
   const stText  = msg.status==='ok' ? '🔓' : msg.status==='error' ? '⚠️' : '⏳';
   const stClass = msg.status==='ok' ? 'ok' : msg.status==='error' ? 'err' : '';
@@ -1734,13 +1655,13 @@ function buildMsgHTML(msg) {
 }
 function buildContentHTML(msg) {
   if (msg.type === 'text')  return escapeHtml(msg.text || '');
-  if (msg.type === 'image') return msg.localUrl ? `<img class="msg-media" src="${msg.localUrl}" alt="фото" loading="lazy">` : '<span style="color:#888;font-size:12px">⏳</span>';
-  if (msg.type === 'video') return msg.localUrl ? `<video class="msg-media" src="${msg.localUrl}" controls playsinline></video>` : '<span style="color:#888;font-size:12px">⏳</span>';
+  if (msg.type === 'image') return msg.localUrl ? `<img class="msg-media" src="${msg.localUrl}" alt="фото" loading="lazy">` : '<span style="color:#888;font-size:12px">⏳ Загрузка…</span>';
+  if (msg.type === 'video') return msg.localUrl ? `<video class="msg-media" src="${msg.localUrl}" controls playsinline></video>` : '<span style="color:#888;font-size:12px">⏳ Загрузка…</span>';
   if (msg.type === 'file') {
     const size = msg.fileSize ? formatSize(parseInt(msg.fileSize)) : '';
     return msg.localUrl
       ? `<div class="msg-file"><span class="msg-file-icon">📄</span><div class="msg-file-info"><div class="msg-file-name">${escapeHtml(msg.fileName||'файл')}</div><div class="msg-file-size">${size}</div></div><a class="msg-file-dl" href="${msg.localUrl}" download="${escapeHtml(msg.fileName||'file')}">⬇️</a></div>`
-      : `<div class="msg-file"><span class="msg-file-icon">📄</span><div class="msg-file-info"><div class="msg-file-name">${escapeHtml(msg.fileName||'файл')}</div><div class="msg-file-size">${size}</div></div><span style="color:#888;font-size:12px">⏳</span></div>`;
+      : `<div class="msg-file"><span class="msg-file-icon">📄</span><div class="msg-file-info"><div class="msg-file-name">${escapeHtml(msg.fileName||'файл')}</div><div class="msg-file-size">${size}</div></div></div>`;
   }
   return '';
 }
@@ -1762,7 +1683,7 @@ lightboxClose.addEventListener('click', () => { lightbox.classList.remove('open'
 lightbox.addEventListener('click', e => { if (e.target===lightbox) { lightbox.classList.remove('open'); lightboxContent.innerHTML=''; } });
 
 // ═══════════════════════════════════════════════
-//  ГОЛОСОВОЙ ЧАТ (без изменений)
+//  ГОЛОСОВОЙ ЧАТ
 // ═══════════════════════════════════════════════
 btnJoin.addEventListener('click', async () => {
   if (!currentRoomId || currentChatType !== 'group') return;
@@ -1836,8 +1757,8 @@ async function handleOffer(from, offer, nickname) {
   await peer.setLocalDescription(improved);
   socket.emit('answer', { to: from, answer: improved });
 }
-socket.on('answer', async ({ from, answer, nickname }) => {
-  if (nickname) { voiceNicknames[from] = nickname; updateParticipantName(from, nickname); }
+socket.on('answer', async ({ from, answer }) => {
+  if (voiceNicknames[from]) updateParticipantName(from, voiceNicknames[from]);
   const peer = peers[from];
   if (peer && peer.signalingState==='have-local-offer') await peer.setRemoteDescription(new RTCSessionDescription(answer));
 });
@@ -1969,6 +1890,8 @@ async function buildAudioPipeline(rawStream) {
 
 const iceServers = {
   iceServers:[
+    { urls:'stun:stun.l.google.com:19302' },
+    { urls:'stun:stun1.l.google.com:19302' },
     { urls:'stun:stun.relay.metered.ca:80' },
     { urls:'turn:global.relay.metered.ca:80', username:'4219a9030e911d3a21936639', credential:'W9K/4EBqUUoxu9FC' },
     { urls:'turn:global.relay.metered.ca:80?transport=tcp', username:'4219a9030e911d3a21936639', credential:'W9K/4EBqUUoxu9FC' },
@@ -2008,8 +1931,8 @@ async function measureRemoteQuality(peer) {
   try {
     const stats=await peer.getStats(); let rtt=null,lost=0,received=0,jitter=0;
     stats.forEach(r=>{
-      if (r.type==='inbound-rtp'&&r.kind==='audio') { lost=r.packetsLost||0;received=r.packetsReceived||0;jitter=r.jitter||0; }
-      if (r.type==='candidate-pair'&&r.state==='succeeded'&&r.currentRoundTripTime!=null) rtt=r.currentRoundTripTime*1000;
+      if(r.type==='inbound-rtp'&&r.kind==='audio'){lost=r.packetsLost||0;received=r.packetsReceived||0;jitter=r.jitter||0;}
+      if(r.type==='candidate-pair'&&r.state==='succeeded'&&r.currentRoundTripTime!=null) rtt=r.currentRoundTripTime*1000;
     });
     return calcLevel(rtt, lost, received, jitter);
   } catch { return 'none'; }
@@ -2018,8 +1941,8 @@ async function measureLocalQuality(peer) {
   try {
     const stats=await peer.getStats(); let rtt=null,lost=0,sent=0,jitter=0;
     stats.forEach(r=>{
-      if (r.type==='remote-inbound-rtp'&&r.kind==='audio') { lost=r.packetsLost||0;jitter=r.jitter||0;if(r.roundTripTime!=null) rtt=r.roundTripTime*1000; }
-      if (r.type==='outbound-rtp'&&r.kind==='audio') sent=r.packetsSent||0;
+      if(r.type==='remote-inbound-rtp'&&r.kind==='audio'){lost=r.packetsLost||0;jitter=r.jitter||0;if(r.roundTripTime!=null) rtt=r.roundTripTime*1000;}
+      if(r.type==='outbound-rtp'&&r.kind==='audio') sent=r.packetsSent||0;
     });
     return calcLevel(rtt, lost, sent, jitter);
   } catch { return 'none'; }
@@ -2039,7 +1962,7 @@ function createPeer(userId, isInitiator) {
   peer.getSenders().forEach(s => {
     if (s.track?.kind==='audio') {
       const p=s.getParameters(); if(!p.encodings) p.encodings=[{}];
-      p.encodings[0].maxBitrate=64000; p.encodings[0].priority='high'; p.encodings[0].networkPriority='high';
+      p.encodings[0].maxBitrate=64000; p.encodings[0].priority='high';
       s.setParameters(p).catch(()=>{});
     }
   });
@@ -2148,44 +2071,145 @@ document.addEventListener('visibilitychange', async () => {
     } catch (_) {}
   } else { tracks.forEach(t=>{t.enabled=micEnabled;}); }
   if (audioCtx?.state==='suspended') await audioCtx.resume();
-}); // ← ЭТА ЗАКРЫВАЮЩАЯ СКОБКА БЫЛА ПОТЕРЯНА
+});
 
 // ═══════════════════════════════════════════════
-//  ЛИЧНЫЕ ЗВОНКИ (WebRTC)
+//  КНОПКА ЗВОНКА — показывать только в личном чате
 // ═══════════════════════════════════════════════
-let pcCallPeer           = null;
-let pcCallStream         = null;
-let pcCallRemoteId       = null;
-let pcCallRemoteNick     = '';
-let pcCallMuted          = false;
-let pcCallActive         = false;
-let incomingCallData     = null;
-let pcIceCandidateBuffer = []; // буфер ICE до получения answer
-
-const btnPrivateCall    = document.getElementById('btn-private-call');
-const modalIncomingCall = document.getElementById('modal-incoming-call');
-const incomingCallAvatar= document.getElementById('incoming-call-avatar');
-const incomingCallName  = document.getElementById('incoming-call-name');
-const btnCallAccept     = document.getElementById('btn-call-accept');
-const btnCallReject     = document.getElementById('btn-call-reject');
-const pcCallPanel       = document.getElementById('private-call-panel');
-const pcPanelName       = document.getElementById('pc-panel-name');
-const pcPanelStatus     = document.getElementById('pc-panel-status');
-const btnPcMute         = document.getElementById('btn-pc-mute');
-const btnPcHangup       = document.getElementById('btn-pc-hangup');
-
 function updateCallButton() {
   if (btnPrivateCall) {
     btnPrivateCall.style.display = currentChatType === 'private' ? 'flex' : 'none';
   }
 }
 
-// ── Исходящий звонок ──
+// ═══════════════════════════════════════════════
+//  ЛИЧНЫЕ ЗВОНКИ (WebRTC) — полноэкранный UI
+// ═══════════════════════════════════════════════
+let pcCallPeer           = null;
+let pcCallStream         = null;
+let pcCallRemoteId       = null;   // socket.id собеседника (после answer)
+let pcCallRemoteNickLow  = null;   // nickLower собеседника (для ICE до answer)
+let pcCallRemoteNick     = '';
+let pcCallMuted          = false;
+let pcCallSpeaker        = true;
+let pcCallActive         = false;
+let incomingCallData     = null;
+let pcIceCandidateBuffer = [];
+let callTimer            = null;
+let callSeconds          = 0;
+
+// ── Открыть полноэкранный экран звонка ──
+function showCallScreen(name, avatar, status) {
+  callScreenName.textContent   = name || '—';
+  callScreenStatus.textContent = status || 'Соединение…';
+
+  if (avatar) {
+    callScreenAvatar.innerHTML = `<img src="${avatar}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
+  } else {
+    callScreenAvatar.textContent = '👤';
+  }
+
+  // Сброс кнопок
+  callBtnMute.classList.remove('active');
+  callBtnMute.style.opacity = '1';
+  callBtnSpeaker.classList.remove('active');
+  callBtnVideo.style.opacity = '0.5'; // видео не реализовано
+
+  callScreen.classList.add('active');
+}
+
+function hideCallScreen() {
+  callScreen.classList.remove('active');
+  stopCallTimer();
+}
+
+function setCallStatus(text) {
+  callScreenStatus.textContent = text;
+}
+
+function startCallTimer() {
+  callSeconds = 0;
+  stopCallTimer();
+  callTimer = setInterval(() => {
+    callSeconds++;
+    const m = String(Math.floor(callSeconds / 60)).padStart(2, '0');
+    const s = String(callSeconds % 60).padStart(2, '0');
+    setCallStatus(m + ':' + s);
+    // Убираем пульсацию когда соединение установлено
+    callStatusDot.style.animation = 'none';
+    callStatusDot.style.background = 'rgba(255,255,255,0.9)';
+  }, 1000);
+}
+
+function stopCallTimer() {
+  if (callTimer) { clearInterval(callTimer); callTimer = null; }
+}
+
+// ── Кнопки экрана звонка ──
+callBtnMute.addEventListener('click', () => {
+  pcCallMuted = !pcCallMuted;
+  if (pcCallStream) {
+    pcCallStream.getAudioTracks().forEach(t => { t.enabled = !pcCallMuted; });
+  }
+  if (pcCallMuted) {
+    callBtnMute.classList.add('active');
+    callBtnMute.textContent = '🔇';
+  } else {
+    callBtnMute.classList.remove('active');
+    callBtnMute.textContent = '🎤';
+  }
+});
+
+callBtnSpeaker.addEventListener('click', () => {
+  pcCallSpeaker = !pcCallSpeaker;
+  const audio = document.getElementById('audio-pc-call');
+  if (audio) {
+    // На мобильных можно переключить вывод если поддерживается
+    if (typeof audio.setSinkId === 'function') {
+      // оставляем как есть — setSinkId требует разрешений
+    }
+    audio.volume = pcCallSpeaker ? 1.0 : 0.0;
+  }
+  if (pcCallSpeaker) {
+    callBtnSpeaker.classList.remove('active');
+    callBtnSpeaker.textContent = '🔈';
+  } else {
+    callBtnSpeaker.classList.add('active');
+    callBtnSpeaker.textContent = '🔇';
+  }
+});
+
+callBtnVideo.addEventListener('click', () => {
+  showToast('📷 Видеозвонки скоро появятся', 2500);
+});
+
+callBtnHangup.addEventListener('click', () => {
+  endPrivateCall(true);
+});
+
+btnCallMinimize.addEventListener('click', () => {
+  hideCallScreen();
+  // Показать мини-панель (уже есть в DOM — просто обновим)
+  if (pcCallActive) {
+    showToast('📞 Звонок активен — нажми 📞 чтобы вернуться', 3000);
+  }
+});
+
+// Тап по кнопке звонка в шапке — если звонок активен, показать экран
 btnPrivateCall.addEventListener('click', async () => {
-  if (pcCallActive) { showToast('📞 Звонок уже активен'); return; }
+  if (pcCallActive) {
+    // Вернуть экран звонка
+    const withAvatar = chatRoomAvatar.querySelector('img')?.src || null;
+    showCallScreen(pcCallRemoteNick, withAvatar, null);
+    startCallTimer(); // таймер продолжится
+    return;
+  }
   if (currentChatType !== 'private' || !currentChatId) return;
 
   pcCallRemoteNick = chatRoomName.textContent;
+
+  // Получить аватар собеседника
+  const withAvatar = chatRoomAvatar.querySelector('img')?.src || null;
 
   try {
     pcCallStream = await navigator.mediaDevices.getUserMedia({
@@ -2196,25 +2220,24 @@ btnPrivateCall.addEventListener('click', async () => {
     showToast('❌ Нет доступа к микрофону'); return;
   }
 
-  // Узнать nickLower собеседника из chatId ДО создания peer
+  // Определить nickLower собеседника из chatId
   const parts = currentChatId.split('::');
-  const toNickLower = parts.find(p => p !== myNickname.toLowerCase());
+  pcCallRemoteNickLow = parts.find(p => p !== myNickname.toLowerCase()) || parts[0];
+  pcCallRemoteId = null; // узнаем после answer
 
-  // Передаём toNickLower чтобы ICE отправлялись сразу через сервер по нику
   pcIceCandidateBuffer = [];
-  pcCallPeer = createPrivateCallPeer(toNickLower);
+  pcCallPeer = createPrivateCallPeer(pcCallRemoteNickLow);
 
   const offer = await pcCallPeer.createOffer();
   await pcCallPeer.setLocalDescription(offer);
 
   socket.emit('private-call-offer', {
     chatId: currentChatId,
-    to:     toNickLower,
+    to:     pcCallRemoteNickLow,
     offer
   });
 
-  showCallPanel(pcCallRemoteNick);
-  showToast('📞 Звоним ' + pcCallRemoteNick + '…', 4000);
+  showCallScreen(pcCallRemoteNick, withAvatar, 'Вызов…');
 });
 
 // ── Входящий звонок ──
@@ -2224,13 +2247,15 @@ socket.on('private-call-offer', async (data) => {
     return;
   }
   incomingCallData = data;
+
   if (data.fromAvatar) {
     incomingCallAvatar.innerHTML = `<img src="${data.fromAvatar}"
-      style="width:72px;height:72px;border-radius:50%;object-fit:cover">`;
+      style="width:100%;height:100%;border-radius:50%;object-fit:cover">`;
   } else {
     incomingCallAvatar.textContent = '👤';
   }
-  incomingCallName.textContent = data.fromNick;
+  incomingCallName.textContent = data.fromNick || '?';
+
   modalIncomingCall.classList.add('open');
   playIncomingRing();
 });
@@ -2252,14 +2277,15 @@ btnCallAccept.addEventListener('click', async () => {
     incomingCallData = null; return;
   }
 
-  pcCallRemoteId   = incomingCallData.from;   // socket.id звонящего известен сразу
-  pcCallRemoteNick = incomingCallData.fromNick;
+  pcCallRemoteId       = incomingCallData.from;
+  pcCallRemoteNickLow  = incomingCallData.fromNickLower || incomingCallData.fromNick?.toLowerCase();
+  pcCallRemoteNick     = incomingCallData.fromNick || '?';
   pcIceCandidateBuffer = [];
   pcCallPeer = createPrivateCallPeer(pcCallRemoteId);
 
   await pcCallPeer.setRemoteDescription(new RTCSessionDescription(incomingCallData.offer));
 
-  // Добавить буферизованные ICE если успели накопиться
+  // Добавить буферизованные ICE
   for (const c of pcIceCandidateBuffer) {
     try { await pcCallPeer.addIceCandidate(new RTCIceCandidate(c)); } catch (_) {}
   }
@@ -2270,11 +2296,13 @@ btnCallAccept.addEventListener('click', async () => {
   socket.emit('private-call-answer', { to: pcCallRemoteId, answer });
 
   pcCallActive = true;
-  showCallPanel(pcCallRemoteNick);
 
+  // Показать экран звонка
+  showCallScreen(pcCallRemoteNick, incomingCallData.fromAvatar || null, 'Соединение…');
+
+  // Открыть личный чат если не открыт
   if (currentChatId !== incomingCallData.chatId) {
-    socket.emit('private-chat-open',
-      { withNickname: incomingCallData.fromNick }, res => {
+    socket.emit('private-chat-open', { withNickname: incomingCallData.fromNick }, res => {
       if (res.ok) enterPrivateChat(res.chatId, res.withNickname, res.withAvatar);
     });
   }
@@ -2294,13 +2322,12 @@ btnCallReject.addEventListener('click', () => {
 // ── Получить answer (звонящий) ──
 socket.on('private-call-answer', async ({ from, answer }) => {
   if (!pcCallPeer) return;
-  pcCallRemoteId = from; // теперь знаем реальный socket.id
+  pcCallRemoteId = from;
   pcCallActive   = true;
-  pcPanelStatus.textContent = '🟢 Звонок активен';
 
   await pcCallPeer.setRemoteDescription(new RTCSessionDescription(answer));
 
-  // Отправить буферизованные ICE-кандидаты которые накопились до answer
+  // Отправить буферизованные ICE которые накопились до answer
   for (const candidate of pcIceCandidateBuffer) {
     socket.emit('private-call-ice', { to: from, candidate });
   }
@@ -2311,61 +2338,54 @@ socket.on('private-call-answer', async ({ from, answer }) => {
 socket.on('private-call-ice', async ({ from, candidate }) => {
   if (!candidate) return;
   if (pcCallPeer && pcCallPeer.remoteDescription) {
-    // remoteDescription уже установлен — добавляем сразу
     try { await pcCallPeer.addIceCandidate(new RTCIceCandidate(candidate)); } catch (_) {}
   } else {
-    // remoteDescription ещё не установлен — буферизуем
     pcIceCandidateBuffer.push(candidate);
   }
 });
 
-// ── Собеседник завершил звонок ──
-socket.on('private-call-ended', () => {
+// ── Собеседник завершил / отклонил ──
+socket.on('private-call-ended', ({ from }) => {
   showToast('📵 ' + (pcCallRemoteNick || '?') + ' завершил звонок', 3000);
   endPrivateCall(false);
 });
-
-// ── Звонок отклонён ──
-socket.on('private-call-rejected', () => {
+socket.on('private-call-rejected', ({ from }) => {
   showToast('📵 ' + (pcCallRemoteNick || '?') + ' отклонил звонок', 3000);
   endPrivateCall(false);
 });
 
-btnPcHangup.addEventListener('click', () => endPrivateCall(true));
-
+// ── Завершить звонок ──
 function endPrivateCall(notify = true) {
-  if (notify && pcCallRemoteId) {
-    socket.emit('private-call-end', { to: pcCallRemoteId });
+  if (notify && (pcCallRemoteId || pcCallRemoteNickLow)) {
+    socket.emit('private-call-end', { to: pcCallRemoteId || pcCallRemoteNickLow });
   }
   if (pcCallPeer)   { pcCallPeer.close();   pcCallPeer   = null; }
-  if (pcCallStream) {
-    pcCallStream.getTracks().forEach(t => t.stop());
-    pcCallStream = null;
-  }
+  if (pcCallStream) { pcCallStream.getTracks().forEach(t => t.stop()); pcCallStream = null; }
+
   const el = document.getElementById('audio-pc-call');
   if (el) el.remove();
 
   pcCallActive         = false;
   pcCallRemoteId       = null;
+  pcCallRemoteNickLow  = null;
   pcCallRemoteNick     = '';
   pcCallMuted          = false;
-  pcIceCandidateBuffer = []; // очистить буфер
+  pcCallSpeaker        = true;
+  pcIceCandidateBuffer = [];
 
-  hideCallPanel();
+  hideCallScreen();
   stopIncomingRing();
   modalIncomingCall.classList.remove('open');
+  stopCallTimer();
+
+  // Сбросить кнопку мута
+  callBtnMute.textContent = '🎤';
+  callBtnMute.classList.remove('active');
+  callBtnSpeaker.textContent = '🔈';
+  callBtnSpeaker.classList.remove('active');
 }
 
-btnPcMute.addEventListener('click', () => {
-  pcCallMuted = !pcCallMuted;
-  if (pcCallStream) {
-    pcCallStream.getAudioTracks().forEach(t => { t.enabled = !pcCallMuted; });
-  }
-  btnPcMute.textContent = pcCallMuted ? '🎙️' : '🔇';
-  btnPcMute.title       = pcCallMuted ? 'Включить микрофон' : 'Выключить микрофон';
-});
-
-// ── Создать RTCPeerConnection ──
+// ── RTCPeerConnection для личного звонка ──
 function createPrivateCallPeer(targetId) {
   const peer = new RTCPeerConnection(iceServers);
 
@@ -2383,23 +2403,26 @@ function createPrivateCallPeer(targetId) {
       document.body.appendChild(audio);
     }
     audio.srcObject = e.streams[0];
+    audio.volume = pcCallSpeaker ? 1.0 : 0.0;
     audio.play().catch(() => {});
   };
 
   peer.onicecandidate = e => {
     if (!e.candidate) return;
+    // Отправляем через сервер — он разберётся по socket.id или nickLower
     const sendTo = pcCallRemoteId || targetId;
-    if (sendTo) {
-      socket.emit('private-call-ice', { to: sendTo, candidate: e.candidate });
-    } else {
-      // Ни socket.id ни targetId не известен — буферизуем
-      pcIceCandidateBuffer.push(e.candidate);
-    }
+    socket.emit('private-call-ice', { to: sendTo, candidate: e.candidate });
   };
 
   peer.onconnectionstatechange = () => {
+    console.log('Call peer state:', peer.connectionState);
     if (peer.connectionState === 'connected') {
-      pcPanelStatus.textContent = '🟢 Звонок активен';
+      setCallStatus(null); // таймер запустится
+      startCallTimer();
+      showToast('🟢 Звонок установлен', 2000);
+    }
+    if (peer.connectionState === 'connecting') {
+      setCallStatus('Соединение…');
     }
     if (peer.connectionState === 'disconnected' || peer.connectionState === 'failed') {
       showToast('📵 Соединение прервано', 3000);
@@ -2407,25 +2430,29 @@ function createPrivateCallPeer(targetId) {
     }
   };
 
+  peer.oniceconnectionstatechange = () => {
+    console.log('ICE state:', peer.iceConnectionState);
+    if (peer.iceConnectionState === 'checking') {
+      setCallStatus('Соединение…');
+    }
+    if (peer.iceConnectionState === 'connected' || peer.iceConnectionState === 'completed') {
+      // Соединение установлено — таймер запустит onconnectionstatechange
+    }
+    if (peer.iceConnectionState === 'failed') {
+      peer.restartIce();
+    }
+  };
+
   return peer;
 }
 
-function showCallPanel(name) {
-  pcPanelName.textContent   = name;
-  pcPanelStatus.textContent = '⏳ Соединение…';
-  btnPcMute.textContent     = '🔇';
-  pcCallPanel.style.display = 'flex';
-}
-function hideCallPanel() {
-  pcCallPanel.style.display = 'none';
-}
-
+// ── Рингтон ──
 let ringInterval = null;
 function playIncomingRing() {
   stopIncomingRing();
   let count = 0;
   const ring = () => {
-    if (count++ > 20) { stopIncomingRing(); return; }
+    if (count++ > 30) { stopIncomingRing(); return; }
     try {
       const ctx  = new (window.AudioContext || window.webkitAudioContext)();
       const osc  = ctx.createOscillator();
@@ -2441,7 +2468,7 @@ function playIncomingRing() {
     } catch (_) {}
   };
   ring();
-  ringInterval = setInterval(ring, 1000);
+  ringInterval = setInterval(ring, 1200);
 }
 function stopIncomingRing() {
   if (ringInterval) { clearInterval(ringInterval); ringInterval = null; }
