@@ -772,6 +772,43 @@ io.on('connection', (socket) => {
     }});
   });
 
+  // ════════════════════════════════════════════
+//  ЛИЧНЫЕ ЗВОНКИ (сигнализация)
+// ════════════════════════════════════════════
+socket.on('private-call-offer', ({ chatId, to, offer }) => {
+  const client = clients.get(socket.id);
+  if (!client?.authed) return;
+  // Найти сокет получателя
+  for (const [sid, cl] of clients) {
+    if (cl.nickLower === to) {
+      io.to(sid).emit('private-call-offer', {
+        chatId,
+        from:     socket.id,
+        fromNick: client.nickname,
+        fromAvatar: users.get(client.nickLower)?.avatar || null,
+        offer
+      });
+    }
+  }
+});
+
+socket.on('private-call-answer', ({ to, answer }) => {
+  io.to(to).emit('private-call-answer', { from: socket.id, answer });
+});
+
+socket.on('private-call-ice', ({ to, candidate }) => {
+  io.to(to).emit('private-call-ice', { from: socket.id, candidate });
+});
+
+socket.on('private-call-end', ({ to }) => {
+  if (to) io.to(to).emit('private-call-ended', { from: socket.id });
+});
+
+socket.on('private-call-reject', ({ to }) => {
+  io.to(to).emit('private-call-rejected', { from: socket.id });
+});
+
+  
   // ════════════════════════════
   //  ГОЛОС / ЧАТ
   // ════════════════════════════
@@ -881,3 +918,4 @@ function shortId(id) { return id ? id.slice(0, 6) : '??'; }
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`Server on port ${PORT}`));
+
