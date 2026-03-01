@@ -1017,7 +1017,7 @@ async function buildAudioPipeline(rawStream) {
 
   noiseWorklet = new AudioWorkletNode(audioCtx, 'noise-gate-processor', {
     processorOptions: { threshold:0.008, attack:0.003, release:0.08, smoothing:0.92 },
-    numberOfInputs:1, numberOfOutputs:1, outputChannelCount:[[2]](#annotation-145686-1)
+    numberOfInputs:1, numberOfOutputs:1, outputChannelCount:[[2]](#annotation-145706-1)
   });
 
   const outputGain      = audioCtx.createGain();
@@ -1028,7 +1028,6 @@ async function buildAudioPipeline(rawStream) {
   if (noiseIndicator) noiseIndicator.classList.add('visible');
   return destination.stream;
 }
-
 // ═══════════════════════════════════════════════
 //  ICE CONFIG
 // ═══════════════════════════════════════════════
