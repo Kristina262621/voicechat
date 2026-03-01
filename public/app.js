@@ -10,13 +10,28 @@ const hiddenAudios = document.getElementById('hidden-audios');
 let localStream = null;
 let peers = {};
 let micEnabled = true;
-let pendingOffers = []; // буфер для offer которые пришли до получения микрофона
+let pendingOffers = [];
 let joined = false;
 
 const iceServers = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' }
+    { urls: 'stun:stun1.l.google.com:19302' },
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
   ]
 };
 
@@ -26,7 +41,18 @@ socket.on('user-count', (count) => {
 
 btnJoin.addEventListener('click', async () => {
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // Android требует максимально простой запрос
+    const constraints = {
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        sampleRate: 44100
+      },
+      video: false
+    };
+
+    localStream = await navigator.mediaDevices.getUserMedia(constraints);
+
     setMicStatus(true);
     btnJoin.style.display = 'none';
     btnLeave.style.display = 'block';
@@ -34,14 +60,24 @@ btnJoin.addEventListener('click', async () => {
     joined = true;
     socket.emit('join');
 
-    // Обрабатываем offer которые пришли пока получали микрофон
     for (const { from, offer } of pendingOffers) {
       await handleOffer(from, offer);
     }
     pendingOffers = [];
 
   } catch (err) {
-    alert('Не удалось получить доступ к микрофону: ' + err.message);
+    console.error('Mic error:', err.name, err.message);
+
+    // Понятные сообщения об ошибках для пользователя
+    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      alert('❌ Доступ к микрофону запрещён.\n\nОткрой настройки браузера → Разрешения сайтов → Микрофон → разреши для этого сайта.');
+    } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+      alert('❌ Микрофон не найден на устройстве.');
+    } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+      alert('❌ Микрофон занят другим приложением. Закрой другие приложения и попробуй снова.');
+    } else {
+      alert('❌ Ошибка микрофона: ' + err.name + '\n' + err.message);
+    }
   }
 });
 
@@ -82,13 +118,11 @@ socket.on('existing-users', async (userIds) => {
 });
 
 socket.on('user-joined', async (userId) => {
-  // Ничего не делаем — инициатор тот кто зашёл новым
-  // Он получит existing-users и сам создаст offer
+  // Новый пользователь сам инициирует через existing-users
 });
 
 socket.on('offer', async ({ from, offer }) => {
   if (!localStream) {
-    // Микрофон ещё не получен — буферизируем
     pendingOffers.push({ from, offer });
     return;
   }
@@ -145,15 +179,23 @@ function createPeer(userId, isInitiator) {
       audio = document.createElement('audio');
       audio.id = 'audio-' + userId;
       audio.autoplay = true;
+      audio.playsInline = true;
+      audio.setAttribute('playsinline', '');
+      audio.setAttribute('webkit-playsinline', '');
       hiddenAudios.appendChild(audio);
     }
     audio.srcObject = event.streams[0];
+    audio.play().catch(e => console.warn('Autoplay blocked:', e));
   };
 
   peer.onicecandidate = (event) => {
     if (event.candidate) {
       socket.emit('ice-candidate', { to: userId, candidate: event.candidate });
     }
+  };
+
+  peer.onconnectionstatechange = () => {
+    console.log(`Peer ${userId} state:`, peer.connectionState);
   };
 
   if (isInitiator) {
