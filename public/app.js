@@ -150,7 +150,7 @@ const analysers     = {};
 const qualityTimers = {};
 
 // Таймеры комнат (для отображения обратного отсчёта)
-const roomDeleteTimers = {}; // roomId → intervalId
+const roomDeleteTimers = {};
 
 // ═══════════════════════════════════════════════
 //  УТИЛИТЫ
@@ -243,7 +243,6 @@ function showNickError(msg) {
 // ═══════════════════════════════════════════════
 socket.on('room-list', (list) => { renderRoomList(list); });
 
-// Очищаем все таймеры обратного отсчёта
 function clearAllDeleteTimers() {
   for (const id in roomDeleteTimers) {
     clearInterval(roomDeleteTimers[id]);
@@ -292,7 +291,6 @@ function renderRoomList(list) {
       </div>`;
   }).join('');
 
-  // Запускаем таймеры обратного отсчёта для пустых комнат
   list.forEach(room => {
     if (room.memberCount === 0 && room.deleteAt) {
       const timerEl = document.getElementById('timer-' + room.id);
@@ -789,7 +787,6 @@ btnJoin.addEventListener('click', async () => {
     btnLeave.style.display = 'block';
     btnMic.style.display   = 'block';
     joined = true;
-    // Добавляем себя с ником
     addParticipant(socket.id, myNickname, true);
     startVolumeAnalysis(socket.id, localStream);
     socket.emit('voice-join');
@@ -835,10 +832,7 @@ function setMicStatus(active) {
 // ═══════════════════════════════════════════════
 //  WebRTC
 // ═══════════════════════════════════════════════
-
-// Получаем список существующих участников голосового чата с никами
 socket.on('existing-voice-users', (users) => {
-  // users теперь массив объектов { id, nickname }
   for (const user of users) {
     const nick = user.nickname || shortId(user.id);
     voiceNicknames[user.id] = nick;
@@ -847,12 +841,9 @@ socket.on('existing-voice-users', (users) => {
   }
 });
 
-// Новый участник голосового чата с ником
 socket.on('voice-user-joined', (data) => {
-  // data может быть объектом { id, nickname } или строкой (старый формат)
   const uid  = (typeof data === 'object') ? data.id       : data;
   const nick = (typeof data === 'object') ? data.nickname : shortId(data);
-
   playBeep('join');
   voiceNicknames[uid] = nick;
   addParticipant(uid, nick, false);
@@ -864,7 +855,6 @@ socket.on('voice-user-joined', (data) => {
 });
 
 socket.on('offer', async ({ from, offer, nickname }) => {
-  // Сохраняем ник из оффера если пришёл
   if (nickname) voiceNicknames[from] = nickname;
   if (!localStream) {
     pendingOffers.push({ from, offer, nickname });
@@ -875,7 +865,6 @@ socket.on('offer', async ({ from, offer, nickname }) => {
 
 async function handleOffer(from, offer, nickname) {
   if (!offer) return;
-  // Обновляем ник участника если пришёл
   if (nickname) {
     voiceNicknames[from] = nickname;
     updateParticipantName(from, nickname);
@@ -890,7 +879,6 @@ async function handleOffer(from, offer, nickname) {
 }
 
 socket.on('answer', async ({ from, answer, nickname }) => {
-  // Сохраняем ник из ответа
   if (nickname) {
     voiceNicknames[from] = nickname;
     updateParticipantName(from, nickname);
@@ -933,7 +921,6 @@ socket.on('understood', ({ from, nickname }) => {
 // ═══════════════════════════════════════════════
 function addParticipant(userId, nickname, isMe) {
   if (document.getElementById('p-' + userId)) {
-    // Если уже есть — обновляем имя
     updateParticipantName(userId, nickname);
     return;
   }
@@ -972,7 +959,6 @@ function addParticipant(userId, nickname, isMe) {
   }
 }
 
-// Обновляем имя участника в списке
 function updateParticipantName(userId, nickname) {
   const nameEl = document.getElementById('pname-' + userId);
   if (!nameEl) return;
@@ -1055,12 +1041,12 @@ async function getMicStream() {
   return navigator.mediaDevices.getUserMedia({
     video: false,
     audio: {
-      echoCancellation:     true,
-      noiseSuppression:     true,
-      autoGainControl:      true,
-      sampleRate:           48000,
-      channelCount:         1,      // моно — стабильнее на слабом канале
-      latency:              0
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl:  true,
+      sampleRate:       48000,
+      channelCount:     1,
+      latency:          0
     }
   });
 }
@@ -1080,7 +1066,7 @@ async function buildAudioPipeline(rawStream) {
   hpf.frequency.value = 80;
   hpf.Q.value         = 0.7;
 
-  var compressor           = audioCtx.createDynamicsCompressor();
+  var compressor             = audioCtx.createDynamicsCompressor();
   compressor.threshold.value = -24;
   compressor.knee.value      = 8;
   compressor.ratio.value     = 4;
@@ -1091,7 +1077,7 @@ async function buildAudioPipeline(rawStream) {
     processorOptions: { threshold: 0.008, attack: 0.003, release: 0.08, smoothing: 0.92 },
     numberOfInputs:   1,
     numberOfOutputs:  1,
-    outputChannelCount: [[1]](#annotation-145738-0)  // моно — стабильнее
+    outputChannelCount: [1]
   });
 
   var outputGain        = audioCtx.createGain();
@@ -1109,12 +1095,11 @@ async function buildAudioPipeline(rawStream) {
 var iceServers = {
   iceServers: [
     { urls: 'stun:stun.relay.metered.ca:80' },
-    { urls: 'turn:global.relay.metered.ca:80',               username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
+    { urls: 'turn:global.relay.metered.ca:80',                username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
     { urls: 'turn:global.relay.metered.ca:80?transport=tcp',  username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
-    { urls: 'turn:global.relay.metered.ca:443',              username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
-    { urls: 'turns:global.relay.metered.ca:443?transport=tcp', username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' }
+    { urls: 'turn:global.relay.metered.ca:443',               username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
+    { urls: 'turns:global.relay.metered.ca:443?transport=tcp',username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' }
   ],
-  // Улучшение стабильности: собираем все кандидаты перед подключением
   iceCandidatePoolSize: 10,
   bundlePolicy:         'max-bundle',
   rtcpMuxPolicy:        'require'
@@ -1127,9 +1112,8 @@ function forceOpusMaxQuality(sdp) {
     var line = lines[i];
     if (line.includes('a=rtpmap') && line.toLowerCase().includes('opus')) {
       result.push(line);
-      var pt = line.split(':')[[1]](#annotation-145738-0).split(' ')[0];
+      var pt = line.split(':')[1].split(' ')[0];
       if (i + 1 < lines.length && lines[i + 1].startsWith('a=fmtp:' + pt)) i++;
-      // Оптимизация для плохой связи: FEC включён, DTX экономит полосу в тишине
       result.push('a=fmtp:' + pt + ' minptime=10;useinbandfec=1;stereo=0;sprop-stereo=0;maxaveragebitrate=64000;dtx=1;cbr=0');
       continue;
     }
@@ -1194,7 +1178,7 @@ function stopQualityMonitor(userId) {
 }
 
 // ═══════════════════════════════════════════════
-//  CREATE PEER — с автовосстановлением соединения
+//  CREATE PEER
 // ═══════════════════════════════════════════════
 function createPeer(userId, isInitiator) {
   var peer   = new RTCPeerConnection(iceServers);
@@ -1205,23 +1189,21 @@ function createPeer(userId, isInitiator) {
     if (sender.track && sender.track.kind === 'audio') {
       var p = sender.getParameters();
       if (!p.encodings) p.encodings = [{}];
-      p.encodings[0].maxBitrate     = 64000;   // разумный лимит для голоса
-      p.encodings[0].priority       = 'high';
+      p.encodings[0].maxBitrate      = 64000;
+      p.encodings[0].priority        = 'high';
       p.encodings[0].networkPriority = 'high';
       sender.setParameters(p).catch(function() {});
     }
   });
 
-  // Счётчик попыток рестарта — защита от бесконечной петли
-  var restartAttempts  = 0;
+  var restartAttempts    = 0;
   var maxRestartAttempts = 5;
-  var restartTimer     = null;
+  var restartTimer       = null;
 
   function tryRestart() {
     if (restartAttempts >= maxRestartAttempts) return;
     restartAttempts++;
     clearTimeout(restartTimer);
-    // Экспоненциальная задержка: 2с, 4с, 8с…
     var delay = Math.min(2000 * Math.pow(2, restartAttempts - 1), 30000);
     restartTimer = setTimeout(function() {
       if (peer.connectionState === 'failed' || peer.iceConnectionState === 'failed') {
@@ -1240,7 +1222,6 @@ function createPeer(userId, isInitiator) {
       startQualityMonitor(userId, peer, false);
     }
     if (peer.connectionState === 'failed') tryRestart();
-    // disconnected — даём 4 секунды, потом пробуем рестарт
     if (peer.connectionState === 'disconnected') {
       restartTimer = setTimeout(function() {
         if (peer.connectionState === 'disconnected' || peer.connectionState === 'failed') {
@@ -1300,7 +1281,6 @@ function hangUp() {
   Object.keys(qualityTimers).forEach(function(id) { stopQualityMonitor(id); });
   Object.values(peers).forEach(function(p) { p.close(); });
   peers = {};
-  // Очищаем ники
   for (var k in voiceNicknames) delete voiceNicknames[k];
   if (localStream) { localStream.getTracks().forEach(function(t) { t.stop(); }); localStream = null; }
   if (noiseWorklet) { try { noiseWorklet.disconnect(); } catch (_) {} noiseWorklet = null; }
