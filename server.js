@@ -4,13 +4,10 @@ const http       = require('http');
 const fs         = require('fs');
 const { Server } = require('socket.io');
 const path       = require('path');
-const nodeCrypto = require('crypto'); // встроенный Node.js crypto
+const nodeCrypto = require('crypto');
 
 const app = express();
 
-// ════════════════════════════════════════════
-//  7. CSP — Content Security Policy заголовки
-// ════════════════════════════════════════════
 app.use((req, res, next) => {
   res.setHeader('Content-Security-Policy',
     "default-src 'self'; " +
@@ -53,90 +50,76 @@ const io = new Server(server, {
   cors:              { origin: '*' }
 });
 
-const rooms   = new Map();
-const clients = new Map();
+// ════════════════════════════════════════════
+//  ХРАНИЛИЩА
+// ════════════════════════════════════════════
+const rooms   = new Map(); // roomId → room
+const clients = new Map(); // socketId → client
+
+// База пользователей: nickname(lower) → userData
+const users = new Map();
+// Токены автовхода: token → nickname(lower)
+const authTokens = new Map();
 
 const ROOM_EMPTY_TIMEOUT = 60 * 60 * 1000;
 
 // ════════════════════════════════════════════
-//  2. RATE LIMITING — защита от брутфорса
+//  RATE LIMITING
 // ════════════════════════════════════════════
-// Хранит: IP → { attempts, blockedUntil }
 const bruteForceMap = new Map();
-
-const BRUTE_MAX_ATTEMPTS = 5;    // попыток до блокировки
-const BRUTE_WINDOW_MS    = 60 * 1000;   // окно 1 минута
-const BRUTE_BLOCK_MS     = 5 * 60 * 1000; // блокировка 5 минут
+const BRUTE_MAX_ATTEMPTS = 5;
+const BRUTE_WINDOW_MS    = 60 * 1000;
+const BRUTE_BLOCK_MS     = 5 * 60 * 1000;
 
 function getClientIp(socket) {
   return socket.handshake.headers['x-forwarded-for']?.split(',')[0]?.trim()
-    || socket.handshake.address
-    || 'unknown';
+    || socket.handshake.address || 'unknown';
 }
-
 function checkBruteForce(ip) {
-  const now  = Date.now();
+  const now   = Date.now();
   const entry = bruteForceMap.get(ip);
-
   if (entry?.blockedUntil && now < entry.blockedUntil) {
-    const secsLeft = Math.ceil((entry.blockedUntil - now) / 1000);
-    return { blocked: true, secsLeft };
+    return { blocked: true, secsLeft: Math.ceil((entry.blockedUntil - now) / 1000) };
   }
-
   return { blocked: false };
 }
-
 function recordFailedAttempt(ip) {
   const now   = Date.now();
   const entry = bruteForceMap.get(ip) || { attempts: 0, firstAttempt: now, blockedUntil: null };
-
-  // Сбрасываем если прошло окно
   if (now - entry.firstAttempt > BRUTE_WINDOW_MS) {
-    entry.attempts    = 0;
-    entry.firstAttempt = now;
-    entry.blockedUntil = null;
+    entry.attempts = 0; entry.firstAttempt = now; entry.blockedUntil = null;
   }
-
   entry.attempts++;
-
-  if (entry.attempts >= BRUTE_MAX_ATTEMPTS) {
-    entry.blockedUntil = now + BRUTE_BLOCK_MS;
-    console.log(`IP ${ip} blocked for brute force`);
-  }
-
+  if (entry.attempts >= BRUTE_MAX_ATTEMPTS) entry.blockedUntil = now + BRUTE_BLOCK_MS;
   bruteForceMap.set(ip, entry);
 }
+function recordSuccessAttempt(ip) { bruteForceMap.delete(ip); }
 
-function recordSuccessAttempt(ip) {
-  bruteForceMap.delete(ip);
-}
-
-// Чистим старые записи каждые 10 минут
 setInterval(() => {
   const now = Date.now();
   for (const [ip, entry] of bruteForceMap) {
-    if (entry.blockedUntil && now > entry.blockedUntil + BRUTE_BLOCK_MS) {
-      bruteForceMap.delete(ip);
-    } else if (!entry.blockedUntil && now - entry.firstAttempt > BRUTE_WINDOW_MS * 2) {
-      bruteForceMap.delete(ip);
-    }
+    if (entry.blockedUntil && now > entry.blockedUntil + BRUTE_BLOCK_MS) bruteForceMap.delete(ip);
+    else if (!entry.blockedUntil && now - entry.firstAttempt > BRUTE_WINDOW_MS * 2) bruteForceMap.delete(ip);
   }
 }, 10 * 60 * 1000);
 
 // ════════════════════════════════════════════
-//  1. SHA-256 хеш пароля (вместо слабого хеша)
+//  УТИЛИТЫ
 // ════════════════════════════════════════════
 function hashPassword(pw) {
   if (!pw) return null;
-  // SHA-256 через встроенный Node.js crypto — без зависимостей
   return nodeCrypto.createHash('sha256').update(pw + 'voicechat-pw-salt-v1').digest('hex');
 }
-
 function generateRoomId() {
-  // Криптографически случайный ID вместо Math.random()
   return nodeCrypto.randomBytes(3).toString('hex').toUpperCase();
 }
+function generateToken() {
+  return nodeCrypto.randomBytes(32).toString('hex');
+}
 
+// ════════════════════════════════════════════
+//  КОМНАТЫ
+// ════════════════════════════════════════════
 function getRoomList() {
   const list = [];
   const now  = Date.now();
@@ -147,293 +130,510 @@ function getRoomList() {
       hasPassword: !!room.passwordHash,
       photo:       room.photo || null,
       memberCount: room.members.size,
-      createdAt:   room.createdAt
+      createdAt:   room.createdAt,
+      ownerId:     room.ownerNick || null
     };
     if (room.members.size === 0 && room.emptyAt) {
-      const msLeft = ROOM_EMPTY_TIMEOUT - (now - room.emptyAt);
-      entry.deleteAt = now + Math.max(0, msLeft);
+      entry.deleteAt = now + Math.max(0, ROOM_EMPTY_TIMEOUT - (now - room.emptyAt));
     }
     list.push(entry);
   }
   return list;
 }
-
-function broadcastRoomList() {
-  io.emit('room-list', getRoomList());
-}
+function broadcastRoomList() { io.emit('room-list', getRoomList()); }
 
 function scheduleRoomDelete(roomId) {
   const room = rooms.get(roomId);
-  if (!room) return;
-  if (room.emptyTimer) return;
+  if (!room || room.emptyTimer) return;
   room.emptyAt    = Date.now();
   room.emptyTimer = setTimeout(() => {
     const r = rooms.get(roomId);
-    if (r && r.members.size === 0) {
-      rooms.delete(roomId);
-      console.log(`Room ${roomId} deleted after 60min empty`);
-      broadcastRoomList();
-    }
+    if (r && r.members.size === 0) { rooms.delete(roomId); broadcastRoomList(); }
   }, ROOM_EMPTY_TIMEOUT);
   broadcastRoomList();
 }
-
 function cancelRoomDelete(roomId) {
   const room = rooms.get(roomId);
-  if (!room) return;
-  if (room.emptyTimer) {
-    clearTimeout(room.emptyTimer);
-    room.emptyTimer = null;
-    room.emptyAt    = null;
-    broadcastRoomList();
-  }
+  if (!room || !room.emptyTimer) return;
+  clearTimeout(room.emptyTimer);
+  room.emptyTimer = null;
+  room.emptyAt    = null;
+  broadcastRoomList();
 }
 
+// ════════════════════════════════════════════
+//  SOCKET.IO
+// ════════════════════════════════════════════
 io.on('connection', (socket) => {
   console.log('Connected:', socket.id);
-  clients.set(socket.id, { nickname: '', roomId: null });
-
+  clients.set(socket.id, { nickname: '', nickLower: '', roomId: null, authed: false });
   const clientIp = getClientIp(socket);
 
-  // ── Установить ник ──
+  // ── Отправить список комнат без авторизации ──
+  socket.emit('room-list', getRoomList());
+
+  // ════════════════════════════
+  //  АУТЕНТИФИКАЦИЯ
+  // ════════════════════════════
+
+  // Регистрация
+  socket.on('auth-register', ({ nickname, password, hint }, cb) => {
+    const nick  = String(nickname || '').trim().slice(0, 32);
+    const lower = nick.toLowerCase();
+    if (!nick || nick.length < 2)
+      return cb({ ok: false, error: 'nick_short' });
+    if (!password || password.length < 4)
+      return cb({ ok: false, error: 'pw_short' });
+    if (users.has(lower))
+      return cb({ ok: false, error: 'nick_taken' });
+
+    const token = generateToken();
+    users.set(lower, {
+      nickname: nick,
+      passwordHash: hashPassword(password),
+      hint: String(hint || '').trim().slice(0, 100),
+      avatar: null,
+      friends: [],       // [nickLower, ...]
+      friendRequests: [], // входящие
+      createdAt: Date.now()
+    });
+    authTokens.set(token, lower);
+
+    const client     = clients.get(socket.id);
+    client.nickname  = nick;
+    client.nickLower = lower;
+    client.authed    = true;
+
+    cb({ ok: true, token, nickname: nick, avatar: null });
+  });
+
+  // Вход по паролю
+  socket.on('auth-login', ({ nickname, password }, cb) => {
+    const lower = String(nickname || '').trim().toLowerCase();
+    const bf    = checkBruteForce(clientIp + ':login');
+    if (bf.blocked) return cb({ ok: false, error: 'rate_limited', secsLeft: bf.secsLeft });
+
+    const user = users.get(lower);
+    if (!user || user.passwordHash !== hashPassword(password)) {
+      recordFailedAttempt(clientIp + ':login');
+      return setTimeout(() => cb({ ok: false, error: 'wrong_creds' }), 800);
+    }
+    recordSuccessAttempt(clientIp + ':login');
+
+    const token = generateToken();
+    authTokens.set(token, lower);
+
+    const client     = clients.get(socket.id);
+    client.nickname  = user.nickname;
+    client.nickLower = lower;
+    client.authed    = true;
+
+    cb({ ok: true, token, nickname: user.nickname, avatar: user.avatar || null });
+  });
+
+  // Авто-вход по токену
+  socket.on('auth-token', ({ token }, cb) => {
+    const lower = authTokens.get(token);
+    const user  = lower ? users.get(lower) : null;
+    if (!user) return cb({ ok: false, error: 'invalid_token' });
+
+    const client     = clients.get(socket.id);
+    client.nickname  = user.nickname;
+    client.nickLower = lower;
+    client.authed    = true;
+
+    cb({ ok: true, nickname: user.nickname, avatar: user.avatar || null });
+  });
+
+  // Выход
+  socket.on('auth-logout', ({ token }, cb) => {
+    if (token) authTokens.delete(token);
+    const client = clients.get(socket.id);
+    if (client) { client.authed = false; client.nickname = ''; client.nickLower = ''; }
+    cb && cb({ ok: true });
+  });
+
+  // Подсказка пароля
+  socket.on('auth-get-hint', ({ nickname }, cb) => {
+    const lower = String(nickname || '').trim().toLowerCase();
+    const user  = users.get(lower);
+    if (!user) return cb({ ok: false, error: 'not_found' });
+    cb({ ok: true, hint: user.hint || '' });
+  });
+
+  // ════════════════════════════
+  //  ПРОФИЛЬ
+  // ════════════════════════════
+
+  // Получить свой профиль
+  socket.on('profile-get', (cb) => {
+    const client = clients.get(socket.id);
+    if (!client?.authed) return cb({ ok: false, error: 'not_authed' });
+    const user = users.get(client.nickLower);
+    if (!user) return cb({ ok: false });
+    cb({
+      ok: true,
+      nickname: user.nickname,
+      avatar:   user.avatar || null,
+      hint:     user.hint   || '',
+      friends:  user.friends || [],
+      friendRequests: user.friendRequests || []
+    });
+  });
+
+  // Обновить аватар
+  socket.on('profile-set-avatar', ({ avatar }, cb) => {
+    const client = clients.get(socket.id);
+    if (!client?.authed) return cb({ ok: false, error: 'not_authed' });
+    const user = users.get(client.nickLower);
+    if (!user) return cb({ ok: false });
+    user.avatar = avatar || null;
+    // Уведомить всех в комнате об обновлении аватара
+    if (client.roomId) {
+      socket.to(client.roomId).emit('user-avatar-updated', {
+        nickLower: client.nickLower,
+        nickname:  client.nickname,
+        avatar:    user.avatar
+      });
+    }
+    cb({ ok: true });
+  });
+
+  // Получить профиль другого пользователя
+  socket.on('profile-get-user', ({ nickname }, cb) => {
+    const lower = String(nickname || '').trim().toLowerCase();
+    const user  = users.get(lower);
+    if (!user) return cb({ ok: false, error: 'not_found' });
+    cb({
+      ok:       true,
+      nickname: user.nickname,
+      avatar:   user.avatar || null
+    });
+  });
+
+  // ════════════════════════════
+  //  ДРУЗЬЯ
+  // ════════════════════════════
+
+  // Отправить запрос в друзья
+  socket.on('friend-request', ({ toNickname }, cb) => {
+    const client = clients.get(socket.id);
+    if (!client?.authed) return cb({ ok: false, error: 'not_authed' });
+    const toLower  = String(toNickname || '').trim().toLowerCase();
+    const fromUser = users.get(client.nickLower);
+    const toUser   = users.get(toLower);
+    if (!toUser)                            return cb({ ok: false, error: 'not_found' });
+    if (toLower === client.nickLower)       return cb({ ok: false, error: 'self' });
+    if (fromUser.friends.includes(toLower)) return cb({ ok: false, error: 'already_friends' });
+    if (toUser.friendRequests.includes(client.nickLower))
+      return cb({ ok: false, error: 'already_sent' });
+
+    toUser.friendRequests.push(client.nickLower);
+
+    // Уведомить онлайн пользователя
+    for (const [sid, cl] of clients) {
+      if (cl.nickLower === toLower && cl.authed) {
+        io.to(sid).emit('friend-request-incoming', {
+          fromNick: fromUser.nickname,
+          fromLower: client.nickLower,
+          avatar:   fromUser.avatar || null
+        });
+      }
+    }
+    cb({ ok: true });
+  });
+
+  // Принять / отклонить запрос
+  socket.on('friend-respond', ({ fromNickname, accept }, cb) => {
+    const client   = clients.get(socket.id);
+    if (!client?.authed) return cb({ ok: false, error: 'not_authed' });
+    const fromLower = String(fromNickname || '').trim().toLowerCase();
+    const myUser    = users.get(client.nickLower);
+    const fromUser  = users.get(fromLower);
+    if (!fromUser) return cb({ ok: false, error: 'not_found' });
+
+    myUser.friendRequests = myUser.friendRequests.filter(n => n !== fromLower);
+    if (accept) {
+      if (!myUser.friends.includes(fromLower))   myUser.friends.push(fromLower);
+      if (!fromUser.friends.includes(client.nickLower)) fromUser.friends.push(client.nickLower);
+      // Уведомить того кто отправил
+      for (const [sid, cl] of clients) {
+        if (cl.nickLower === fromLower && cl.authed) {
+          io.to(sid).emit('friend-accepted', {
+            byNick:  myUser.nickname,
+            byLower: client.nickLower,
+            avatar:  myUser.avatar || null
+          });
+        }
+      }
+    }
+    cb({ ok: true });
+  });
+
+  // Удалить из друзей
+  socket.on('friend-remove', ({ nickname }, cb) => {
+    const client  = clients.get(socket.id);
+    if (!client?.authed) return cb({ ok: false, error: 'not_authed' });
+    const lower   = String(nickname || '').trim().toLowerCase();
+    const myUser  = users.get(client.nickLower);
+    const theirUser = users.get(lower);
+    if (myUser)    myUser.friends    = myUser.friends.filter(n => n !== lower);
+    if (theirUser) theirUser.friends = theirUser.friends.filter(n => n !== client.nickLower);
+    cb({ ok: true });
+  });
+
+  // Список друзей с данными
+  socket.on('friends-list', (cb) => {
+    const client = clients.get(socket.id);
+    if (!client?.authed) return cb({ ok: false, error: 'not_authed' });
+    const myUser = users.get(client.nickLower);
+    if (!myUser) return cb({ ok: false });
+    const list = myUser.friends.map(lower => {
+      const u = users.get(lower);
+      return u ? { nickname: u.nickname, avatar: u.avatar || null, lower } : null;
+    }).filter(Boolean);
+    cb({ ok: true, friends: list, requests: myUser.friendRequests.map(lower => {
+      const u = users.get(lower);
+      return u ? { nickname: u.nickname, avatar: u.avatar || null, lower } : null;
+    }).filter(Boolean) });
+  });
+
+  // ════════════════════════════
+  //  СОВМЕСТИМОСТЬ: set-nickname
+  // ════════════════════════════
   socket.on('set-nickname', (nickname, cb) => {
+    const client = clients.get(socket.id);
+    if (client?.authed) {
+      socket.emit('room-list', getRoomList());
+      return cb && cb({ ok: true });
+    }
     const nick = String(nickname || '').trim().slice(0, 32);
     if (!nick) { cb && cb({ ok: false, error: 'empty' }); return; }
-    clients.get(socket.id).nickname = nick;
+    client.nickname  = nick;
+    client.nickLower = nick.toLowerCase();
     socket.emit('room-list', getRoomList());
     cb && cb({ ok: true });
   });
 
-  // ── Создать комнату ──
+  // ════════════════════════════
+  //  КОМНАТЫ
+  // ════════════════════════════
   socket.on('create-room', ({ name, password, photo }, cb) => {
     const client = clients.get(socket.id);
-    if (!client?.nickname) { cb && cb({ ok: false, error: 'no_nick' }); return; }
-
+    if (!client?.nickname) return cb({ ok: false, error: 'no_nick' });
     const roomName = String(name || '').trim().slice(0, 50);
-    if (!roomName) { cb && cb({ ok: false, error: 'empty_name' }); return; }
-
-    const id = generateRoomId();
-
-    // ── 3. Соль комнаты для усиления ключа шифрования ──
-    // Генерируем случайную соль — клиент получит её и использует в PBKDF2
+    if (!roomName) return cb({ ok: false, error: 'empty_name' });
+    const id       = generateRoomId();
     const roomSalt = nodeCrypto.randomBytes(16).toString('hex');
-
     rooms.set(id, {
-      id,
-      name:         roomName,
+      id, name: roomName,
       passwordHash: hashPassword(password || ''),
-      photo:        photo || null,
-      ownerId:      socket.id,
-      members:      new Set(),
-      createdAt:    Date.now(),
-      emptyTimer:   null,
-      emptyAt:      null,
-      salt:         roomSalt,   // уникальная соль для ключа шифрования
+      photo: photo || null,
+      ownerId:   socket.id,
+      ownerNick: client.nickLower,
+      members:   new Set(),
+      createdAt: Date.now(),
+      emptyTimer: null, emptyAt: null,
+      salt: roomSalt,
+      lastSeq: new Map()
     });
-
     broadcastRoomList();
-    // Возвращаем соль создателю
-    cb && cb({ ok: true, roomId: id, roomSalt });
+    cb({ ok: true, roomId: id, roomSalt });
   });
 
-  // ── Войти в комнату ──
-  socket.on('join-room', ({ roomId, password }, cb) => {
+  // Переименование комнаты (только создатель)
+  socket.on('room-rename', ({ roomId, newName }, cb) => {
     const client = clients.get(socket.id);
-    if (!client?.nickname) { cb && cb({ ok: false, error: 'no_nick' }); return; }
+    const room   = rooms.get(roomId);
+    if (!room) return cb({ ok: false, error: 'not_found' });
+    // Проверяем: либо socketId совпадает, либо nickLower совпадает
+    if (room.ownerId !== socket.id && room.ownerNick !== client.nickLower)
+      return cb({ ok: false, error: 'not_owner' });
+    const name = String(newName || '').trim().slice(0, 50);
+    if (!name) return cb({ ok: false, error: 'empty_name' });
+    room.name = name;
+    broadcastRoomList();
+    io.to(roomId).emit('room-renamed', { roomId, newName: name });
+    cb({ ok: true });
+  });
 
+  // Список участников комнаты
+  socket.on('room-members', ({ roomId }, cb) => {
     const room = rooms.get(roomId);
-    if (!room) { cb && cb({ ok: false, error: 'not_found' }); return; }
+    if (!room) return cb({ ok: false, error: 'not_found' });
+    const list = [...room.members].map(sid => {
+      const cl = clients.get(sid);
+      const u  = cl?.nickLower ? users.get(cl.nickLower) : null;
+      return {
+        id:       sid,
+        nickname: cl?.nickname || shortId(sid),
+        avatar:   u?.avatar || null,
+        isOwner:  sid === room.ownerId || (cl?.nickLower && cl.nickLower === room.ownerNick)
+      };
+    });
+    cb({ ok: true, members: list });
+  });
 
-    // ── 2. Проверка rate limiting ──
-    const bf = checkBruteForce(clientIp);
-    if (bf.blocked) {
-      cb && cb({ ok: false, error: 'rate_limited', secsLeft: bf.secsLeft });
-      return;
-    }
-
-    if (room.passwordHash) {
-      const inputHash = hashPassword(password || '');
-      if (inputHash !== room.passwordHash) {
-        recordFailedAttempt(clientIp);
-        setTimeout(() => cb && cb({ ok: false, error: 'wrong_password' }), 800);
-        return;
+  // Пригласить в комнату (отправить уведомление)
+  socket.on('room-invite', ({ toNickname, roomId }, cb) => {
+    const client = clients.get(socket.id);
+    if (!client?.authed) return cb({ ok: false, error: 'not_authed' });
+    const room = rooms.get(roomId);
+    if (!room) return cb({ ok: false, error: 'room_not_found' });
+    const toLower = String(toNickname || '').trim().toLowerCase();
+    // Найти сокет получателя
+    let sent = false;
+    for (const [sid, cl] of clients) {
+      if (cl.nickLower === toLower && cl.authed) {
+        io.to(sid).emit('room-invite', {
+          fromNick:  client.nickname,
+          roomId:    room.id,
+          roomName:  room.name,
+          hasPassword: !!room.passwordHash
+        });
+        sent = true;
       }
     }
+    cb({ ok: true, online: sent });
+  });
 
-    // Успешный вход — сбрасываем счётчик
+  // ════════════════════════════
+  //  ВХОД В КОМНАТУ
+  // ════════════════════════════
+  socket.on('join-room', ({ roomId, password }, cb) => {
+    const client = clients.get(socket.id);
+    if (!client?.nickname) return cb({ ok: false, error: 'no_nick' });
+    const room = rooms.get(roomId);
+    if (!room) return cb({ ok: false, error: 'not_found' });
+
+    const bf = checkBruteForce(clientIp);
+    if (bf.blocked) return cb({ ok: false, error: 'rate_limited', secsLeft: bf.secsLeft });
+
+    if (room.passwordHash) {
+      if (hashPassword(password || '') !== room.passwordHash) {
+        recordFailedAttempt(clientIp);
+        return setTimeout(() => cb({ ok: false, error: 'wrong_password' }), 800);
+      }
+    }
     recordSuccessAttempt(clientIp);
 
-    if (client.roomId && client.roomId !== roomId) {
-      leaveRoom(socket, client.roomId);
-    }
-
+    if (client.roomId && client.roomId !== roomId) leaveRoom(socket, client.roomId);
     cancelRoomDelete(roomId);
     client.roomId = roomId;
     room.members.add(socket.id);
     socket.join(roomId);
 
-    const others = [...room.members].filter(id => id !== socket.id);
-    const membersInfo = others.map(id => ({
-      id,
-      nickname: clients.get(id)?.nickname || shortId(id)
-    }));
+    const others = [...room.members]
+      .filter(id => id !== socket.id)
+      .map(id => {
+        const cl = clients.get(id);
+        const u  = cl?.nickLower ? users.get(cl.nickLower) : null;
+        return { id, nickname: cl?.nickname || shortId(id), avatar: u?.avatar || null };
+      });
 
     socket.to(roomId).emit('room-user-joined', {
-      id:       socket.id,
-      nickname: client.nickname
+      id: socket.id, nickname: client.nickname,
+      avatar: (() => { const u = users.get(client.nickLower); return u?.avatar || null; })()
     });
 
     broadcastRoomList();
 
-    // Передаём соль комнаты — клиент использует её для генерации ключа
-    cb && cb({ ok: true, room: {
-      id:       room.id,
-      name:     room.name,
-      photo:    room.photo,
-      members:  membersInfo,
-      roomSalt: room.salt   // соль для шифрования
+    const myUser    = client.nickLower ? users.get(client.nickLower) : null;
+    const isOwner   = socket.id === room.ownerId || client.nickLower === room.ownerNick;
+
+    cb({ ok: true, room: {
+      id: room.id, name: room.name, photo: room.photo,
+      members: others, roomSalt: room.salt,
+      isOwner
     }});
   });
 
-  // ── WebRTC сигнализация ──
+  // ════════════════════════════
+  //  ЧАТ: СОВМЕСТИМОСТЬ
+  // ════════════════════════════
   socket.on('offer', ({ to, offer }) => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
     io.to(to).emit('offer', { from: socket.id, offer, nickname: client.nickname });
   });
-
   socket.on('answer', ({ to, answer }) => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
     io.to(to).emit('answer', { from: socket.id, answer, nickname: client.nickname });
   });
-
   socket.on('ice-candidate', ({ to, candidate }) => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
     io.to(to).emit('ice-candidate', { from: socket.id, candidate });
   });
-
-  // ── Голосовой чат ──
   socket.on('voice-join', () => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
-    const room = rooms.get(client.roomId);
+    const room   = rooms.get(client.roomId);
     if (!room) return;
-    const others = [...room.members].filter(id => id !== socket.id);
-    socket.to(client.roomId).emit('voice-user-joined', {
-      id:       socket.id,
-      nickname: client.nickname
-    });
-    const othersWithNicks = others.map(id => ({
-      id,
-      nickname: clients.get(id)?.nickname || shortId(id)
+    const others = [...room.members].filter(id => id !== socket.id).map(id => ({
+      id, nickname: clients.get(id)?.nickname || shortId(id)
     }));
-    socket.emit('existing-voice-users', othersWithNicks);
+    socket.to(client.roomId).emit('voice-user-joined', { id: socket.id, nickname: client.nickname });
+    socket.emit('existing-voice-users', others);
   });
-
   socket.on('voice-leave', () => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
     socket.to(client.roomId).emit('voice-user-left', socket.id);
   });
-
-  // ── Статус «печатает» ──
   socket.on('typing-start', () => {
     const client = clients.get(socket.id);
     if (!client?.roomId || !client.nickname) return;
-    socket.to(client.roomId).emit('typing-start', {
-      from:     socket.id,
-      nickname: client.nickname
-    });
+    socket.to(client.roomId).emit('typing-start', { from: socket.id, nickname: client.nickname });
   });
-
   socket.on('typing-stop', () => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
     socket.to(client.roomId).emit('typing-stop', { from: socket.id });
   });
-
-  // ── Чат-сообщение ──
-  // 9. Сервер НИКОГДА не логирует содержимое сообщений
   socket.on('chat-message', (data) => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
-
-    // 6. Защита от replay-атак: проверяем порядковый номер
     const seqNum = parseInt(data.seq);
     if (!Number.isInteger(seqNum) || seqNum < 0) return;
-
     const room = rooms.get(client.roomId);
     if (!room) return;
-
-    // Проверяем что номер больше последнего для этого клиента
     if (!room.lastSeq) room.lastSeq = new Map();
     const lastSeq = room.lastSeq.get(socket.id) || -1;
-    if (seqNum <= lastSeq) {
-      // Replay-атака или дубликат — отбрасываем
-      console.log(`Replay detected from ${socket.id}: seq ${seqNum} <= ${lastSeq}`);
-      return;
-    }
+    if (seqNum <= lastSeq) return;
     room.lastSeq.set(socket.id, seqNum);
-
     socket.to(client.roomId).emit('typing-stop', { from: socket.id });
     socket.to(client.roomId).emit('chat-message', {
-      from:      socket.id,
-      nickname:  client.nickname,
-      encrypted: data.encrypted,
-      iv:        data.iv,
-      type:      data.type,
-      fileName:  data.fileName,
-      fileSize:  data.fileSize,
-      mimeType:  data.mimeType,
-      seq:       seqNum,
-      timestamp: Date.now()
-      // содержимое НЕ логируется — только пересылается
+      from: socket.id, nickname: client.nickname,
+      encrypted: data.encrypted, iv: data.iv, type: data.type,
+      fileName: data.fileName, fileSize: data.fileSize, mimeType: data.mimeType,
+      seq: seqNum, timestamp: Date.now()
     });
   });
-
-  // ── Понял ──
   socket.on('understood', () => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
-    socket.to(client.roomId).emit('understood', {
-      from:     socket.id,
-      nickname: client.nickname
-    });
+    socket.to(client.roomId).emit('understood', { from: socket.id, nickname: client.nickname });
   });
-
-  // ── ECDH: обмен публичными ключами для Forward Secrecy ──
-  // 4. Клиент отправляет свой публичный ECDH ключ другому участнику
   socket.on('ecdh-pubkey', ({ to, pubkey }) => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
-    // Просто пересылаем — сервер ключ не видит и не хранит
     io.to(to).emit('ecdh-pubkey', { from: socket.id, pubkey, nickname: client.nickname });
   });
-
-  // 5. Верификация: обмен отпечатками ключей
   socket.on('key-fingerprint', ({ to, fingerprint }) => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
-    io.to(to).emit('key-fingerprint', {
-      from:        socket.id,
-      nickname:    client.nickname,
-      fingerprint
-    });
+    io.to(to).emit('key-fingerprint', { from: socket.id, nickname: client.nickname, fingerprint });
   });
-
-  // ── Покинуть комнату ──
   socket.on('leave-room', () => {
     const client = clients.get(socket.id);
     if (client?.roomId) leaveRoom(socket, client.roomId);
   });
-
   socket.on('disconnect', () => {
     const client = clients.get(socket.id);
     if (client?.roomId) leaveRoom(socket, client.roomId);
     clients.delete(socket.id);
-    console.log('Disconnected:', socket.id);
   });
 
   function leaveRoom(socket, roomId) {
@@ -441,17 +641,13 @@ io.on('connection', (socket) => {
     const client = clients.get(socket.id);
     if (room) {
       room.members.delete(socket.id);
-      // 9. Очищаем счётчик seq при выходе
       if (room.lastSeq) room.lastSeq.delete(socket.id);
       socket.to(roomId).emit('room-user-left', socket.id);
       socket.to(roomId).emit('voice-user-left', socket.id);
       socket.to(roomId).emit('typing-stop', { from: socket.id });
       socket.leave(roomId);
-      if (room.members.size === 0) {
-        scheduleRoomDelete(roomId);
-      } else {
-        broadcastRoomList();
-      }
+      if (room.members.size === 0) scheduleRoomDelete(roomId);
+      else broadcastRoomList();
     }
     if (client) client.roomId = null;
   }
