@@ -94,27 +94,30 @@ const chatBadge        = document.getElementById('chat-badge');
 const lightbox         = document.getElementById('lightbox');
 const lightboxContent  = document.getElementById('lightbox-content');
 const lightboxClose    = document.getElementById('lightbox-close');
+const noiseIndicator   = document.getElementById('noise-indicator');
 
-let localStream     = null;
-let peers           = {};
-let micEnabled      = true;
-let pendingOffers   = [];
-let joined          = false;
-let audioCtx        = null;
-let wakeLock        = null;
-let savedPassword   = '';
-let unreadCount     = 0;
-let chatOpen        = false;
-let pendingFileType = 'image/*';
-let msgCounter      = 0;
+let localStream      = null;   // сырой поток с микрофона
+let processedStream  = null;   // поток после обработки (идёт в WebRTC)
+let noiseWorklet     = null;   // AudioWorkletNode
+let peers            = {};
+let micEnabled       = true;
+let pendingOffers    = [];
+let joined           = false;
+let audioCtx         = null;
+let wakeLock         = null;
+let savedPassword    = '';
+let unreadCount      = 0;
+let chatOpen         = false;
+let pendingFileType  = 'image/*';
+let msgCounter       = 0;
 
-const analysers     = {};
-const qualityTimers = {};
+const analysers      = {};
+const qualityTimers  = {};
 
 // ═══════════════════════════════════════════════
 //  ЛОГ
 // ═══════════════════════════════════════════════
-const DEBUG = false; // true — включить логи, false — выключить
+const DEBUG = false;
 
 function log(msg) {
   if (!DEBUG) return;
@@ -190,7 +193,7 @@ function showPwError(msg) {
 
 function enterChat() {
   screenPassword.style.display = 'none';
-  screenMain.style.display     = 'block';
+  screenMain.classList.add('active');
   secureBadge.classList.add('visible');
   btnChatOpen.classList.add('visible');
   socket.connect();
@@ -203,7 +206,6 @@ btnChatOpen.addEventListener('click', openChat);
 btnClosChat.addEventListener('click', closeChat);
 
 function openChat() {
-  chatPanel.classList.add('open');
   chatOpen    = true;
   unreadCount = 0;
   chatBadge.classList.remove('visible');
@@ -212,7 +214,6 @@ function openChat() {
 }
 
 function closeChat() {
-  chatPanel.classList.remove('open');
   chatOpen = false;
 }
 
@@ -284,9 +285,7 @@ fileInput.addEventListener('change', async () => {
   if (isImage) {
     MediaEditor.openPhoto(
       file,
-      async (blob, mimeType, fileName) => {
-        await sendMediaBlob(blob, mimeType, fileName, 'image');
-      },
+      async (blob, mimeType, fileName) => { await sendMediaBlob(blob, mimeType, fileName, 'image'); },
       () => {}
     );
     return;
@@ -295,9 +294,7 @@ fileInput.addEventListener('change', async () => {
   if (isVideo) {
     MediaEditor.openVideo(
       file,
-      async (blob, mimeType, fileName) => {
-        await sendMediaBlob(blob, mimeType, fileName, 'video');
-      },
+      async (blob, mimeType, fileName) => { await sendMediaBlob(blob, mimeType, fileName, 'video'); },
       () => {}
     );
     return;
@@ -402,11 +399,10 @@ function updateMessage(id, updates) {
   const mimeType = div.dataset.mimeType;
   const fileName = div.dataset.fileName;
   const fileSize = div.dataset.fileSize;
-  const mine     = div.classList.contains('mine');
 
   const content = div.querySelector('.msg-content');
   if (content) {
-    content.innerHTML = buildContentHTML({ type, mimeType, fileName, fileSize, mine, ...updates });
+    content.innerHTML = buildContentHTML({ type, mimeType, fileName, fileSize, ...updates });
     bindMediaEvents(div);
   }
 
@@ -421,8 +417,8 @@ function updateMessage(id, updates) {
 }
 
 function buildMsgHTML(msg) {
-  const time   = new Date(msg.timestamp||Date.now()).toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'});
-  const sender = msg.mine ? '' : `<div class="msg-sender">👤 ${shortId(msg.from)}</div>`;
+  const time        = new Date(msg.timestamp||Date.now()).toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'});
+  const sender      = msg.mine ? '' : `<div class="msg-sender">👤 ${shortId(msg.from)}</div>`;
   const statusText  = msg.status==='ok'    ? '🔓 расшифровано'
     : msg.status==='error'                 ? '⚠️ ошибка расшифровки'
     : '⏳ расшифровываем…';
@@ -542,20 +538,125 @@ async function releaseWakeLock() {
 // ═══════════════════════════════════════════════
 function startKeepAlive() {
   try {
-    const ctx    = new (window.AudioContext||window.webkitAudioContext)();
-    const buf    = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
-    const src    = ctx.createBufferSource();
-    const dest   = ctx.createMediaStreamDestination();
-    src.buffer   = buf; src.loop = true;
+    const ctx  = new (window.AudioContext||window.webkitAudioContext)();
+    const buf  = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    const src  = ctx.createBufferSource();
+    const dest = ctx.createMediaStreamDestination();
+    src.buffer = buf; src.loop = true;
     src.connect(dest); src.start();
     keepAliveAudio.srcObject = dest.stream;
-    keepAliveAudio.play().catch(e=>log('KeepAlive: '+e.message));
+    keepAliveAudio.play().catch(e => log('KeepAlive: '+e.message));
   } catch(e) { log('KeepAlive init: '+e.message); }
 }
 
 function stopKeepAlive() {
   keepAliveAudio.srcObject = null;
   keepAliveAudio.pause();
+}
+
+// ═══════════════════════════════════════════════
+//  AUDIO PIPELINE — шумоподавление
+//
+//  Цепочка обработки:
+//    rawStream (микрофон)
+//      → MediaStreamSource
+//      → HighPassFilter  (убирает гул ниже 80 Гц)
+//      → DynamicsCompressor (выравнивает громкость голоса)
+//      → NoiseGateProcessor (AudioWorklet: гейт + вычитание шума)
+//      → OutputGain
+//      → MediaStreamDestination → processedStream (в WebRTC)
+// ═══════════════════════════════════════════════
+
+/**
+ * Запрашивает микрофон с максимальными подсказками браузеру.
+ * Возвращает сырой MediaStream.
+ */
+async function getMicStream() {
+  return navigator.mediaDevices.getUserMedia({
+    video: false,
+    audio: {
+      echoCancellation:  true,
+      noiseSuppression:  true,
+      autoGainControl:   true,
+      sampleRate:        48000,
+      sampleSize:        16,
+      channelCount:      2,
+      latency:           0,
+    }
+  });
+}
+
+/**
+ * Строит цепочку Web Audio обработки поверх сырого потока.
+ * Возвращает обработанный MediaStream для передачи в WebRTC.
+ * При любой ошибке возвращает исходный rawStream (фоллбэк).
+ */
+async function buildAudioPipeline(rawStream) {
+  // Создаём / переиспользуем AudioContext
+  if (!audioCtx || audioCtx.state === 'closed') {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)({
+      sampleRate:  48000,
+      latencyHint: 'interactive',
+    });
+  }
+  if (audioCtx.state === 'suspended') await audioCtx.resume();
+
+  // Загружаем AudioWorklet (ошибка "already loaded" — не страшна)
+  try {
+    await audioCtx.audioWorklet.addModule('/audio-processor.js');
+    log('AudioWorklet loaded');
+  } catch(e) {
+    log('AudioWorklet load: ' + e.message);
+  }
+
+  const source = audioCtx.createMediaStreamSource(rawStream);
+
+  // ── 1. High-pass фильтр — срезаем гул ниже 80 Гц ──
+  const hpf           = audioCtx.createBiquadFilter();
+  hpf.type            = 'highpass';
+  hpf.frequency.value = 80;
+  hpf.Q.value         = 0.7;
+
+  // ── 2. DynamicsCompressor — выравниваем уровень голоса ──
+  const compressor           = audioCtx.createDynamicsCompressor();
+  compressor.threshold.value = -24;   // начинаем сжимать с -24 дБ
+  compressor.knee.value      = 8;     // мягкое колено
+  compressor.ratio.value     = 4;     // 4:1
+  compressor.attack.value    = 0.003;
+  compressor.release.value   = 0.15;
+
+  // ── 3. Noise Gate (AudioWorklet) ──
+  noiseWorklet = new AudioWorkletNode(audioCtx, 'noise-gate-processor', {
+    processorOptions: {
+      threshold: 0.008,  // порог срабатывания гейта
+      attack:    0.003,
+      release:   0.08,
+      smoothing: 0.92,
+    },
+    numberOfInputs:     1,
+    numberOfOutputs:    1,
+    outputChannelCount: [[2]](#annotation-145666-1),
+  });
+
+  // ── 4. Выходное усиление ──
+  const outputGain       = audioCtx.createGain();
+  outputGain.gain.value  = 1.1;
+
+  // ── 5. Назначение → обработанный MediaStream ──
+  const destination = audioCtx.createMediaStreamDestination();
+
+  // Собираем цепочку
+  source
+    .connect(hpf)
+    .connect(compressor)
+    .connect(noiseWorklet)
+    .connect(outputGain)
+    .connect(destination);
+
+  if (noiseIndicator) noiseIndicator.classList.add('visible');
+  log('Audio pipeline: HPF → Compressor → NoiseGate → Output');
+
+  return destination.stream;
 }
 
 // ═══════════════════════════════════════════════
@@ -566,29 +667,48 @@ document.addEventListener('visibilitychange', async () => {
   await requestWakeLock();
 
   const tracks = localStream.getAudioTracks();
-  if (tracks.every(t => t.readyState==='ended')) {
+  if (tracks.every(t => t.readyState === 'ended')) {
     log('Tracks ended — reacquiring...');
     try {
-      const newStream = await navigator.mediaDevices.getUserMedia({
-        video:false,
-        audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,sampleRate:48000,channelCount:2}
-      });
-      const newTrack = newStream.getAudioTracks()[0];
-      for (const [uid, peer] of Object.entries(peers)) {
-        const sender = peer.getSenders().find(s=>s.track?.kind==='audio');
-        if (sender) { await sender.replaceTrack(newTrack); log('Replaced track for '+uid); }
+      const newRaw   = await getMicStream();
+      const newTrack = newRaw.getAudioTracks()[0];
+
+      // Заменяем трек во всех peer-соединениях
+      // Если был worklet — пересобираем pipeline
+      let newProcessed;
+      try {
+        newProcessed = await buildAudioPipeline(newRaw);
+      } catch(e) {
+        log('Pipeline rebuild fallback: ' + e.message);
+        newProcessed = newRaw;
       }
-      tracks.forEach(t=>{ localStream.removeTrack(t); t.stop(); });
+
+      for (const [uid, peer] of Object.entries(peers)) {
+        const senders = peer.getSenders();
+        // Заменяем трек из обработанного потока
+        const procTrack = newProcessed.getAudioTracks()[0];
+        const sender    = senders.find(s => s.track?.kind === 'audio');
+        if (sender && procTrack) {
+          await sender.replaceTrack(procTrack);
+          log('Replaced processed track for ' + uid);
+        }
+      }
+
+      // Останавливаем старые треки
+      tracks.forEach(t => { localStream.removeTrack(t); t.stop(); });
       localStream.addTrack(newTrack);
+      processedStream = newProcessed;
+
       stopVolumeAnalysis(socket.id);
       startVolumeAnalysis(socket.id, localStream);
       newTrack.enabled = micEnabled;
       log('Mic restored');
-    } catch(e) { log('Restore mic failed: '+e.message); }
+    } catch(e) { log('Restore mic failed: ' + e.message); }
   } else {
-    tracks.forEach(t=>{ t.enabled = micEnabled; });
+    tracks.forEach(t => { t.enabled = micEnabled; });
   }
-  if (audioCtx?.state==='suspended') { await audioCtx.resume(); log('AudioCtx resumed'); }
+
+  if (audioCtx?.state === 'suspended') { await audioCtx.resume(); log('AudioCtx resumed'); }
 });
 
 // ═══════════════════════════════════════════════
@@ -631,7 +751,7 @@ function playOkSound() {
       osc.type  = 'sine';
       osc.connect(gain);
       osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
-      gain.gain.setValueAtTime(0,    ctx.currentTime + start);
+      gain.gain.setValueAtTime(0,     ctx.currentTime + start);
       gain.gain.linearRampToValueAtTime(0.4,   ctx.currentTime + start + 0.04);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + 0.20);
       osc.start(ctx.currentTime + start);
@@ -677,7 +797,7 @@ function forceOpusMaxQuality(sdp) {
     const line = lines[i];
     if (line.includes('a=rtpmap') && line.toLowerCase().includes('opus')) {
       result.push(line);
-      const pt = line.split(':')[1].split(' ')[0];
+      const pt = line.split(':')[[1]](#annotation-145666-0).split(' ')[0];
       if (i+1<lines.length && lines[i+1].startsWith('a=fmtp:'+pt)) i++;
       result.push(`a=fmtp:${pt} minptime=10;useinbandfec=1;stereo=1;sprop-stereo=1;maxaveragebitrate=510000`);
       continue;
@@ -791,20 +911,26 @@ function removeParticipant(userId) {
 //  ГРОМКОСТЬ
 // ═══════════════════════════════════════════════
 function startVolumeAnalysis(userId, stream) {
-  if (!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)({ sampleRate:48000 });
+  // Переиспользуем audioCtx если уже создан pipeline,
+  // иначе создаём отдельный контекст для анализа
+  const ctx = audioCtx || new (window.AudioContext||window.webkitAudioContext)({ sampleRate:48000 });
+  if (!audioCtx) audioCtx = ctx;
+
   stopVolumeAnalysis(userId);
-  const source   = audioCtx.createMediaStreamSource(stream);
-  const analyser = audioCtx.createAnalyser();
+  const source   = ctx.createMediaStreamSource(stream);
+  const analyser = ctx.createAnalyser();
   analyser.fftSize = 512;
   source.connect(analyser);
   const data = new Uint8Array(analyser.frequencyBinCount);
+
   function tick() {
     if (!analysers[userId]) return;
     analyser.getByteFrequencyData(data);
-    let sum=0; for(let i=0;i<data.length;i++) sum+=data[i];
-    const pct = Math.min(100, (sum/data.length)*3);
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) sum += data[i];
+    const pct = Math.min(100, (sum / data.length) * 3);
     const bar = document.getElementById('vol-'+userId);
-    if (bar) { bar.style.width=pct+'%'; bar.className='volume-bar'+(pct>60?' loud':''); }
+    if (bar) { bar.style.width = pct+'%'; bar.className = 'volume-bar'+(pct>60?' loud':''); }
     analysers[userId].animFrame = requestAnimationFrame(tick);
   }
   analysers[userId] = { analyser, source, animFrame: requestAnimationFrame(tick) };
@@ -836,7 +962,7 @@ socket.on('auth-fail', () => {
   log('Auth FAIL');
   savedPassword = '';
   screenPassword.style.display = 'block';
-  screenMain.style.display     = 'none';
+  screenMain.classList.remove('active');
   secureBadge.classList.remove('visible');
   btnChatOpen.classList.remove('visible');
   showPwError('❌ Сессия истекла, войди заново');
@@ -868,14 +994,20 @@ socket.on('understood', ({ from }) => {
 // ═══════════════════════════════════════════════
 btnJoin.addEventListener('click', async () => {
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({
-      video: false,
-      audio: {
-        echoCancellation:true, noiseSuppression:true,
-        autoGainControl:true,  sampleRate:48000,
-        sampleSize:16,         channelCount:2, latency:0
-      }
-    });
+    // 1. Получаем сырой поток с микрофона
+    const rawStream = await getMicStream();
+    localStream     = rawStream;
+
+    // 2. Строим цепочку шумоподавления
+    try {
+      processedStream = await buildAudioPipeline(rawStream);
+      log('Audio pipeline active');
+    } catch(pipelineErr) {
+      // AudioWorklet не поддерживается — передаём сырой поток
+      log('Pipeline fallback: ' + pipelineErr.message);
+      processedStream = rawStream;
+      if (noiseIndicator) noiseIndicator.classList.remove('visible');
+    }
 
     await requestWakeLock();
     startKeepAlive();
@@ -887,6 +1019,7 @@ btnJoin.addEventListener('click', async () => {
     joined = true;
 
     addParticipant(socket.id, '🟢 Вы ('+shortId(socket.id)+')');
+    // Анализируем громкость по сырому потоку (виден реальный уровень)
     startVolumeAnalysis(socket.id, localStream);
     socket.emit('join');
 
@@ -917,6 +1050,8 @@ btnLeave.addEventListener('click', () => {
   stopKeepAlive();
 });
 
+// Mute/unmute управляет сырым треком —
+// worklet просто не получает сигнал и закрывает гейт
 btnMic.addEventListener('click', () => {
   micEnabled = !micEnabled;
   localStream.getAudioTracks().forEach(t => { t.enabled = micEnabled; });
@@ -952,7 +1087,7 @@ socket.on('offer', async ({ from, offer }) => {
 });
 
 async function handleOffer(from, offer) {
-  const peer = createPeer(from, false);
+  const peer  = createPeer(from, false);
   peers[from] = peer;
   await peer.setRemoteDescription(new RTCSessionDescription(offer));
   const answer   = await peer.createAnswer();
@@ -989,7 +1124,9 @@ function createPeer(userId, isInitiator) {
   log('Creating peer '+userId+' init='+isInitiator);
   const peer = new RTCPeerConnection(iceServers);
 
-  localStream.getTracks().forEach(t => peer.addTrack(t, localStream));
+  // В WebRTC передаём обработанный поток (после шумоподавления)
+  const stream = processedStream || localStream;
+  stream.getTracks().forEach(t => peer.addTrack(t, stream));
 
   peer.getSenders().forEach(sender => {
     if (sender.track?.kind==='audio') {
@@ -1013,7 +1150,7 @@ function createPeer(userId, isInitiator) {
   peer.ontrack = event => {
     let audio = document.getElementById('audio-'+userId);
     if (!audio) {
-      audio = document.createElement('audio');
+      audio             = document.createElement('audio');
       audio.id          = 'audio-'+userId;
       audio.autoplay    = true;
       audio.playsInline = true;
@@ -1055,8 +1192,28 @@ function hangUp() {
   Object.keys(qualityTimers).forEach(id => stopQualityMonitor(id));
   Object.values(peers).forEach(p => p.close());
   peers = {};
-  if (localStream) { localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
-  if (audioCtx)    { audioCtx.close(); audioCtx=null; }
+
+  // Останавливаем сырой поток
+  if (localStream) {
+    localStream.getTracks().forEach(t => t.stop());
+    localStream = null;
+  }
+
+  // Отключаем и удаляем worklet
+  if (noiseWorklet) {
+    try { noiseWorklet.disconnect(); } catch(_){}
+    noiseWorklet = null;
+  }
+
+  // Закрываем AudioContext
+  if (audioCtx) {
+    audioCtx.close().catch(() => {});
+    audioCtx = null;
+  }
+
+  processedStream = null;
+  if (noiseIndicator) noiseIndicator.classList.remove('visible');
+
   hiddenAudios.innerHTML        = '';
   pendingOffers                 = [];
   participantsList.innerHTML    = '';
