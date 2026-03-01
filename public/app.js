@@ -668,6 +668,7 @@ btnBackLobby.addEventListener('click', () => {
   clearAllTyping();
   // 8. Очищаем ключи при выходе
   Crypto.clearAllKeys();
+  ecdhExchanged.clear();
   outgoingSeq     = 0;
   currentRoomId   = null;
   currentRoomData = null;
@@ -705,16 +706,23 @@ socket.on('disconnect', () => {
 });
 
 // ── 4. ECDH: получаем публичный ключ собеседника ──
+// Храним с кем уже обменялись чтобы не зацикливаться
+const ecdhExchanged = new Set();
+
 socket.on('ecdh-pubkey', async ({ from, pubkey, nickname }) => {
   try {
     await Crypto.deriveSessionKey(pubkey, from);
     appendSystemMsg('🔐 Установлен сессионный ключ с ' + (nickname || shortId(from)));
-    // Отправляем свой ключ в ответ (если ещё не отправляли)
-    const myPubKey = await Crypto.exportPublicKey();
-    socket.emit('ecdh-pubkey', { to: from, pubkey: myPubKey });
-    // Отправляем свой отпечаток для верификации
-    const fp = await Crypto.getKeyFingerprint();
-    socket.emit('key-fingerprint', { to: from, fingerprint: fp });
+
+    // Отправляем свой ключ в ответ ТОЛЬКО если ещё не делали это первыми
+    if (!ecdhExchanged.has(from)) {
+      ecdhExchanged.add(from);
+      const myPubKey = await Crypto.exportPublicKey();
+      socket.emit('ecdh-pubkey', { to: from, pubkey: myPubKey });
+      // Отправляем свой отпечаток для верификации
+      const fp = await Crypto.getKeyFingerprint();
+      socket.emit('key-fingerprint', { to: from, fingerprint: fp });
+    }
   } catch (_) {}
 });
 
@@ -1120,6 +1128,7 @@ socket.on('existing-voice-users', async (users) => {
     peers[user.id] = createPeer(user.id, true);
     // 4. Инициируем ECDH обмен с каждым участником
     try {
+      ecdhExchanged.add(user.id); // отмечаем что МЫ инициировали — ответ не нужен
       const myPubKey = await Crypto.exportPublicKey();
       socket.emit('ecdh-pubkey', { to: user.id, pubkey: myPubKey });
     } catch (_) {}
@@ -1136,6 +1145,7 @@ socket.on('voice-user-joined', async (data) => {
     if (!peers[uid]) peers[uid] = createPeer(uid, false);
     // 4. ECDH обмен с новым участником
     try {
+      ecdhExchanged.add(uid); // отмечаем что МЫ инициировали — ответ не нужен
       const myPubKey = await Crypto.exportPublicKey();
       socket.emit('ecdh-pubkey', { to: uid, pubkey: myPubKey });
     } catch (_) {}
