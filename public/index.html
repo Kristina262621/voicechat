@@ -37,16 +37,13 @@
        ЭКРАН ПАРОЛЯ
     ══════════════════════════ */
     #screen-password {
-      display: block;
       position: fixed; inset: 0;
-      background: var(--bg);
-      z-index: 500;
       display: flex;
       align-items: center;
       justify-content: center;
+      background: var(--bg);
+      z-index: 500;
     }
-
-    #screen-main { display: none; }
 
     .login-card {
       width: 100%; max-width: 360px;
@@ -55,14 +52,15 @@
       background: var(--surface);
       border-radius: 18px;
       box-shadow: 0 12px 48px rgba(0,0,0,0.6);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
+      display: flex; flex-direction: column; align-items: center;
     }
 
     .login-icon  { font-size: 54px; margin-bottom: 16px; }
     .login-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; text-align: center; }
-    .login-sub   { font-size: 13px; color: var(--sub); text-align: center; margin-bottom: 28px; line-height: 1.5; }
+    .login-sub   {
+      font-size: 13px; color: var(--sub);
+      text-align: center; margin-bottom: 28px; line-height: 1.5;
+    }
 
     .pw-wrap { position: relative; width: 100%; margin-bottom: 10px; }
     .pw-wrap input {
@@ -85,8 +83,8 @@
 
     .pw-error {
       font-size: 12px; color: var(--red);
-      min-height: 18px; margin-bottom: 10px; text-align: center;
-      width: 100%;
+      min-height: 18px; margin-bottom: 10px;
+      text-align: center; width: 100%;
     }
 
     #btn-enter {
@@ -115,15 +113,18 @@
     }
 
     /* ══════════════════════════
-       ГЛАВНЫЙ ЭКРАН — TG LAYOUT
+       ГЛАВНЫЙ ЭКРАН
+       app.js: screenMain.style.display = 'block'
+       Поэтому используем block + flex через override
     ══════════════════════════ */
     #screen-main {
+      display: none;
       position: fixed; inset: 0;
       flex-direction: column;
       background: var(--bg);
     }
 
-    /* app.js делает style.display='block', поэтому flex через важный класс */
+    /* Когда app.js ставит display:block — переключаем на flex */
     #screen-main[style*="block"] {
       display: flex !important;
     }
@@ -153,9 +154,8 @@
     .tg-header-sub { font-size: 12px; color: var(--sub); margin-top: 1px; }
     .tg-header-sub .online { color: var(--green); }
 
-    .tg-header-btns { display: flex; gap: 2px; }
+    .tg-header-btns { display: flex; gap: 4px; align-items: center; }
 
-    /* ── Кнопка чата ── */
     /* app.js: btnChatOpen.classList.add('visible') */
     #btn-chat-open {
       position: relative;
@@ -166,28 +166,28 @@
       align-items: center; justify-content: center;
       transition: background 0.15s, color 0.15s;
     }
-    #btn-chat-open.visible {
-      display: flex;
+    #btn-chat-open.visible { display: flex; }
+    #btn-chat-open:hover {
+      background: rgba(255,255,255,0.07); color: var(--text);
     }
-    #btn-chat-open:hover { background: rgba(255,255,255,0.07); color: var(--text); }
 
-    /* chat-badge — app.js: chatBadge.classList.add('visible') */
+    /* app.js: chatBadge.classList.add('visible') */
     #chat-badge {
-      position: absolute; top: 3px; right: 3px;
+      position: absolute; top: 2px; right: 2px;
       background: var(--red); color: white;
       font-size: 9px; font-weight: 700;
-      border-radius: 50%; min-width: 15px; height: 15px;
+      border-radius: 50%; min-width: 16px; height: 16px;
       display: none;
-      align-items: center; justify-content: center;
-      padding: 0 2px;
+      align-items: center; justify-content: center; padding: 0 3px;
     }
     #chat-badge.visible { display: flex; }
 
-    /* secure-badge — app.js: secureBadge.classList.add('visible') */
-    #secure-badge        { display: none; font-size: 12px; color: var(--green); }
+    /* app.js: secureBadge.classList.add('visible') */
+    #secure-badge { display: none; color: var(--green); font-size: 12px; }
     #secure-badge.visible { display: inline; }
 
     /* ── Reconnect ── */
+    /* app.js: reconnectBanner.classList.add('visible') */
     #reconnect-banner {
       display: none; padding: 7px;
       background: rgba(239,83,80,0.12);
@@ -199,19 +199,39 @@
     #reconnect-banner.visible { display: block; }
     @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.5;} }
 
-    /* ── Тело (лента сообщений) ── */
-    /* id="chat-messages" — app.js добавляет сюда msg-div'ы */
+    /* ══════════════════════════
+       ОСНОВНАЯ ОБЛАСТЬ
+       Разделена на 2 части:
+       - chat-messages (лента)
+       - chat-panel (скрытая, для совместимости с app.js)
+    ══════════════════════════ */
+    .main-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* id="chat-messages" — app.js добавляет сюда сообщения */
     #chat-messages {
       flex: 1; overflow-y: auto;
       padding: 10px 10px 6px;
       display: flex; flex-direction: column; gap: 3px;
       background: var(--bg);
-      background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.012) 1px, transparent 0);
+      background-image: radial-gradient(
+        circle at 1px 1px,
+        rgba(255,255,255,0.012) 1px, transparent 0
+      );
       background-size: 24px 24px;
     }
 
+    /* id="chat-panel" — app.js ищет этот элемент.
+       Прячем его, контент всё равно идёт в chat-messages */
+    #chat-panel { display: none !important; }
+
     /* ── Голосовая панель ── */
-    /* id="participants", app.js: participantsBox.style.display='block'/'none' */
+    /* app.js: participantsBox.style.display='block'/'none' */
     #participants {
       background: var(--surface);
       border-radius: 14px;
@@ -222,20 +242,18 @@
 
     .voice-panel-head {
       display: flex; align-items: center;
-      margin-bottom: 8px;
+      margin-bottom: 10px;
     }
     .voice-panel-title {
       font-size: 11px; font-weight: 700;
       color: var(--sub); text-transform: uppercase; letter-spacing: 0.6px;
     }
 
-    /* ── Участники ── */
-    /* app.js создаёт div.participant внутри #participants-list */
+    /* Участники — app.js создаёт div.participant */
     .participant {
       display: flex; align-items: center; gap: 10px;
-      padding: 7px 0;
-      border-bottom: 1px solid rgba(255,255,255,0.04);
-      flex-wrap: nowrap;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
     }
     .participant:last-child { border-bottom: none; }
 
@@ -244,9 +262,8 @@
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
 
-    /* volume/signal — app.js ищет id="vol-{uid}" и id="sig-{uid}" */
     .volume-bar-wrap {
-      width: 36px; height: 3px;
+      width: 36px; height: 4px;
       background: rgba(255,255,255,0.08);
       border-radius: 2px; overflow: hidden; flex-shrink: 0;
     }
@@ -259,23 +276,22 @@
 
     .signal-wrap {
       display: flex; align-items: flex-end; gap: 2px;
-      height: 12px; flex-shrink: 0;
+      height: 14px; flex-shrink: 0;
     }
     .signal-wrap .bar {
       width: 3px; border-radius: 1px;
       background: rgba(255,255,255,0.1);
       transition: background 0.4s;
     }
-    .signal-wrap .bar:nth-child(1) { height: 3px;  }
-    .signal-wrap .bar:nth-child(2) { height: 6px;  }
-    .signal-wrap .bar:nth-child(3) { height: 9px;  }
-    .signal-wrap .bar:nth-child(4) { height: 12px; }
+    .signal-wrap .bar:nth-child(1) { height: 4px;  }
+    .signal-wrap .bar:nth-child(2) { height: 7px;  }
+    .signal-wrap .bar:nth-child(3) { height: 10px; }
+    .signal-wrap .bar:nth-child(4) { height: 14px; }
     .signal-excellent .bar              { background: var(--green); }
     .signal-good .bar:nth-child(-n+3)   { background: #8bc34a; }
     .signal-fair .bar:nth-child(-n+2)   { background: #ff9800; }
     .signal-poor .bar:nth-child(1)      { background: var(--red); }
 
-    /* btn-understood — app.js создаёт динамически */
     .btn-understood {
       padding: 5px 11px;
       background: rgba(76,175,80,0.12);
@@ -299,9 +315,9 @@
     }
 
     /* ── Пузыри ── */
-    /* app.js создаёт div.msg.mine / div.msg.theirs */
+    /* app.js: div.msg.mine / div.msg.theirs */
     .msg {
-      max-width: 78%; padding: 8px 12px 5px;
+      max-width: 78%; padding: 8px 12px 6px;
       border-radius: 14px; font-size: 14px;
       line-height: 1.5; word-break: break-word; position: relative;
     }
@@ -341,7 +357,6 @@
       text-align: right; margin-top: 4px;
     }
     .msg-content { word-break: break-word; }
-
     .msg-decrypt-status {
       font-size: 10px; color: rgba(255,255,255,0.3); margin-top: 2px;
     }
@@ -381,7 +396,7 @@
     }
 
     /* ── Голосовые кнопки ── */
-    /* app.js управляет каждой через style.display напрямую */
+    /* app.js управляет каждой кнопкой через style.display */
     .voice-bar {
       display: flex; align-items: center; gap: 8px;
       padding: 8px 12px 6px;
@@ -407,17 +422,18 @@
 
     #btn-leave {
       flex: 1; padding: 9px 0;
-      border: 1px solid rgba(239,83,80,0.3); border-radius: 22px;
+      border: 1px solid rgba(239,83,80,0.3);
+      border-radius: 22px;
       font-size: 13px; font-weight: 600; cursor: pointer;
       background: rgba(239,83,80,0.13); color: var(--red);
       transition: background 0.2s;
     }
     #btn-leave:hover { background: rgba(239,83,80,0.22); }
 
-    /* mic-status — app.js управляет классами */
-    #mic-status { font-size: 11px; text-align: center; padding: 2px 0 4px; display: none; }
-    #mic-status.active { display: block; color: var(--green); }
-    #mic-status.muted  { display: block; color: var(--red);   }
+    /* app.js: micStatus.className = 'mic-status active/muted' */
+    .mic-status       { font-size: 11px; text-align: center; padding: 0 0 4px; display: none; }
+    .mic-status.active { display: block; color: var(--green); }
+    .mic-status.muted  { display: block; color: var(--red);   }
 
     /* ── Строка ввода ── */
     .tg-input-row {
@@ -457,7 +473,7 @@
     .attach-item:hover { background: rgba(255,255,255,0.06); }
     .attach-item-icon  { font-size: 20px; width: 24px; text-align: center; }
 
-    /* id="chat-input" — app.js */
+    /* id="chat-input" */
     #chat-input {
       flex: 1; padding: 10px 14px;
       background: var(--surface);
@@ -470,12 +486,12 @@
     #chat-input::placeholder { color: var(--sub); }
     #chat-input:focus { background: #2a3a4e; }
 
-    /* id="btn-send" — app.js */
+    /* id="btn-send" */
     #btn-send {
       width: 38px; height: 38px; flex-shrink: 0;
       border: none; border-radius: 50%;
       background: var(--accent); color: white;
-      font-size: 16px; cursor: pointer;
+      cursor: pointer;
       display: flex; align-items: center; justify-content: center;
       transition: background 0.2s, transform 0.1s;
     }
@@ -483,7 +499,7 @@
     #btn-send:active   { transform: scale(0.92); }
     #btn-send:disabled { background: #2a3a4e; cursor: not-allowed; }
 
-    /* ── Баннер "Понял" ── */
+    /* ── Баннер "Понял" — app.js создаёт div.understood-banner ── */
     .understood-banner {
       position: fixed; top: 68px; left: 50%;
       transform: translateX(-50%);
@@ -502,11 +518,6 @@
       80%  { opacity:1; }
       100% { opacity:0; transform:translateX(-50%) translateY(-6px); }
     }
-
-    /* ── Чат-панель (оставляем для совместимости с app.js) ── */
-    /* app.js открывает #chat-panel — мы его скрываем,
-       т.к. чат теперь прямо в ленте */
-    #chat-panel { display: none !important; }
 
     /* ── Lightbox ── */
     #lightbox {
@@ -528,7 +539,9 @@
 
     /* Скролл */
     ::-webkit-scrollbar { width: 3px; }
-    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,0.08); border-radius: 2px;
+    }
 
     #keep-alive-audio, #hidden-audios, #file-input { display: none; }
   </style>
@@ -552,7 +565,7 @@
     </div>
     <div class="pw-error" id="pw-error"></div>
 
-    <button id="btn-enter">Войти</button>
+    <button id="btn-enter">🔑 Войти</button>
 
     <div class="e2e-note">
       <b>🔒 AES-256-GCM</b> · Ключ не покидает устройство<br>
@@ -584,31 +597,42 @@
     </div>
   </div>
 
-  <!-- Reconnect -->
+  <!-- Reconnect banner -->
   <div id="reconnect-banner">🔄 Переподключаемся…</div>
 
-  <!-- Лента — id="chat-messages" — app.js пишет сюда сообщения -->
-  <div id="chat-messages">
+  <!-- Основная область -->
+  <div class="main-body">
 
-    <!-- Голосовая панель — id="participants" -->
-    <div id="participants" style="display:none">
-      <div class="voice-panel-head">
-        <div class="voice-panel-title">🎙 Голосовой чат</div>
+    <!-- Лента сообщений — id="chat-messages" -->
+    <div id="chat-messages">
+
+      <!-- Голосовая панель — id="participants"
+           app.js: participantsBox.style.display='block'/'none' -->
+      <div id="participants" style="display:none">
+        <div class="voice-panel-head">
+          <div class="voice-panel-title">🎙 Голосовой чат</div>
+        </div>
+        <!-- id="participants-list" — app.js добавляет div.participant сюда -->
+        <div id="participants-list"></div>
       </div>
-      <div id="participants-list"></div>
+
+      <!-- Приветствие -->
+      <div class="date-divider">Начало чата</div>
+      <div style="align-self:center; text-align:center; color:var(--sub);
+                  font-size:12px; background:rgba(23,33,43,0.85);
+                  padding:10px 18px; border-radius:12px;
+                  max-width:280px; line-height:1.65; margin:4px 0 8px;">
+        🔒 Все сообщения зашифрованы.<br>
+        Сервер видит только случайный набор символов.
+      </div>
+
     </div>
 
-    <!-- Приветствие -->
-    <div class="date-divider">Начало чата</div>
-    <div style="align-self:center; text-align:center; color:var(--sub);
-                font-size:12px; background:rgba(23,33,43,0.85);
-                padding:10px 18px; border-radius:12px;
-                max-width:280px; line-height:1.65; margin:4px 0 8px;">
-      🔒 Все сообщения зашифрованы.<br>
-      Сервер видит только случайный набор символов.
-    </div>
+    <!-- chat-panel — app.js ищет этот элемент через getElementById.
+         Оставляем скрытым, чат работает прямо в chat-messages -->
+    <div id="chat-panel"></div>
 
-  </div>
+  </div><!-- /main-body -->
 
   <!-- Нижний бар -->
   <div class="tg-bottom">
@@ -620,7 +644,8 @@
       <button id="btn-leave" style="display:none">📵 Выйти</button>
     </div>
 
-    <div id="mic-status"></div>
+    <!-- mic-status -->
+    <div id="mic-status" class="mic-status"></div>
 
     <!-- Строка ввода -->
     <div class="tg-input-row">
@@ -634,20 +659,4 @@
           <span class="attach-item-icon">🎬</span> Видео
         </button>
         <button class="attach-item" id="btn-file">
-          <span class="attach-item-icon">📎</span> Файл
-        </button>
-      </div>
-
-      <button class="btn-attach-tg" id="btn-attach-toggle" title="Прикрепить">📎</button>
-
-      <textarea id="chat-input" placeholder="Сообщение…" rows="1"></textarea>
-
-      <button id="btn-send">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
-          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-        </svg>
-      </button>
-
-    </div>
-  </div>
-</div>
+          <span class="
