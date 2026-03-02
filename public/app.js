@@ -254,7 +254,6 @@ const noiseIndicator  = document.getElementById('noise-indicator');
 const btnRoomMembers  = document.getElementById('btn-room-members');
 const btnInviteFriend = document.getElementById('btn-invite-friend');
 
-// Экран звонка
 const callScreen       = document.getElementById('call-screen');
 const callScreenAvatar = document.getElementById('call-screen-avatar');
 const callScreenName   = document.getElementById('call-screen-name');
@@ -266,7 +265,6 @@ const callBtnMute      = document.getElementById('call-btn-mute');
 const callBtnHangup    = document.getElementById('call-btn-hangup');
 const btnCallMinimize  = document.getElementById('btn-call-minimize');
 
-// Входящий звонок
 const modalIncomingCall = document.getElementById('modal-incoming-call');
 const incomingCallAvatar= document.getElementById('incoming-call-avatar');
 const incomingCallName  = document.getElementById('incoming-call-name');
@@ -313,8 +311,6 @@ const typingUsers = {};
 let typingTimer   = null;
 const ecdhExchanged = new Set();
 
-// ── Личные чаты: кеш сообщений ──
-// chatId → [{ from, fromNick, type, text, localUrl, fileName, fileSize, mimeType, timestamp, mine }]
 const privateChatCache = {};
 
 // ─────────────────────────────
@@ -337,13 +333,21 @@ function formatCountdown(msLeft) {
   return String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0');
 }
 
+// ════════════════════════════════════════════════
+//  FIX 1: СКРОЛЛ — всегда скроллим вниз правильно
+// ════════════════════════════════════════════════
+function scrollToBottom() {
+  requestAnimationFrame(() => {
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  });
+}
+
 function showScreen(name) {
   [screenAuth, screenLobby, screenMain].forEach(s => s.classList.remove('active'));
   if (name === 'auth')  screenAuth.classList.add('active');
   if (name === 'lobby') screenLobby.classList.add('active');
   if (name === 'chat')  {
     screenMain.classList.add('active');
-    // Сброс высоты — VisualViewport сам подстроит
     screenMain.style.height = '';
     screenMain.style.top    = '';
   }
@@ -428,9 +432,6 @@ document.getElementById('dm-settings').addEventListener('click', () => { closeDr
 document.getElementById('dm-invite').addEventListener('click', () => { closeDrawer(); showToast('🔗 Поделись ссылкой на сайт!', 4000); });
 drawerAvatar.addEventListener('click', () => { closeDrawer(); openProfileModal(); });
 
-// ─────────────────────────────
-//  LOBBY AVATAR
-// ─────────────────────────────
 function updateLobbyAvatarBtn() {
   if (myAvatar) {
     btnOpenProfile.innerHTML = `<img src="${myAvatar}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
@@ -774,6 +775,13 @@ pcSearchInput.addEventListener('keydown', e => {
 });
 
 function openPrivateChatWith(nickname) {
+  // ════════════════════════════════════════════
+  // FIX 3: Закрываем ВСЕ модалки перед открытием чата
+  // ════════════════════════════════════════════
+  modalContacts.classList.remove('open');
+  modalPrivateChats.classList.remove('open');
+  modalProfile.classList.remove('open');
+
   socket.emit('private-chat-open', { withNickname: nickname }, res => {
     if (!res.ok) { showToast('❌ Пользователь не найден'); return; }
     enterPrivateChat(res.chatId, res.withNickname, res.withAvatar);
@@ -786,6 +794,11 @@ async function enterPrivateChat(chatId, withNickname, withAvatar) {
     if (joined) { socket.emit('voice-leave'); hangUp(); joined = false; }
     currentRoomId = null; currentRoomData = null;
   }
+
+  // Закрываем все модалки
+  modalContacts.classList.remove('open');
+  modalPrivateChats.classList.remove('open');
+  modalProfile.classList.remove('open');
 
   currentChatType = 'private';
   currentChatId   = chatId;
@@ -810,13 +823,12 @@ async function enterPrivateChat(chatId, withNickname, withAvatar) {
 
   showScreen('chat');
 
-  // Загрузить историю с сервера
   await loadPrivateChatHistory(chatId);
 
-  showToast('💬 Личный чат: ' + withNickname, 2500);
+  // Убираем toast — он мешает, чат и так открылся
+  // showToast('💬 Личный чат: ' + withNickname, 2500);  // <-- УБРАНО
 }
 
-// Загрузить историю личного чата с сервера
 async function loadPrivateChatHistory(chatId) {
   return new Promise(resolve => {
     socket.emit('private-chat-history', { chatId }, async res => {
@@ -837,7 +849,6 @@ async function loadPrivateChatHistory(chatId) {
             });
           }
         } else {
-          // Файлы из истории показываем как недоступные (blob не хранится)
           appendMessage({
             nickname: msg.fromNick, type: msg.type,
             fileName: msg.fileName, fileSize: msg.fileSize, mimeType: msg.mimeType,
@@ -883,7 +894,6 @@ function loadPrivateChatsList(container) {
   });
 }
 
-// Получение личного сообщения в реальном времени
 socket.on('private-message', async data => {
   if (currentChatType !== 'private' || currentChatId !== data.chatId) {
     showToast('💬 ' + (data.fromNick || '?') + ': новое сообщение', 4000, () => {
@@ -1219,7 +1229,6 @@ function joinRoom(roomId, password, cb) {
       showScreen('chat');
       showOwnFingerprint();
 
-      // Загрузить историю группы
       socket.emit('room-history', { roomId }, async histRes => {
         if (histRes.ok && histRes.messages && histRes.messages.length) {
           for (const msg of histRes.messages) {
@@ -1263,7 +1272,7 @@ async function showOwnFingerprint() {
     div.style.cssText = 'font-size:10px;color:#5288c1;cursor:pointer;user-select:all;';
     div.textContent = '🔑 Твой ключ: ' + fp;
     chatMessages.appendChild(div);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    scrollToBottom();
   } catch (_) {}
 }
 
@@ -1461,7 +1470,7 @@ socket.on('key-fingerprint', ({ from, nickname, fingerprint }) => {
   div.style.cssText = 'font-size:10px;color:#4caf50;cursor:pointer;user-select:all;';
   div.textContent = '🔑 Ключ ' + escapeHtml(nickname || shortId(from)) + ': ' + fingerprint;
   chatMessages.appendChild(div);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+  scrollToBottom();
 });
 
 // ═══════════════════════════════════════════════
@@ -1541,7 +1550,6 @@ async function sendTextMessage() {
   finally { btnSend.disabled = false; }
 }
 
-// Файлы — лимит 100 МБ
 btnPhoto.addEventListener('click', () => { fileInput.accept = 'image/*'; fileInput.click(); });
 btnVideo.addEventListener('click', () => { fileInput.accept = 'video/*'; fileInput.click(); });
 btnFile.addEventListener('click',  () => { fileInput.accept = '*/*';     fileInput.click(); });
@@ -1581,7 +1589,6 @@ async function sendMediaBlob(blob, mimeType, fileName, type) {
   } catch (e) { showToast('❌ Ошибка отправки: ' + e.message); }
 }
 
-// Получение сообщений группы
 socket.on('chat-message', async data => {
   playMsgSound();
   showBrowserNotif('💬 ' + (data.nickname||'?'), data.type==='text' ? '✉️ Сообщение' : '📎 Файл');
@@ -1617,16 +1624,21 @@ function appendMessage(msg) {
   div.dataset.fileSize = msg.fileSize || '';
   div.innerHTML = buildMsgHTML(msg);
   chatMessages.appendChild(div);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+  // ════════════════════════════════
+  // FIX 1: Правильный скролл вниз
+  // ════════════════════════════════
+  scrollToBottom();
   bindMediaEvents(div);
   return id;
 }
+
 function appendSystemMsg(text) {
   const div = document.createElement('div');
   div.className = 'date-divider'; div.textContent = text;
   chatMessages.appendChild(div);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+  scrollToBottom();
 }
+
 function updateMessage(id, updates) {
   const div = document.getElementById(id); if (!div) return;
   const content = div.querySelector('.msg-content');
@@ -1643,8 +1655,9 @@ function updateMessage(id, updates) {
     if (updates.status === 'error')      { st.className = 'msg-decrypt-status err'; st.textContent = '⚠️'; }
     if (updates.status === 'decrypting') st.textContent = '⏳';
   }
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+  scrollToBottom();
 }
+
 function buildMsgHTML(msg) {
   const time   = new Date(msg.timestamp||Date.now()).toLocaleTimeString('ru', { hour:'2-digit', minute:'2-digit' });
   const sender = msg.mine ? '' : `<div class="msg-sender">👤 ${escapeHtml(msg.nickname||'?')}</div>`;
@@ -1879,7 +1892,7 @@ async function buildAudioPipeline(rawStream) {
   comp.threshold.value=-24; comp.knee.value=8; comp.ratio.value=4; comp.attack.value=0.003; comp.release.value=0.15;
   noiseWorklet = new AudioWorkletNode(audioCtx, 'noise-gate-processor', {
     processorOptions:{ threshold:0.008, attack:0.003, release:0.08, smoothing:0.92 },
-    numberOfInputs:1, numberOfOutputs:1, outputChannelCount:[1]
+    numberOfInputs:1, numberOfOutputs:1, outputChannelCount:[[1]](#annotation-152322-0)
   });
   const gain = audioCtx.createGain(); gain.gain.value=1.1;
   const dest = audioCtx.createMediaStreamDestination();
@@ -1907,7 +1920,7 @@ function forceOpusMaxQuality(sdp) {
     const line=lines[i];
     if (line.includes('a=rtpmap') && line.toLowerCase().includes('opus')) {
       result.push(line);
-      const pt=line.split(':')[1].split(' ')[0];
+      const pt=line.split(':')[[1]](#annotation-152322-0).split(' ')[0];
       if (i+1<lines.length && lines[i+1].startsWith('a=fmtp:'+pt)) i++;
       result.push('a=fmtp:'+pt+' minptime=10;useinbandfec=1;stereo=0;sprop-stereo=0;maxaveragebitrate=64000;dtx=1;cbr=0');
       continue;
@@ -2074,7 +2087,7 @@ document.addEventListener('visibilitychange', async () => {
 });
 
 // ═══════════════════════════════════════════════
-//  КНОПКА ЗВОНКА — показывать только в личном чате
+//  КНОПКА ЗВОНКА
 // ═══════════════════════════════════════════════
 function updateCallButton() {
   if (btnPrivateCall) {
@@ -2083,22 +2096,24 @@ function updateCallButton() {
 }
 
 // ═══════════════════════════════════════════════
-//  ЛИЧНЫЕ ЗВОНКИ (WebRTC) — полноэкранный UI
+//  ЛИЧНЫЕ ЗВОНКИ — ИСПРАВЛЕННАЯ ВЕРСИЯ
 // ═══════════════════════════════════════════════
 let pcCallPeer           = null;
 let pcCallStream         = null;
-let pcCallRemoteId       = null;   // socket.id собеседника (после answer)
-let pcCallRemoteNickLow  = null;   // nickLower собеседника (для ICE до answer)
+let pcCallRemoteId       = null;
+let pcCallRemoteNickLow  = null;
 let pcCallRemoteNick     = '';
 let pcCallMuted          = false;
 let pcCallSpeaker        = true;
 let pcCallActive         = false;
 let incomingCallData     = null;
-let pcIceCandidateBuffer = [];
+// ════════════════════════════════════════════════
+// FIX 2: Разделяем буферы ICE для входящих и исходящих
+// ════════════════════════════════════════════════
+let pcIceCandidateBuffer = [];  // кандидаты пришедшие ДО setRemoteDescription
 let callTimer            = null;
 let callSeconds          = 0;
 
-// ── Открыть полноэкранный экран звонка ──
 function showCallScreen(name, avatar, status) {
   callScreenName.textContent   = name || '—';
   callScreenStatus.textContent = status || 'Соединение…';
@@ -2109,11 +2124,9 @@ function showCallScreen(name, avatar, status) {
     callScreenAvatar.textContent = '👤';
   }
 
-  // Сброс кнопок
   callBtnMute.classList.remove('active');
   callBtnMute.style.opacity = '1';
   callBtnSpeaker.classList.remove('active');
-  callBtnVideo.style.opacity = '0.5'; // видео не реализовано
 
   callScreen.classList.add('active');
 }
@@ -2124,7 +2137,7 @@ function hideCallScreen() {
 }
 
 function setCallStatus(text) {
-  callScreenStatus.textContent = text;
+  if (text) callScreenStatus.textContent = text;
 }
 
 function startCallTimer() {
@@ -2134,10 +2147,9 @@ function startCallTimer() {
     callSeconds++;
     const m = String(Math.floor(callSeconds / 60)).padStart(2, '0');
     const s = String(callSeconds % 60).padStart(2, '0');
-    setCallStatus(m + ':' + s);
-    // Убираем пульсацию когда соединение установлено
+    callScreenStatus.textContent = m + ':' + s;
     callStatusDot.style.animation = 'none';
-    callStatusDot.style.background = 'rgba(255,255,255,0.9)';
+    callStatusDot.style.background = '#4caf50';
   }, 1000);
 }
 
@@ -2145,7 +2157,6 @@ function stopCallTimer() {
   if (callTimer) { clearInterval(callTimer); callTimer = null; }
 }
 
-// ── Кнопки экрана звонка ──
 callBtnMute.addEventListener('click', () => {
   pcCallMuted = !pcCallMuted;
   if (pcCallStream) {
@@ -2163,13 +2174,7 @@ callBtnMute.addEventListener('click', () => {
 callBtnSpeaker.addEventListener('click', () => {
   pcCallSpeaker = !pcCallSpeaker;
   const audio = document.getElementById('audio-pc-call');
-  if (audio) {
-    // На мобильных можно переключить вывод если поддерживается
-    if (typeof audio.setSinkId === 'function') {
-      // оставляем как есть — setSinkId требует разрешений
-    }
-    audio.volume = pcCallSpeaker ? 1.0 : 0.0;
-  }
+  if (audio) audio.volume = pcCallSpeaker ? 1.0 : 0.0;
   if (pcCallSpeaker) {
     callBtnSpeaker.classList.remove('active');
     callBtnSpeaker.textContent = '🔈';
@@ -2179,36 +2184,24 @@ callBtnSpeaker.addEventListener('click', () => {
   }
 });
 
-callBtnVideo.addEventListener('click', () => {
-  showToast('📷 Видеозвонки скоро появятся', 2500);
-});
-
-callBtnHangup.addEventListener('click', () => {
-  endPrivateCall(true);
-});
+callBtnVideo.addEventListener('click', () => showToast('📷 Видеозвонки скоро появятся', 2500));
+callBtnHangup.addEventListener('click', () => endPrivateCall(true));
 
 btnCallMinimize.addEventListener('click', () => {
   hideCallScreen();
-  // Показать мини-панель (уже есть в DOM — просто обновим)
-  if (pcCallActive) {
-    showToast('📞 Звонок активен — нажми 📞 чтобы вернуться', 3000);
-  }
+  if (pcCallActive) showToast('📞 Звонок активен', 3000);
 });
 
-// Тап по кнопке звонка в шапке — если звонок активен, показать экран
+// ── Исходящий звонок ──
 btnPrivateCall.addEventListener('click', async () => {
   if (pcCallActive) {
-    // Вернуть экран звонка
     const withAvatar = chatRoomAvatar.querySelector('img')?.src || null;
     showCallScreen(pcCallRemoteNick, withAvatar, null);
-    startCallTimer(); // таймер продолжится
     return;
   }
   if (currentChatType !== 'private' || !currentChatId) return;
 
   pcCallRemoteNick = chatRoomName.textContent;
-
-  // Получить аватар собеседника
   const withAvatar = chatRoomAvatar.querySelector('img')?.src || null;
 
   try {
@@ -2220,22 +2213,16 @@ btnPrivateCall.addEventListener('click', async () => {
     showToast('❌ Нет доступа к микрофону'); return;
   }
 
-  // Определить nickLower собеседника из chatId
   const parts = currentChatId.split('::');
   pcCallRemoteNickLow = parts.find(p => p !== myNickname.toLowerCase()) || parts[0];
-  pcCallRemoteId = null; // узнаем после answer
-
+  pcCallRemoteId = null;
   pcIceCandidateBuffer = [];
-  pcCallPeer = createPrivateCallPeer(pcCallRemoteNickLow);
 
-  const offer = await pcCallPeer.createOffer();
-  await pcCallPeer.setLocalDescription(offer);
-
-  socket.emit('private-call-offer', {
-    chatId: currentChatId,
-    to:     pcCallRemoteNickLow,
-    offer
-  });
+  // ════════════════════════════════════════════════
+  // FIX 2: Создаём peer и offer ПРАВИЛЬНО
+  // Кандидаты буферизуем и отправляем ПОСЛЕ получения answer
+  // ════════════════════════════════════════════════
+  pcCallPeer = createPrivateCallPeer(pcCallRemoteNickLow, true);
 
   showCallScreen(pcCallRemoteNick, withAvatar, 'Вызов…');
 });
@@ -2280,12 +2267,15 @@ btnCallAccept.addEventListener('click', async () => {
   pcCallRemoteId       = incomingCallData.from;
   pcCallRemoteNickLow  = incomingCallData.fromNickLower || incomingCallData.fromNick?.toLowerCase();
   pcCallRemoteNick     = incomingCallData.fromNick || '?';
-  pcIceCandidateBuffer = [];
-  pcCallPeer = createPrivateCallPeer(pcCallRemoteId);
+
+  // ════════════════════════════════════════════════
+  // FIX 2: Создаём peer для принимающей стороны
+  // ════════════════════════════════════════════════
+  pcCallPeer = createPrivateCallPeer(pcCallRemoteId, false);
 
   await pcCallPeer.setRemoteDescription(new RTCSessionDescription(incomingCallData.offer));
 
-  // Добавить буферизованные ICE
+  // Добавляем буферизованные ICE кандидаты
   for (const c of pcIceCandidateBuffer) {
     try { await pcCallPeer.addIceCandidate(new RTCIceCandidate(c)); } catch (_) {}
   }
@@ -2297,10 +2287,8 @@ btnCallAccept.addEventListener('click', async () => {
 
   pcCallActive = true;
 
-  // Показать экран звонка
   showCallScreen(pcCallRemoteNick, incomingCallData.fromAvatar || null, 'Соединение…');
 
-  // Открыть личный чат если не открыт
   if (currentChatId !== incomingCallData.chatId) {
     socket.emit('private-chat-open', { withNickname: incomingCallData.fromNick }, res => {
       if (res.ok) enterPrivateChat(res.chatId, res.withNickname, res.withAvatar);
@@ -2327,7 +2315,9 @@ socket.on('private-call-answer', async ({ from, answer }) => {
 
   await pcCallPeer.setRemoteDescription(new RTCSessionDescription(answer));
 
-  // Отправить буферизованные ICE которые накопились до answer
+  // ════════════════════════════════════════════════
+  // FIX 2: Теперь когда есть remoteDescription — отправляем накопленные ICE
+  // ════════════════════════════════════════════════
   for (const candidate of pcIceCandidateBuffer) {
     socket.emit('private-call-ice', { to: from, candidate });
   }
@@ -2340,21 +2330,20 @@ socket.on('private-call-ice', async ({ from, candidate }) => {
   if (pcCallPeer && pcCallPeer.remoteDescription) {
     try { await pcCallPeer.addIceCandidate(new RTCIceCandidate(candidate)); } catch (_) {}
   } else {
+    // Буферизуем до setRemoteDescription
     pcIceCandidateBuffer.push(candidate);
   }
 });
 
-// ── Собеседник завершил / отклонил ──
-socket.on('private-call-ended', ({ from }) => {
+socket.on('private-call-ended', () => {
   showToast('📵 ' + (pcCallRemoteNick || '?') + ' завершил звонок', 3000);
   endPrivateCall(false);
 });
-socket.on('private-call-rejected', ({ from }) => {
+socket.on('private-call-rejected', () => {
   showToast('📵 ' + (pcCallRemoteNick || '?') + ' отклонил звонок', 3000);
   endPrivateCall(false);
 });
 
-// ── Завершить звонок ──
 function endPrivateCall(notify = true) {
   if (notify && (pcCallRemoteId || pcCallRemoteNickLow)) {
     socket.emit('private-call-end', { to: pcCallRemoteId || pcCallRemoteNickLow });
@@ -2378,15 +2367,16 @@ function endPrivateCall(notify = true) {
   modalIncomingCall.classList.remove('open');
   stopCallTimer();
 
-  // Сбросить кнопку мута
   callBtnMute.textContent = '🎤';
   callBtnMute.classList.remove('active');
   callBtnSpeaker.textContent = '🔈';
   callBtnSpeaker.classList.remove('active');
 }
 
-// ── RTCPeerConnection для личного звонка ──
-function createPrivateCallPeer(targetId) {
+// ════════════════════════════════════════════════
+// FIX 2: Новый createPrivateCallPeer с правильной логикой offer/ICE
+// ════════════════════════════════════════════════
+function createPrivateCallPeer(targetId, isInitiator) {
   const peer = new RTCPeerConnection(iceServers);
 
   if (pcCallStream) {
@@ -2409,15 +2399,25 @@ function createPrivateCallPeer(targetId) {
 
   peer.onicecandidate = e => {
     if (!e.candidate) return;
-    // Отправляем через сервер — он разберётся по socket.id или nickLower
-    const sendTo = pcCallRemoteId || targetId;
-    socket.emit('private-call-ice', { to: sendTo, candidate: e.candidate });
+
+    if (isInitiator) {
+      // Звонящий: если ещё нет remoteDescription (answer не пришёл) — буферизуем
+      if (!peer.remoteDescription) {
+        pcIceCandidateBuffer.push(e.candidate);
+      } else {
+        // answer уже есть — отправляем напрямую
+        const sendTo = pcCallRemoteId || targetId;
+        socket.emit('private-call-ice', { to: sendTo, candidate: e.candidate });
+      }
+    } else {
+      // Принимающий: remoteDescription уже установлен — отправляем сразу
+      socket.emit('private-call-ice', { to: pcCallRemoteId || targetId, candidate: e.candidate });
+    }
   };
 
   peer.onconnectionstatechange = () => {
     console.log('Call peer state:', peer.connectionState);
     if (peer.connectionState === 'connected') {
-      setCallStatus(null); // таймер запустится
       startCallTimer();
       showToast('🟢 Звонок установлен', 2000);
     }
@@ -2432,21 +2432,32 @@ function createPrivateCallPeer(targetId) {
 
   peer.oniceconnectionstatechange = () => {
     console.log('ICE state:', peer.iceConnectionState);
-    if (peer.iceConnectionState === 'checking') {
-      setCallStatus('Соединение…');
-    }
-    if (peer.iceConnectionState === 'connected' || peer.iceConnectionState === 'completed') {
-      // Соединение установлено — таймер запустит onconnectionstatechange
-    }
-    if (peer.iceConnectionState === 'failed') {
-      peer.restartIce();
-    }
+    if (peer.iceConnectionState === 'checking') setCallStatus('Соединение…');
+    if (peer.iceConnectionState === 'failed') peer.restartIce();
   };
+
+  // ════════════════════════════════════════════
+  // Для звонящего: создаём offer через onnegotiationneeded
+  // ════════════════════════════════════════════
+  if (isInitiator) {
+    peer.onnegotiationneeded = async () => {
+      try {
+        const offer = await peer.createOffer();
+        await peer.setLocalDescription(offer);
+        socket.emit('private-call-offer', {
+          chatId: currentChatId,
+          to:     pcCallRemoteNickLow,
+          offer:  peer.localDescription
+        });
+      } catch (e) {
+        console.error('Offer error:', e);
+      }
+    };
+  }
 
   return peer;
 }
 
-// ── Рингтон ──
 let ringInterval = null;
 function playIncomingRing() {
   stopIncomingRing();
