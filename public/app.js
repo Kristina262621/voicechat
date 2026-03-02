@@ -1,11 +1,12 @@
 // ═══════════════════════════════════════════════
-//  CRYPTO
+//  CRYPTO — военный уровень: AES-256-GCM + ECDH P-384 + HKDF
 // ═══════════════════════════════════════════════
 const Crypto = (() => {
   let roomKey = null;
   const sessionKeys = {};
   let myEcdhKeyPair = null;
 
+  // PBKDF2 → AES-256-GCM (комнатный ключ)
   async function deriveKey(password, roomId, roomSalt) {
     const enc    = new TextEncoder();
     const secret = (password || 'open') + '|' + roomId;
@@ -14,15 +15,16 @@ const Crypto = (() => {
     );
     const saltBytes = enc.encode(roomSalt + 'voicechat-v3');
     roomKey = await crypto.subtle.deriveKey(
-      { name: 'PBKDF2', salt: saltBytes, iterations: 200000, hash: 'SHA-256' },
+      { name: 'PBKDF2', salt: saltBytes, iterations: 310000, hash: 'SHA-256' },
       keyMat, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
     );
     return roomKey;
   }
 
+  // ECDH P-384 (сильнее P-256)
   async function generateEcdhKeyPair() {
     myEcdhKeyPair = await crypto.subtle.generateKey(
-      { name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']
+      { name: 'ECDH', namedCurve: 'P-384' }, true, ['deriveKey', 'deriveBits']
     );
     return myEcdhKeyPair;
   }
@@ -33,21 +35,37 @@ const Crypto = (() => {
     return btoa(String.fromCharCode(...new Uint8Array(raw)));
   }
 
+  // HKDF для деривации сессионного ключа из ECDH shared secret
   async function deriveSessionKey(theirPubKeyB64, peerId) {
     const raw      = Uint8Array.from(atob(theirPubKeyB64), c => c.charCodeAt(0));
-    const theirKey = await crypto.subtle.importKey(
-      'raw', raw, { name: 'ECDH', namedCurve: 'P-256' }, false, []
-    );
+    let theirKey;
+    // Пробуем P-384, затем P-256 для совместимости
+    try {
+      theirKey = await crypto.subtle.importKey(
+        'raw', raw, { name: 'ECDH', namedCurve: 'P-384' }, false, []
+      );
+    } catch (_) {
+      theirKey = await crypto.subtle.importKey(
+        'raw', raw, { name: 'ECDH', namedCurve: 'P-256' }, false, []
+      );
+    }
     const sharedBits = await crypto.subtle.deriveBits(
-      { name: 'ECDH', public: theirKey }, myEcdhKeyPair.privateKey, 256
+      { name: 'ECDH', public: theirKey }, myEcdhKeyPair.privateKey, 384
     );
-    const keyMat = await crypto.subtle.importKey(
-      'raw', sharedBits, { name: 'PBKDF2' }, false, ['deriveKey']
-    );
+    // HKDF для финального ключа
+    const hkdfKey = await crypto.subtle.importKey('raw', sharedBits, 'HKDF', false, ['deriveKey']);
     const enc = new TextEncoder();
     sessionKeys[peerId] = await crypto.subtle.deriveKey(
-      { name: 'PBKDF2', salt: enc.encode('ecdh-session-v1'), iterations: 1, hash: 'SHA-256' },
-      keyMat, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+      {
+        name: 'HKDF',
+        hash: 'SHA-256',
+        salt: enc.encode('privchat-session-v2'),
+        info: enc.encode('ecdh-aes-gcm-256')
+      },
+      hkdfKey,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
     );
     return sessionKeys[peerId];
   }
@@ -63,11 +81,21 @@ const Crypto = (() => {
   function getSessionKey(peerId)   { return sessionKeys[peerId] || null; }
   function clearSessionKey(peerId) { delete sessionKeys[peerId]; }
 
+  // Универсальное шифрование — принимает строку или ArrayBuffer
   async function encrypt(data, key) {
-    const useKey  = key || roomKey;
-    const iv      = crypto.getRandomValues(new Uint8Array(12));
-    const encoded = typeof data === 'string'
-      ? new TextEncoder().encode(data) : new Uint8Array(data);
+    const useKey = key || roomKey;
+    if (!useKey) throw new Error('No encryption key available');
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    let encoded;
+    if (typeof data === 'string') {
+      encoded = new TextEncoder().encode(data);
+    } else if (data instanceof ArrayBuffer) {
+      encoded = new Uint8Array(data);
+    } else if (ArrayBuffer.isView(data)) {
+      encoded = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    } else {
+      throw new TypeError('encrypt: unsupported data type');
+    }
     const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, useKey, encoded);
     return {
       iv:        btoa(String.fromCharCode(...iv)),
@@ -77,6 +105,7 @@ const Crypto = (() => {
 
   async function decrypt(encB64, ivB64, key) {
     const useKey = key || roomKey;
+    if (!useKey) throw new Error('No decryption key available');
     const iv     = Uint8Array.from(atob(ivB64),  c => c.charCodeAt(0));
     const cipher = Uint8Array.from(atob(encB64), c => c.charCodeAt(0));
     return crypto.subtle.decrypt({ name: 'AES-GCM', iv }, useKey, cipher);
@@ -96,11 +125,18 @@ const Crypto = (() => {
   }
 
   return {
-    deriveKey, encrypt, decryptText, decryptBlob,
+    deriveKey, encrypt, decryptText, decryptBlob, decrypt,
     generateEcdhKeyPair, exportPublicKey, deriveSessionKey,
     getKeyFingerprint, getSessionKey, clearSessionKey, clearAllKeys
   };
 })();
+
+// ═══════════════════════════════════════════════
+//  SERVICE WORKER (PWA + Push)
+// ═══════════════════════════════════════════════
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
 
 // ═══════════════════════════════════════════════
 //  SOCKET
@@ -304,7 +340,24 @@ let wakeLock        = null;
 let msgCounter      = 0;
 let outgoingSeq     = 0;
 
-// ─── FIX: Одно объявление SPEAKING_THRESHOLD ───
+// Счётчики непрочитанных сообщений
+const unreadCounts  = {}; // chatId/roomId → count
+let totalUnread     = 0;
+
+// Настройки уведомлений: 'all' | 'mentions' | 'none'
+const notifSettings = {}; // chatId/roomId → 'all'|'none'|'mute'
+try {
+  const saved = localStorage.getItem('notifSettings');
+  if (saved) Object.assign(notifSettings, JSON.parse(saved));
+} catch (_) {}
+
+function saveNotifSettings() {
+  try { localStorage.setItem('notifSettings', JSON.stringify(notifSettings)); } catch (_) {}
+}
+
+function getNotifSetting(id) { return notifSettings[id] || 'all'; }
+function setNotifSetting(id, val) { notifSettings[id] = val; saveNotifSettings(); }
+
 const SPEAKING_THRESHOLD = 20;
 
 const voiceNicknames   = {};
@@ -315,7 +368,6 @@ const typingUsers  = {};
 let typingTimer    = null;
 const ecdhExchanged = new Set();
 
-// Кэш списков для объединённого вью
 let cachedRoomList    = [];
 let cachedPrivateList = [];
 
@@ -327,9 +379,12 @@ let voiceRecordSeconds = 0;
 let voiceRecordInterval= null;
 let isVoiceRecording   = false;
 
-// ─────────────────────────────
+// ─── Динамик звонка ───
+let isSpeakerMode = false; // false = разговорный (тихий), true = внешний
+
+// ═══════════════════════════════════════════════
 //  УТИЛИТЫ
-// ─────────────────────────────
+// ═══════════════════════════════════════════════
 function escapeHtml(str) {
   return String(str)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;')
@@ -347,7 +402,8 @@ function formatCountdown(msLeft) {
   return String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0');
 }
 function formatDuration(sec) {
-  return String(Math.floor(sec/60)).padStart(1,'0') + ':' + String(sec%60).padStart(2,'0');
+  const s = Math.max(0, Math.floor(sec));
+  return String(Math.floor(s/60)).padStart(1,'0') + ':' + String(s%60).padStart(2,'0');
 }
 
 function scrollToBottom() {
@@ -374,6 +430,44 @@ function avatarHtml(avatar, fallback = '👤', size = '100%') {
   return fallback;
 }
 
+// ═══════════════════════════════════════════════
+//  СЧЁТЧИК НЕПРОЧИТАННЫХ (иконка вкладки)
+// ═══════════════════════════════════════════════
+function updateTabBadge() {
+  totalUnread = Object.values(unreadCounts).reduce((a,b)=>a+b, 0);
+  try {
+    if (totalUnread > 0) {
+      document.title = `(${totalUnread}) Приватный чат`;
+    } else {
+      document.title = 'Приватный чат';
+    }
+  } catch (_) {}
+}
+
+function addUnread(id, count = 1) {
+  if (!id) return;
+  unreadCounts[id] = (unreadCounts[id] || 0) + count;
+  updateTabBadge();
+  renderUnifiedList();
+  renderUnifiedListInChat();
+}
+
+function clearUnread(id) {
+  if (!id || !unreadCounts[id]) return;
+  delete unreadCounts[id];
+  updateTabBadge();
+  renderUnifiedList();
+  renderUnifiedListInChat();
+}
+
+// Сбрасываем счётчик при заходе в чат
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    const id = currentChatType === 'private' ? currentChatId : currentRoomId;
+    if (id) clearUnread(id);
+  }
+});
+
 // ─────────────────────────────
 //  TOAST
 // ─────────────────────────────
@@ -389,7 +483,11 @@ function showToast(text, duration = 3000, onClick = null) {
   return el;
 }
 
-function playMsgSound() {
+// Звук уведомления о сообщении
+function playMsgSound(chatId) {
+  // Не играть если беззвучно
+  const setting = getNotifSetting(chatId || currentChatId || currentRoomId || '');
+  if (setting === 'none') return;
   try {
     const ctx  = new (window.AudioContext || window.webkitAudioContext)();
     const osc  = ctx.createOscillator();
@@ -410,11 +508,14 @@ function requestNotifPermission() {
   if ('Notification' in window && Notification.permission === 'default')
     Notification.requestPermission();
 }
-function showBrowserNotif(title, body) {
+
+function showBrowserNotif(title, body, chatId) {
+  // Не показывать если уведомления выкл для этого чата
+  if (chatId && getNotifSetting(chatId) === 'none') return;
   if (document.visibilityState === 'visible') return;
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   try {
-    const n = new Notification(title, { body, icon: '/icon.png', silent: false });
+    const n = new Notification(title, { body, icon: '/icon.png', silent: false, tag: chatId });
     n.onclick = () => { window.focus(); n.close(); };
     setTimeout(() => n.close(), 5000);
   } catch (_) {}
@@ -474,7 +575,6 @@ function switchTab(tab) {
   }
 }
 
-// Автологин
 (function tryAutoLogin() {
   try {
     const token = localStorage.getItem('chat_token');
@@ -581,10 +681,8 @@ function doLogout() {
 }
 
 // ═══════════════════════════════════════════════
-//  ОБЪЕДИНЁННЫЕ ВКЛАДКИ — как в Telegram
+//  ОБЪЕДИНЁННЫЕ ВКЛАДКИ
 // ═══════════════════════════════════════════════
-
-// Лобби вкладки
 if (lobbyTabAll) lobbyTabAll.addEventListener('click', () => {
   [lobbyTabAll, lobbyTabGroups, lobbyTabPrivate].forEach(t => t && t.classList.remove('active'));
   lobbyTabAll.classList.add('active');
@@ -610,7 +708,6 @@ if (lobbyTabPrivate) lobbyTabPrivate.addEventListener('click', () => {
   loadPrivateChatsList(privateList);
 });
 
-// Сайдбар в чате — те же вкладки
 if (chatTabAll) chatTabAll.addEventListener('click', () => {
   [chatTabAll, chatTabGroups, chatTabPrivate].forEach(t => t && t.classList.remove('active'));
   chatTabAll.classList.add('active');
@@ -636,10 +733,10 @@ if (chatTabPrivate) chatTabPrivate.addEventListener('click', () => {
   loadPrivateChatsList(chatPrivateList);
 });
 
-// ─── Объединённый рендер (группы + личные вместе) ───
+// ─── Объединённый рендер ───
 function renderUnifiedList() {
   if (!unifiedList) return;
-  const groups  = cachedRoomList  || [];
+  const groups   = cachedRoomList   || [];
   const privates = cachedPrivateList || [];
 
   if (!groups.length && !privates.length) {
@@ -651,12 +748,10 @@ function renderUnifiedList() {
   }
 
   let html = '';
-
   if (groups.length) {
     html += `<div class="chat-list-section-title">👥 Группы</div>`;
     html += groups.map(room => buildRoomCardHTML(room)).join('');
   }
-
   if (privates.length) {
     html += `<div class="chat-list-section-title">💬 Личные чаты</div>`;
     html += privates.map(c => buildPrivateCardHTML(c)).join('');
@@ -695,6 +790,19 @@ function renderUnifiedListInChat() {
   bindPrivateCardEvents(chatUnifiedList);
 }
 
+function buildUnreadBadge(id) {
+  const count = unreadCounts[id] || 0;
+  if (!count) return '';
+  return `<div class="room-unread">${count > 99 ? '99+' : count}</div>`;
+}
+
+function buildNotifIcon(id) {
+  const s = getNotifSetting(id);
+  if (s === 'none') return `<span style="font-size:13px;color:var(--sub)" title="Уведомления выкл">🔕</span>`;
+  if (s === 'mute') return `<span style="font-size:13px;color:var(--sub)" title="Беззвучно">🔇</span>`;
+  return '';
+}
+
 function buildRoomCardHTML(room) {
   const isEmpty   = room.memberCount === 0 && room.deleteAt;
   const timerHtml = isEmpty
@@ -702,6 +810,8 @@ function buildRoomCardHTML(room) {
     : `<span>👥 ${room.memberCount}</span>`;
   const joinBadge = room.joinMode === 'approval'
     ? `<span style="color:var(--orange);font-size:11px">📋</span>` : '';
+  const unreadBadge = buildUnreadBadge(room.id);
+  const notifIcon   = buildNotifIcon(room.id);
   return `
     <div class="room-card" data-id="${room.id}"
          data-has-pw="${room.hasPassword}"
@@ -715,14 +825,15 @@ function buildRoomCardHTML(room) {
         <div class="room-name">${escapeHtml(room.name)}</div>
         <div class="room-meta">
           ${room.hasPassword ? '<span class="room-badge-lock">🔐</span>' : '<span>🌐</span>'}
-          ${timerHtml} ${joinBadge}
+          ${timerHtml} ${joinBadge} ${notifIcon}
         </div>
       </div>
-      <div class="room-arrow">›</div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">${unreadBadge}<div class="room-arrow">›</div></div>
     </div>`;
 }
 
 function buildRoomCardSmallHTML(room) {
+  const unreadBadge = buildUnreadBadge(room.id);
   return `
     <div class="room-card" style="margin-bottom:4px" data-id="${room.id}"
          data-has-pw="${room.hasPassword}" data-name="${escapeHtml(room.name)}"
@@ -734,10 +845,13 @@ function buildRoomCardSmallHTML(room) {
         <div class="room-name" style="font-size:13px">${escapeHtml(room.name)}</div>
         <div class="room-meta" style="font-size:11px">${room.memberCount} чел.</div>
       </div>
+      ${unreadBadge}
     </div>`;
 }
 
 function buildPrivateCardHTML(c) {
+  const unreadBadge = buildUnreadBadge(c.chatId);
+  const notifIcon   = buildNotifIcon(c.chatId);
   return `
     <div class="pc-card" data-chatid="${c.chatId}"
          data-with="${escapeHtml(c.withNickname)}"
@@ -747,13 +861,14 @@ function buildPrivateCardHTML(c) {
       </div>
       <div class="room-info">
         <div class="room-name">${escapeHtml(c.withNickname)}</div>
-        <div class="room-meta">💬 Личный чат</div>
+        <div class="room-meta">💬 Личный чат ${notifIcon}</div>
       </div>
-      <div class="room-arrow">›</div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">${unreadBadge}<div class="room-arrow">›</div></div>
     </div>`;
 }
 
 function buildPrivateCardSmallHTML(c) {
+  const unreadBadge = buildUnreadBadge(c.chatId);
   return `
     <div class="pc-card" style="margin-bottom:4px" data-chatid="${c.chatId}"
          data-with="${escapeHtml(c.withNickname)}"
@@ -765,6 +880,7 @@ function buildPrivateCardSmallHTML(c) {
         <div class="room-name" style="font-size:13px">${escapeHtml(c.withNickname)}</div>
         <div class="room-meta" style="font-size:11px">💬 Личный</div>
       </div>
+      ${unreadBadge}
     </div>`;
 }
 
@@ -954,6 +1070,39 @@ socket.on('friend-accepted', ({ byNick }) => {
 });
 
 // ═══════════════════════════════════════════════
+//  НАСТРОЙКИ УВЕДОМЛЕНИЙ ЧАТА
+// ═══════════════════════════════════════════════
+function openChatNotifSettings(chatId, chatName) {
+  const current = getNotifSetting(chatId);
+  const sheet = document.createElement('div');
+  sheet.style.cssText = 'position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,0.85);display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(8px)';
+  sheet.innerHTML = `
+    <div style="width:100%;max-width:520px;background:var(--surface);border-radius:28px 28px 0 0;padding:20px 20px 40px;border-top:1px solid rgba(124,92,191,0.2)">
+      <div style="width:36px;height:4px;border-radius:2px;background:rgba(255,255,255,0.12);margin:0 auto 18px"></div>
+      <div style="font-size:17px;font-weight:800;text-align:center;margin-bottom:6px">🔔 Уведомления</div>
+      <div style="font-size:13px;color:var(--sub);text-align:center;margin-bottom:22px">${escapeHtml(chatName)}</div>
+      <div id="notif-options" style="display:flex;flex-direction:column;gap:8px">
+        <button class="notif-opt ${current==='all'?'active':''}" data-val="all" style="padding:14px 18px;border-radius:14px;border:1.5px solid ${current==='all'?'var(--accent)':'rgba(255,255,255,0.07)'};background:${current==='all'?'rgba(124,92,191,0.12)':'var(--bg2)'};color:var(--text);font-size:15px;cursor:pointer;text-align:left;display:flex;align-items:center;gap:12px"><span>🔔</span><div><div style="font-weight:600">Все уведомления</div><div style="font-size:12px;color:var(--sub)">Получать все звуки и уведомления</div></div></button>
+        <button class="notif-opt ${current==='mute'?'active':''}" data-val="mute" style="padding:14px 18px;border-radius:14px;border:1.5px solid ${current==='mute'?'var(--accent)':'rgba(255,255,255,0.07)'};background:${current==='mute'?'rgba(124,92,191,0.12)':'var(--bg2)'};color:var(--text);font-size:15px;cursor:pointer;text-align:left;display:flex;align-items:center;gap:12px"><span>🔇</span><div><div style="font-weight:600">Беззвучно</div><div style="font-size:12px;color:var(--sub)">Уведомления видны, но без звука</div></div></button>
+        <button class="notif-opt ${current==='none'?'active':''}" data-val="none" style="padding:14px 18px;border-radius:14px;border:1.5px solid ${current==='none'?'var(--accent)':'rgba(255,255,255,0.07)'};background:${current==='none'?'rgba(124,92,191,0.12)':'var(--bg2)'};color:var(--text);font-size:15px;cursor:pointer;text-align:left;display:flex;align-items:center;gap:12px"><span>🔕</span><div><div style="font-weight:600">Выключить</div><div style="font-size:12px;color:var(--sub)">Никаких уведомлений и звуков</div></div></button>
+      </div>
+      <button id="notif-close-btn" style="margin-top:16px;width:100%;padding:14px;border:none;border-radius:14px;background:rgba(255,255,255,0.06);color:var(--text);font-size:15px;cursor:pointer">Отмена</button>
+    </div>`;
+  document.body.appendChild(sheet);
+  sheet.querySelectorAll('.notif-opt').forEach(btn => {
+    btn.addEventListener('click', () => {
+      setNotifSetting(chatId, btn.dataset.val);
+      sheet.remove();
+      showToast(btn.dataset.val === 'all' ? '🔔 Уведомления включены' : btn.dataset.val === 'mute' ? '🔇 Беззвучный режим' : '🔕 Уведомления выключены');
+      renderUnifiedList();
+      renderUnifiedListInChat();
+    });
+  });
+  sheet.querySelector('#notif-close-btn').addEventListener('click', () => sheet.remove());
+  sheet.addEventListener('click', e => { if (e.target === sheet) sheet.remove(); });
+}
+
+// ═══════════════════════════════════════════════
 //  НАСТРОЙКИ
 // ═══════════════════════════════════════════════
 if (btnCloseSettings) btnCloseSettings.addEventListener('click', () => modalSettings.classList.remove('open'));
@@ -964,7 +1113,7 @@ $('settings-go-profile').addEventListener('click', () => { modalSettings.classLi
 $('settings-go-privacy').addEventListener('click', () => showToast('🔒 Раздел в разработке'));
 $('settings-go-notifs').addEventListener('click',  () => {
   requestNotifPermission();
-  showToast('🔔 Уведомления: ' + (Notification.permission === 'granted' ? 'включены' : 'выкл'));
+  showToast('🔔 Уведомления: ' + (Notification.permission === 'granted' ? 'включены' : 'требуется разрешение'));
 });
 $('settings-go-data').addEventListener('click',  () => showToast('💾 Раздел в разработке'));
 $('settings-go-lang').addEventListener('click',  () => showToast('🌐 Язык: Русский'));
@@ -1020,6 +1169,8 @@ async function enterPrivateChat(chatId, withNickname, withAvatar) {
   isRoomOwner     = false;
   memberCount     = 2;
 
+  clearUnread(chatId);
+
   try {
     await Crypto.deriveKey('', chatId, chatId + '-private-v1');
   } catch (e) { console.error('Ошибка деривации ключа:', e); }
@@ -1037,7 +1188,21 @@ async function enterPrivateChat(chatId, withNickname, withAvatar) {
 
   socket.emit('private-chat-join', { chatId });
   showScreen('chat');
+
+  // Кнопка настроек уведомлений в шапке
+  updateNotifButton();
+
   await loadPrivateChatHistory(chatId);
+}
+
+// Кнопка настроек уведомлений текущего чата
+function updateNotifButton() {
+  const id = currentChatType === 'private' ? currentChatId : currentRoomId;
+  const btn = $('btn-notif-settings');
+  if (btn && id) {
+    const s = getNotifSetting(id);
+    btn.textContent = s === 'all' ? '🔔' : s === 'mute' ? '🔇' : '🔕';
+  }
 }
 
 async function loadPrivateChatHistory(chatId) {
@@ -1050,7 +1215,8 @@ async function loadPrivateChatHistory(chatId) {
           appendMessage({
             nickname: msg.fromNick, type: 'voice',
             duration: msg.duration || 0, timestamp: msg.timestamp, mine, status: 'ok',
-            encrypted: msg.encrypted, iv: msg.iv
+            encrypted: msg.encrypted, iv: msg.iv,
+            mimeType: msg.mimeType
           });
         } else if (msg.type === 'text') {
           try {
@@ -1083,27 +1249,35 @@ function loadPrivateChatsList(container) {
         bindPrivateCardEvents(el);
       }
     }
-    // Обновляем объединённый список
     if (unifiedList && unifiedList.style.display !== 'none') renderUnifiedList();
     if (chatUnifiedList && chatUnifiedList.style.display !== 'none') renderUnifiedListInChat();
   });
 }
 
 socket.on('private-message', async data => {
-  if (currentChatType !== 'private' || currentChatId !== data.chatId) {
-    showToast('💬 ' + (data.fromNick || '?') + ': новое сообщение', 4000, () => {
-      enterPrivateChat(data.chatId, data.fromNick, data.fromAvatar);
-    });
-    playMsgSound();
+  const isCurrentChat = currentChatType === 'private' && currentChatId === data.chatId;
+
+  if (!isCurrentChat) {
+    // Уведомление
+    const setting = getNotifSetting(data.chatId);
+    if (setting !== 'none') {
+      showToast('💬 ' + (data.fromNick || '?') + ': новое сообщение', 4000, () => {
+        enterPrivateChat(data.chatId, data.fromNick, data.fromAvatar);
+      });
+      if (setting !== 'mute') playMsgSound(data.chatId);
+    }
+    addUnread(data.chatId, 1);
+    showBrowserNotif('💬 ' + (data.fromNick || '?'), '(голосовое сообщение)', data.chatId);
     return;
   }
-  playMsgSound();
+
+  if (getNotifSetting(data.chatId) !== 'none') playMsgSound(data.chatId);
 
   if (data.type === 'voice') {
     appendMessage({
       from: data.from, nickname: data.fromNick, type: 'voice',
       duration: data.duration || 0, timestamp: data.timestamp, mine: false, status: 'ok',
-      encrypted: data.encrypted, iv: data.iv
+      encrypted: data.encrypted, iv: data.iv, mimeType: data.mimeType
     });
     return;
   }
@@ -1117,7 +1291,7 @@ socket.on('private-message', async data => {
     if (data.type === 'text') {
       const text = await Crypto.decryptText(data.encrypted, data.iv);
       updateMessage(msgId, { text, status: 'ok' });
-      showBrowserNotif('💬 ' + (data.fromNick || '?'), text);
+      showBrowserNotif('💬 ' + (data.fromNick || '?'), text, data.chatId);
     } else {
       const mime = data.mimeType || 'application/octet-stream';
       const blob = await Crypto.decryptBlob(data.encrypted, data.iv, mime);
@@ -1135,7 +1309,6 @@ socket.on('room-list', list => {
   cachedRoomList = list || [];
   renderRoomList(cachedRoomList, roomsList);
   renderRoomListInChat(cachedRoomList);
-  // Обновляем объединённый список если активна вкладка «Все»
   if (lobbyTabAll && lobbyTabAll.classList.contains('active')) renderUnifiedList();
   if (chatTabAll  && chatTabAll.classList.contains('active'))  renderUnifiedListInChat();
 });
@@ -1407,6 +1580,8 @@ function joinRoom(roomId, password, cb) {
       currentChatId   = null;
       isRoomOwner     = res.room.isOwner || false;
 
+      clearUnread(roomId);
+
       const roomSalt = res.room.roomSalt || (roomId + '-default-salt');
       await Crypto.deriveKey(password, roomId, roomSalt);
       await Crypto.generateEcdhKeyPair();
@@ -1424,17 +1599,19 @@ function joinRoom(roomId, password, cb) {
 
       clearChat(); clearAllTyping();
       showScreen('chat');
+      updateNotifButton();
       showOwnFingerprint();
 
       socket.emit('room-history', { roomId }, async histRes => {
         if (histRes.ok && histRes.messages && histRes.messages.length) {
           for (const msg of histRes.messages) {
-            const mine = msg.from === socket.id;
+            // История: mine определяем по nickLower
+            const mine = msg.nickname && msg.nickname.toLowerCase() === myNickname.toLowerCase();
             if (msg.type === 'voice') {
               appendMessage({
                 nickname: msg.nickname, type: 'voice',
                 duration: msg.duration || 0, timestamp: msg.timestamp, mine, status: 'ok',
-                encrypted: msg.encrypted, iv: msg.iv
+                encrypted: msg.encrypted, iv: msg.iv, mimeType: msg.mimeType
               });
             } else if (msg.type === 'text') {
               try {
@@ -1500,7 +1677,9 @@ if (modalMembers) modalMembers.addEventListener('click', e => {
 
 function openMembersModal() {
   if (currentChatType === 'private') {
-    if (chatRoomName) showToast('💬 Личный чат с ' + chatRoomName.textContent, 2500);
+    // Для личного чата — показываем настройки чата
+    const name = chatRoomName ? chatRoomName.textContent : '?';
+    openChatNotifSettings(currentChatId, name);
     return;
   }
   if (!currentRoomId || !modalMembers) return;
@@ -1577,7 +1756,12 @@ if (btnDeleteGroup) btnDeleteGroup.addEventListener('click', () => {
 //  ПРИГЛАШЕНИЯ
 // ═══════════════════════════════════════════════
 if (btnInviteFriend) btnInviteFriend.addEventListener('click', () => {
-  if (currentChatType === 'private') { showToast('💬 Это личный чат', 2000); return; }
+  if (currentChatType === 'private') {
+    // В личном чате — настройки уведомлений
+    const name = chatRoomName ? chatRoomName.textContent : '?';
+    openChatNotifSettings(currentChatId, name);
+    return;
+  }
   openInviteModal();
 });
 if (btnCloseInvite) btnCloseInvite.addEventListener('click', () => { if (modalInvite) modalInvite.classList.remove('open'); });
@@ -1754,7 +1938,6 @@ if (chatInput) {
   chatInput.addEventListener('input', () => {
     chatInput.style.height = 'auto';
     chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
-    // Показываем/скрываем кнопку голосового
     if (btnVoiceRecord) {
       btnVoiceRecord.style.display = chatInput.value.trim().length > 0 ? 'none' : 'flex';
     }
@@ -1784,33 +1967,83 @@ async function sendTextMessage() {
       appendMessage({ from: socket.id, nickname: myNickname, text, type: 'text', timestamp: Date.now(), mine: true, status: 'ok' });
       chatInput.value = ''; chatInput.style.height = 'auto';
     }
-    // После отправки — снова показываем кнопку голосового
     if (btnVoiceRecord) btnVoiceRecord.style.display = 'flex';
-  } catch (e) { console.error('Send error:', e); }
+  } catch (e) {
+    showToast('❌ Ошибка отправки: ' + e.message);
+    console.error('Send error:', e);
+  }
   finally { if (btnSend) btnSend.disabled = false; }
 }
 
 // ═══════════════════════════════════════════════
-//  ГОЛОСОВЫЕ СООБЩЕНИЯ
+//  ГОЛОСОВЫЕ СООБЩЕНИЯ — как в Telegram
+//  Удержание = запись, отпустить = отправить
 // ═══════════════════════════════════════════════
 if (btnVoiceRecord) {
-  // На мобиле: удержание = запись
-  btnVoiceRecord.addEventListener('mousedown',  startVoiceRecording);
-  btnVoiceRecord.addEventListener('touchstart', e => { e.preventDefault(); startVoiceRecording(); });
-  btnVoiceRecord.addEventListener('mouseup',    stopAndSendVoice);
-  btnVoiceRecord.addEventListener('mouseleave', stopAndCancelVoice);
-  btnVoiceRecord.addEventListener('touchend',   stopAndSendVoice);
-  btnVoiceRecord.addEventListener('touchcancel',stopAndCancelVoice);
-  // Клик = начать/остановить запись
-  btnVoiceRecord.addEventListener('click', toggleVoiceRecording);
-}
+  let isPointerDown = false;
+  let recordStarted = false;
 
-function toggleVoiceRecording() {
-  if (isVoiceRecording) {
-    stopAndSendVoice();
-  } else {
-    startVoiceRecording();
-  }
+  // Touch события (мобиль)
+  btnVoiceRecord.addEventListener('touchstart', e => {
+    e.preventDefault();
+    isPointerDown = true;
+    recordStarted = false;
+    // Небольшая задержка чтобы отличить тап от удержания
+    setTimeout(() => {
+      if (isPointerDown && !isVoiceRecording) {
+        recordStarted = true;
+        startVoiceRecording();
+      }
+    }, 100);
+  }, { passive: false });
+
+  btnVoiceRecord.addEventListener('touchend', e => {
+    e.preventDefault();
+    isPointerDown = false;
+    if (isVoiceRecording) {
+      stopAndSendVoice();
+    }
+  }, { passive: false });
+
+  btnVoiceRecord.addEventListener('touchcancel', e => {
+    e.preventDefault();
+    isPointerDown = false;
+    if (isVoiceRecording) {
+      stopAndCancelVoice();
+    }
+  }, { passive: false });
+
+  // Mouse события (десктоп)
+  btnVoiceRecord.addEventListener('mousedown', e => {
+    e.preventDefault();
+    isPointerDown = true;
+    if (!isVoiceRecording) {
+      startVoiceRecording();
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isPointerDown) {
+      isPointerDown = false;
+      if (isVoiceRecording) {
+        stopAndSendVoice();
+      }
+    }
+  });
+
+  // Свайп влево — отмена (как в Telegram)
+  let touchStartX = 0;
+  btnVoiceRecord.addEventListener('touchmove', e => {
+    if (!isVoiceRecording) return;
+    const touch = e.touches[0];
+    if (!touchStartX) touchStartX = touch.clientX;
+    const deltaX = touch.clientX - touchStartX;
+    if (deltaX < -60) {
+      touchStartX = 0;
+      stopAndCancelVoice();
+      showToast('❌ Запись отменена');
+    }
+  }, { passive: true });
 }
 
 async function startVoiceRecording() {
@@ -1821,11 +2054,10 @@ async function startVoiceRecording() {
     showToast('❌ Нет доступа к микрофону'); return;
   }
 
-  isVoiceRecording  = true;
-  voiceRecordChunks = [];
+  isVoiceRecording   = true;
+  voiceRecordChunks  = [];
   voiceRecordSeconds = 0;
 
-  // Определяем поддерживаемый формат
   const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
     ? 'audio/webm;codecs=opus'
     : MediaRecorder.isTypeSupported('audio/webm')
@@ -1833,12 +2065,11 @@ async function startVoiceRecording() {
       : 'audio/ogg';
 
   voiceRecorder = new MediaRecorder(voiceRecordStream, { mimeType });
-  voiceRecorder.ondataavailable = e => { if (e.data.size > 0) voiceRecordChunks.push(e.data); };
+  voiceRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) voiceRecordChunks.push(e.data); };
   voiceRecorder.onstop = async () => {
     const blob = new Blob(voiceRecordChunks, { type: mimeType });
-    voiceRecordStream.getTracks().forEach(t => t.stop());
-    voiceRecordStream = null;
-    if (blob.size < 100) return; // слишком маленькое — отменяем
+    if (voiceRecordStream) { voiceRecordStream.getTracks().forEach(t => t.stop()); voiceRecordStream = null; }
+    if (blob.size < 100) return;
     await sendVoiceMessage(blob, voiceRecordSeconds, mimeType);
   };
 
@@ -1850,7 +2081,6 @@ async function startVoiceRecording() {
   voiceRecordInterval = setInterval(() => {
     voiceRecordSeconds++;
     if (voiceRecordTime) voiceRecordTime.textContent = formatDuration(voiceRecordSeconds);
-    // Автостоп через 2 минуты
     if (voiceRecordSeconds >= 120) stopAndSendVoice();
   }, 1000);
 }
@@ -1859,7 +2089,9 @@ function stopAndSendVoice() {
   if (!isVoiceRecording) return;
   isVoiceRecording = false;
   clearInterval(voiceRecordInterval);
-  if (voiceRecorder && voiceRecorder.state !== 'inactive') voiceRecorder.stop();
+  if (voiceRecorder && voiceRecorder.state !== 'inactive') {
+    voiceRecorder.stop(); // onstop вызовет sendVoiceMessage
+  }
   if (btnVoiceRecord) btnVoiceRecord.classList.remove('recording');
   if (voiceRecordTimer) voiceRecordTimer.classList.remove('visible');
   if (chatInput) chatInput.style.display = '';
@@ -1946,14 +2178,17 @@ async function sendMediaBlob(blob, mimeType, fileName, type) {
 
 // ─── Входящие сообщения группы ───
 socket.on('chat-message', async data => {
-  playMsgSound();
+  const chatId = currentRoomId;
+  const setting = getNotifSetting(chatId || '');
 
   if (data.type === 'voice') {
+    if (setting !== 'none' && setting !== 'mute') playMsgSound(chatId);
     appendMessage({
       from: data.from, nickname: data.nickname, type: 'voice',
       duration: data.duration || 0, timestamp: data.timestamp, mine: false, status: 'ok',
-      encrypted: data.encrypted, iv: data.iv
+      encrypted: data.encrypted, iv: data.iv, mimeType: data.mimeType
     });
+    if (document.visibilityState !== 'visible') addUnread(chatId, 1);
     return;
   }
 
@@ -1962,15 +2197,21 @@ socket.on('chat-message', async data => {
     fileName: data.fileName, fileSize: data.fileSize, mimeType: data.mimeType,
     timestamp: data.timestamp, mine: false, status: 'decrypting'
   });
+
   try {
     if (data.type === 'text') {
       const text = await Crypto.decryptText(data.encrypted, data.iv);
       updateMessage(msgId, { text, status: 'ok' });
-      showBrowserNotif('💬 ' + (data.nickname||'?'), text);
+      if (setting !== 'none') {
+        if (setting !== 'mute') playMsgSound(chatId);
+        showBrowserNotif('💬 ' + (data.nickname||'?'), text, chatId);
+      }
+      if (document.visibilityState !== 'visible') addUnread(chatId, 1);
     } else {
       const mime = data.mimeType || 'application/octet-stream';
       const blob = await Crypto.decryptBlob(data.encrypted, data.iv, mime);
       updateMessage(msgId, { localUrl: URL.createObjectURL(blob), status: 'ok' });
+      if (document.visibilityState !== 'visible') addUnread(chatId, 1);
     }
   } catch { updateMessage(msgId, { status: 'error' }); }
 });
@@ -2010,14 +2251,15 @@ function updateMessage(id, updates) {
   const div = document.getElementById(id); if (!div) return;
   const content = div.querySelector('.msg-content');
   if (content) {
-    content.innerHTML = buildContentHTML({
+    const merged = {
       type:     div.dataset.type,
       mimeType: div.dataset.mimeType,
       fileName: div.dataset.fileName,
       fileSize: div.dataset.fileSize,
       duration: div.dataset.duration,
       ...updates
-    });
+    };
+    content.innerHTML = buildContentHTML(merged);
     bindMediaEvents(div);
   }
   const st = div.querySelector('.msg-decrypt-status');
@@ -2057,66 +2299,66 @@ function buildContentHTML(msg) {
 }
 
 function buildVoiceMessageHTML(msg) {
-  const dur = parseInt(msg.duration) || 0;
+  const dur    = parseInt(msg.duration) || 0;
   const durStr = formatDuration(dur);
-  // Генерируем псевдо-волну для красоты
-  const bars = Array.from({length: 20}, () => {
+  const msgId  = 'vm-' + Math.random().toString(36).slice(2);
+  const bars   = Array.from({length: 20}, () => {
     const h = Math.floor(Math.random() * 16 + 4);
     return `<div class="voice-msg-bar" style="height:${h}px"></div>`;
   }).join('');
 
   if (msg.localUrl) {
     return `
-      <div class="voice-msg" data-url="${msg.localUrl}">
-        <button class="voice-msg-btn" onclick="playVoiceMsg(this, '${msg.localUrl}')">▶️</button>
-        <div class="voice-msg-waveform" onclick="playVoiceMsg(this.previousElementSibling, '${msg.localUrl}')">${bars}</div>
+      <div class="voice-msg" id="${msgId}" data-dur="${dur}">
+        <button class="voice-msg-btn" data-url="${msg.localUrl}">▶️</button>
+        <div class="voice-msg-waveform">${bars}</div>
         <span class="voice-msg-duration">${durStr}</span>
       </div>`;
   }
-  // Если нет localUrl — надо расшифровать
   return `
-    <div class="voice-msg" data-encrypted="${msg.encrypted||''}" data-iv="${msg.iv||''}" data-mime="${msg.mimeType||'audio/webm'}">
+    <div class="voice-msg" id="${msgId}" data-encrypted="${msg.encrypted||''}" data-iv="${msg.iv||''}" data-mime="${msg.mimeType||'audio/webm'}" data-dur="${dur}">
       <button class="voice-msg-btn voice-decrypt-btn">▶️</button>
       <div class="voice-msg-waveform">${bars}</div>
       <span class="voice-msg-duration">${durStr}</span>
     </div>`;
 }
 
-// Глобальная функция воспроизведения голосового
 let currentVoiceAudio = null;
-window.playVoiceMsg = function(btn, url) {
+let currentVoiceBtn   = null;
+
+function playVoiceMsg(btn, url, wrap) {
+  if (!wrap) wrap = btn.closest('.voice-msg');
   if (currentVoiceAudio && !currentVoiceAudio.paused) {
     currentVoiceAudio.pause();
     currentVoiceAudio.currentTime = 0;
-    // Сбрасываем все кнопки
     document.querySelectorAll('.voice-msg-btn').forEach(b => b.textContent = '▶️');
-    if (currentVoiceAudio.src === url || currentVoiceAudio._url === url) {
-      currentVoiceAudio = null; return;
-    }
+    document.querySelectorAll('.voice-msg-bar').forEach(b => b.classList.remove('active'));
+    if (currentVoiceAudio._url === url) { currentVoiceAudio = null; currentVoiceBtn = null; return; }
   }
   const audio = new Audio(url);
   audio._url  = url;
   currentVoiceAudio = audio;
+  currentVoiceBtn   = btn;
   btn.textContent = '⏸️';
+
   audio.play().then(() => {
-    // Обновляем прогресс
-    const wrap = btn.closest('.voice-msg');
     const bars = wrap ? [...wrap.querySelectorAll('.voice-msg-bar')] : [];
+    const durEl = wrap ? wrap.querySelector('.voice-msg-duration') : null;
+    const origDur = parseInt(wrap?.dataset.dur || '0');
     audio.ontimeupdate = () => {
-      const pct = audio.duration ? audio.currentTime / audio.duration : 0;
+      const pct    = audio.duration ? audio.currentTime / audio.duration : 0;
       const active = Math.floor(pct * bars.length);
       bars.forEach((b, i) => b.classList.toggle('active', i <= active));
-      const dur = wrap ? wrap.querySelector('.voice-msg-duration') : null;
-      if (dur) dur.textContent = formatDuration(Math.floor(audio.currentTime));
+      if (durEl) durEl.textContent = formatDuration(Math.floor(audio.currentTime));
     };
     audio.onended = () => {
       btn.textContent = '▶️';
       bars.forEach(b => b.classList.remove('active'));
-      const dur = wrap ? wrap.querySelector('.voice-msg-duration') : null;
-      if (dur) dur.textContent = formatDuration(parseInt(wrap.dataset.dur||'0'));
+      if (durEl) durEl.textContent = formatDuration(origDur);
+      currentVoiceAudio = null; currentVoiceBtn = null;
     };
   }).catch(() => { btn.textContent = '▶️'; });
-};
+}
 
 function bindMediaEvents(container) {
   container.querySelectorAll('img.msg-media').forEach(img => {
@@ -2125,7 +2367,14 @@ function bindMediaEvents(container) {
   container.querySelectorAll('video.msg-media').forEach(vid => {
     vid.ondblclick = () => openLightbox('video', vid.src);
   });
-  // Кнопки воспроизведения голосовых (зашифрованных)
+  // Кнопки воспроизведения с url
+  container.querySelectorAll('.voice-msg-btn[data-url]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const wrap = btn.closest('.voice-msg');
+      playVoiceMsg(btn, btn.dataset.url, wrap);
+    });
+  });
+  // Кнопки расшифровки
   container.querySelectorAll('.voice-decrypt-btn').forEach(btn => {
     btn.addEventListener('click', async function() {
       const wrap = btn.closest('.voice-msg');
@@ -2138,12 +2387,11 @@ function bindMediaEvents(container) {
       try {
         const blob = await Crypto.decryptBlob(enc, iv, mime);
         const url  = URL.createObjectURL(blob);
-        wrap.dataset.url = url;
         btn.classList.remove('voice-decrypt-btn');
-        btn.onclick = null;
+        btn.dataset.url = url;
         btn.textContent = '▶️';
-        btn.setAttribute('onclick', `playVoiceMsg(this,'${url}')`);
-        playVoiceMsg(btn, url);
+        btn.addEventListener('click', () => playVoiceMsg(btn, url, wrap));
+        playVoiceMsg(btn, url, wrap);
       } catch (e) {
         btn.textContent = '❌'; showToast('Ошибка воспроизведения');
       }
@@ -2696,6 +2944,63 @@ function updateCallButton() {
 }
 
 // ═══════════════════════════════════════════════
+//  ПЕРЕКЛЮЧАТЕЛЬ ДИНАМИКА (разговорный ↔ внешний)
+//  Как в телефоне: по умолчанию тихий (к уху),
+//  нажать 🔈 — переключить на внешний (громкий)
+// ═══════════════════════════════════════════════
+function setSpeakerOutput(external) {
+  isSpeakerMode = external;
+
+  // Обновляем все аудиоэлементы звонка
+  const callAudio = document.getElementById('audio-pc-call');
+
+  if (callBtnSpeaker) {
+    if (external) {
+      callBtnSpeaker.textContent = '🔊';
+      callBtnSpeaker.classList.add('active');
+      callBtnSpeaker.title = 'Внешний динамик (нажми для разговорного)';
+    } else {
+      callBtnSpeaker.textContent = '🔈';
+      callBtnSpeaker.classList.remove('active');
+      callBtnSpeaker.title = 'Разговорный динамик (нажми для внешнего)';
+    }
+  }
+
+  // setSinkId — переключает аудиовыход (поддерживается в Chrome/Android)
+  if (callAudio) {
+    if (!external && callAudio.setSinkId && typeof callAudio.setSinkId === 'function') {
+      // Пробуем переключить на встроенный (earpiece)
+      navigator.mediaDevices.enumerateDevices().then(devices => {
+        const earpiece = devices.find(d =>
+          d.kind === 'audiooutput' &&
+          (d.label.toLowerCase().includes('earpiece') ||
+           d.label.toLowerCase().includes('receiver') ||
+           d.label.toLowerCase().includes('ear'))
+        );
+        if (earpiece) {
+          callAudio.setSinkId(earpiece.deviceId).catch(() => {});
+        } else {
+          // Fallback: снижаем громкость как имитация
+          callAudio.volume = 0.3;
+        }
+      }).catch(() => {});
+    } else if (external && callAudio.setSinkId && typeof callAudio.setSinkId === 'function') {
+      // Переключаем на стандартный (внешний) динамик
+      callAudio.setSinkId('default').catch(() => {});
+      callAudio.volume = 1.0;
+    } else {
+      // На iOS setSinkId не поддерживается — объясняем пользователю
+      callAudio.volume = external ? 1.0 : 0.5;
+      if (!external) showToast('📱 На iPhone переключи режим кнопкой громкости или уберись к уху', 4000);
+    }
+  }
+}
+
+if (callBtnSpeaker) callBtnSpeaker.addEventListener('click', () => {
+  setSpeakerOutput(!isSpeakerMode);
+});
+
+// ═══════════════════════════════════════════════
 //  ЛИЧНЫЕ ЗВОНКИ
 // ═══════════════════════════════════════════════
 let pcCallPeer           = null;
@@ -2704,7 +3009,6 @@ let pcCallRemoteId       = null;
 let pcCallRemoteNickLow  = null;
 let pcCallRemoteNick     = '';
 let pcCallMuted          = false;
-let pcCallSpeaker        = true;
 let pcCallActive         = false;
 let incomingCallData     = null;
 let pcIceCandidateBuffer = [];
@@ -2720,7 +3024,8 @@ function showCallScreen(name, avatar, status) {
     else        callScreenAvatar.textContent = '👤';
   }
   if (callBtnMute)    { callBtnMute.classList.remove('active');    callBtnMute.textContent = '🎤'; }
-  if (callBtnSpeaker) { callBtnSpeaker.classList.remove('active'); callBtnSpeaker.textContent = '🔈'; }
+  // Инициализируем динамик в режиме разговорного (к уху)
+  setSpeakerOutput(false);
   callScreen.classList.add('active');
 }
 function hideCallScreen() { if (callScreen) callScreen.classList.remove('active'); stopCallTimer(); }
@@ -2743,13 +3048,7 @@ if (callBtnMute) callBtnMute.addEventListener('click', () => {
   if (pcCallMuted) { callBtnMute.classList.add('active'); callBtnMute.textContent='🔇'; }
   else             { callBtnMute.classList.remove('active'); callBtnMute.textContent='🎤'; }
 });
-if (callBtnSpeaker) callBtnSpeaker.addEventListener('click', () => {
-  pcCallSpeaker = !pcCallSpeaker;
-  const audio = document.getElementById('audio-pc-call');
-  if (audio) audio.volume = pcCallSpeaker ? 1.0 : 0.0;
-  if (pcCallSpeaker) { callBtnSpeaker.classList.remove('active'); callBtnSpeaker.textContent='🔈'; }
-  else               { callBtnSpeaker.classList.add('active');    callBtnSpeaker.textContent='🔇'; }
-});
+
 if (callBtnVideo)  callBtnVideo.addEventListener('click', () => showToast('📷 Видеозвонки скоро появятся', 2500));
 if (callBtnHangup) callBtnHangup.addEventListener('click', () => endPrivateCall(true));
 if (btnCallMinimize) btnCallMinimize.addEventListener('click', () => {
@@ -2785,6 +3084,8 @@ socket.on('private-call-offer', async (data) => {
   if (incomingCallName) incomingCallName.textContent = data.fromNick || '?';
   if (modalIncomingCall) modalIncomingCall.classList.add('open');
   playIncomingRing();
+  // Push-уведомление о звонке
+  showBrowserNotif('📞 Входящий звонок', data.fromNick + ' звонит вам', 'call');
 });
 
 if (btnCallAccept) btnCallAccept.addEventListener('click', async () => {
@@ -2851,7 +3152,7 @@ function endPrivateCall(notify = true) {
   if (pcCallStream) { pcCallStream.getTracks().forEach(t => t.stop()); pcCallStream = null; }
   const el = document.getElementById('audio-pc-call'); if (el) el.remove();
   pcCallActive = false; pcCallRemoteId = null; pcCallRemoteNickLow = null;
-  pcCallRemoteNick = ''; pcCallMuted = false; pcCallSpeaker = true;
+  pcCallRemoteNick = ''; pcCallMuted = false; isSpeakerMode = false;
   pcIceCandidateBuffer = [];
   hideCallScreen(); stopIncomingRing();
   if (modalIncomingCall) modalIncomingCall.classList.remove('open');
@@ -2872,7 +3173,7 @@ function createPrivateCallPeer(targetId, isInitiator) {
       document.body.appendChild(audio);
     }
     audio.srcObject = e.streams[0];
-    audio.volume = pcCallSpeaker ? 1.0 : 0.0;
+    audio.volume = isSpeakerMode ? 1.0 : 0.5;
     audio.play().catch(() => {});
   };
 
@@ -2890,6 +3191,8 @@ function createPrivateCallPeer(targetId, isInitiator) {
     if (peer.connectionState === 'connected') {
       startCallTimer();
       showToast('🟢 Звонок установлен', 2000);
+      // При установке — применяем текущий режим динамика
+      setSpeakerOutput(isSpeakerMode);
     }
     if (peer.connectionState === 'connecting') setCallStatus('Соединение…');
     if (peer.connectionState === 'disconnected' || peer.connectionState === 'failed') {
