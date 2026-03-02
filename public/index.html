@@ -8,6 +8,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#0a0a0f">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/icon.png">
   <title>Приватный чат</title>
   <style>
     *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -55,7 +57,7 @@
     .screen { position:fixed; inset:0; display:none; flex-direction:column; background:var(--bg); padding-top:env(safe-area-inset-top); }
     .screen.active { display:flex; }
 
-    /* DRAWER */
+    /* ─── DRAWER ─── */
     #drawer-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:400; display:none; backdrop-filter:blur(4px); }
     #drawer-overlay.open { display:block; }
     #drawer {
@@ -92,7 +94,7 @@
     .drawer-item-label { flex:1; font-weight:500; }
     .drawer-divider { height:1px; background:var(--divider); margin:8px 0; }
 
-    /* AUTH */
+    /* ─── AUTH ─── */
     #screen-auth { align-items:center; justify-content:center; background:var(--bg); background-image:radial-gradient(ellipse at 30% 20%,rgba(124,92,191,0.15) 0%,transparent 55%),radial-gradient(ellipse at 80% 80%,rgba(201,168,76,0.08) 0%,transparent 50%); }
     .auth-card { width:100%; max-width:400px; margin:0 20px; background:var(--surface); border-radius:28px; border:1px solid rgba(124,92,191,0.2); box-shadow:0 24px 80px rgba(0,0,0,0.8),0 0 0 1px rgba(255,255,255,0.03),inset 0 1px 0 rgba(255,255,255,0.04); overflow:hidden; }
     .auth-tabs { display:flex; background:rgba(0,0,0,0.3); border-bottom:1px solid var(--divider); }
@@ -120,7 +122,7 @@
     .hint-recover button { background:none; border:none; color:var(--accent2); font-size:12px; cursor:pointer; opacity:0.8; }
     .hint-recover button:hover { opacity:1; text-decoration:underline; }
 
-    /* LOBBY */
+    /* ─── LOBBY ─── */
     #screen-lobby { flex-direction:row !important; }
     .lobby-sidebar { width:100%; display:flex; flex-direction:column; background:var(--bg); flex-shrink:0; border-right:1px solid var(--divider); }
     @media (min-width:768px) {
@@ -137,12 +139,11 @@
     .lobby-avatar-btn img { width:100%;height:100%;object-fit:cover;border-radius:50%; }
     #btn-create-room { width:38px; height:38px; flex-shrink:0; border:none; background:var(--accent-g); color:white; font-size:20px; border-radius:50%; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 12px rgba(124,92,191,0.4); }
 
-    /* ════ ОБЪЕДИНЁННЫЕ ВКЛАДКИ (как Telegram) ════ */
+    /* ─── ОБЪЕДИНЁННЫЕ ВКЛАДКИ ─── */
     .lobby-tabs { display:flex; background:var(--bg); border-bottom:1px solid var(--divider); flex-shrink:0; padding:0 6px; }
     .lobby-tab { flex:1; padding:12px 6px; font-size:13px; font-weight:600; text-align:center; cursor:pointer; color:var(--sub); border-bottom:2px solid transparent; transition:color 0.2s,border-color 0.2s; background:none; border-top:none; border-left:none; border-right:none; }
     .lobby-tab.active { color:var(--accent2); border-bottom-color:var(--accent); }
 
-    /* Единый список чатов (как в Telegram — и личные, и группы вместе) */
     .unified-chat-list { flex:1; overflow-y:auto; padding:4px 8px 80px; -webkit-overflow-scrolling:touch; }
     .chat-list-section-title { font-size:10px; color:var(--sub); font-weight:700; text-transform:uppercase; letter-spacing:1px; padding:12px 6px 6px; }
 
@@ -159,13 +160,12 @@
     .room-meta { font-size:12px; color:var(--sub); margin-top:3px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
     .room-badge-lock  { color:var(--gold); }
     .room-badge-timer { color:var(--orange); font-weight:600; animation:pulse 1.5s infinite; }
-    .room-last-msg { font-size:12px; color:var(--sub); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .room-arrow { color:var(--sub); font-size:16px; opacity:0.4; }
     .room-unread { background:var(--accent); color:white; border-radius:12px; font-size:11px; font-weight:700; padding:2px 7px; min-width:20px; text-align:center; }
     .pc-card { display:flex; align-items:center; gap:14px; padding:12px 14px; margin-bottom:4px; background:var(--surface); border-radius:var(--radius); cursor:pointer; transition:background 0.15s; border:1px solid rgba(255,255,255,0.03); }
     .pc-card:active { background:var(--surface3); }
 
-    /* МОДАЛКИ */
+    /* ─── МОДАЛКИ ─── */
     .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.85); backdrop-filter:blur(8px); z-index:500; display:none; align-items:flex-end; }
     .modal-overlay.open { display:flex; }
     .modal-sheet { width:100%; max-width:520px; margin:0 auto; background:var(--surface); border-radius:28px 28px 0 0; border-top:1px solid rgba(124,92,191,0.2); padding:0 20px 32px; padding-bottom:max(32px,calc(env(safe-area-inset-bottom) + 20px)); animation:slideUp 0.3s cubic-bezier(0.34,1.1,0.64,1); max-height:92vh; overflow-y:auto; position:relative; }
@@ -228,13 +228,13 @@
     .btn-danger { width:100%; padding:13px; background:rgba(224,82,82,0.1); color:var(--red); border:1px solid rgba(224,82,82,0.2); border-radius:var(--radius-sm); font-size:15px; font-weight:700; cursor:pointer; margin-top:10px; }
     .empty-list { text-align:center;color:var(--sub);font-size:13px;padding:22px 0; }
 
-    /* ТОСТ */
+    /* ─── ТОСТ ─── */
     .toast-container { position:fixed; top:max(16px,env(safe-area-inset-top)); left:50%; transform:translateX(-50%); z-index:9999; display:flex; flex-direction:column; align-items:center; gap:8px; pointer-events:none; width:calc(100% - 32px); max-width:380px; }
     .toast { background:rgba(22,22,31,0.98); color:var(--text); padding:12px 20px; border-radius:24px; font-size:13px; font-weight:500; box-shadow:0 8px 32px rgba(0,0,0,0.6),0 0 0 1px rgba(124,92,191,0.2); white-space:nowrap; pointer-events:all; animation:toastIn 0.3s cubic-bezier(0.34,1.2,0.64,1); backdrop-filter:blur(16px); }
     .toast.invite-toast { cursor:pointer; border-color:rgba(124,92,191,0.4); }
     @keyframes toastIn { from{opacity:0;transform:scale(0.88) translateY(-10px);} to{opacity:1;transform:scale(1) translateY(0);} }
 
-    /* ГЛАВНЫЙ ЭКРАН ЧАТА */
+    /* ─── ГЛАВНЫЙ ЭКРАН ЧАТА ─── */
     #screen-main { z-index:30; }
     .tg-header { position:absolute; top:0; left:0; right:0; display:flex; align-items:center; gap:10px; padding:10px 12px; height:var(--header-h); background:rgba(10,10,15,0.95); border-bottom:1px solid var(--divider); z-index:10; backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); }
     @supports (padding-top:env(safe-area-inset-top)) {
@@ -290,11 +290,11 @@
 
     .date-divider { align-self:center; font-size:11px; color:var(--sub); background:rgba(10,10,15,0.9); backdrop-filter:blur(8px); padding:4px 14px; border-radius:12px; margin:8px 0; flex-shrink:0; border:1px solid rgba(255,255,255,0.05); }
 
-    /* СООБЩЕНИЯ */
+    /* ─── СООБЩЕНИЯ ─── */
     .msg { max-width:82%; padding:9px 12px 7px; border-radius:18px; font-size:14px; line-height:1.55; word-break:break-word; position:relative; flex-shrink:0; }
-    .msg.mine { align-self:flex-end; background:var(--bubble-me); border-bottom-right-radius:4px; border:1px solid rgba(124,92,191,0.2); box-shadow:0 2px 8px rgba(124,92,191,0.15); }
+    .msg.mine   { align-self:flex-end;  background:var(--bubble-me); border-bottom-right-radius:4px; border:1px solid rgba(124,92,191,0.2); box-shadow:0 2px 8px rgba(124,92,191,0.15); }
     .msg.theirs { align-self:flex-start; background:var(--bubble-in); border-bottom-left-radius:4px; border:1px solid rgba(255,255,255,0.04); }
-    .msg.mine::after { content:''; position:absolute; bottom:0; right:-7px; border:7px solid transparent; border-bottom-color:var(--bubble-me); border-right:0; border-top:0; }
+    .msg.mine::after   { content:''; position:absolute; bottom:0; right:-7px; border:7px solid transparent; border-bottom-color:var(--bubble-me); border-right:0; border-top:0; }
     .msg.theirs::before { content:''; position:absolute; bottom:0; left:-7px; border:7px solid transparent; border-bottom-color:var(--bubble-in); border-left:0; border-top:0; }
     .msg-sender { font-size:11px; font-weight:700; color:var(--accent2); margin-bottom:4px; }
     .msg-meta { font-size:10px; color:rgba(255,255,255,0.28); text-align:right; margin-top:5px; }
@@ -311,7 +311,7 @@
     .msg-file-size { font-size:11px; opacity:0.5; margin-top:1px; }
     .msg-file-dl { font-size:18px; cursor:pointer; padding:6px; text-decoration:none; border-radius:50%; background:rgba(255,255,255,0.06); }
 
-    /* ГОЛОСОВОЕ СООБЩЕНИЕ */
+    /* ─── ГОЛОСОВОЕ СООБЩЕНИЕ ─── */
     .voice-msg { display:flex; align-items:center; gap:10px; padding:6px 4px; min-width:180px; }
     .voice-msg-btn { width:38px; height:38px; border-radius:50%; background:var(--accent-g); border:none; color:white; font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; box-shadow:0 2px 8px rgba(124,92,191,0.4); }
     .voice-msg-btn:active { transform:scale(0.92); }
@@ -320,13 +320,15 @@
     .voice-msg-bar.active { background:var(--accent2); }
     .voice-msg-duration { font-size:11px; color:var(--sub); flex-shrink:0; min-width:32px; text-align:right; }
 
-    /* ЗАПИСЬ ГОЛОСОВОГО */
+    /* ─── ЗАПИСЬ ГОЛОСОВОГО ─── */
     .voice-record-btn {
       width:44px; height:44px; flex-shrink:0; border-radius:50%;
       border:none; background:rgba(255,255,255,0.07);
       color:var(--sub); font-size:20px; cursor:pointer;
       display:flex; align-items:center; justify-content:center;
       transition:background 0.2s, color 0.2s, transform 0.15s;
+      user-select:none; -webkit-user-select:none;
+      touch-action:none;
     }
     .voice-record-btn.recording {
       background:var(--red); color:white;
@@ -337,18 +339,18 @@
     .voice-record-timer.visible { display:flex; }
     .voice-record-dot { width:8px; height:8px; border-radius:50%; background:var(--red); animation:pulse 1s infinite; }
 
-    /* ГОЛОСОВАЯ ПАНЕЛЬ */
+    /* ─── ГОЛОСОВАЯ ПАНЕЛЬ ─── */
     .voice-bar { display:flex; align-items:center; gap:8px; padding:8px 12px 6px; }
-    #btn-join { flex:1; padding:10px 0; border:none; border-radius:24px; font-size:13px; font-weight:700; cursor:pointer; background:var(--accent-g); color:white; box-shadow:0 2px 14px rgba(124,92,191,0.4),inset 0 1px 0 rgba(255,255,255,0.1); }
-    #btn-mic  { flex:1; padding:10px 0; border:none; border-radius:24px; font-size:13px; font-weight:700; cursor:pointer; background:rgba(255,255,255,0.07); color:var(--text); border:1px solid rgba(255,255,255,0.06); }
-    #btn-leave{ flex:1; padding:10px 0; border:1px solid rgba(224,82,82,0.3); border-radius:24px; font-size:13px; font-weight:700; cursor:pointer; background:rgba(224,82,82,0.1); color:var(--red); }
+    #btn-join  { flex:1; padding:10px 0; border:none; border-radius:24px; font-size:13px; font-weight:700; cursor:pointer; background:var(--accent-g); color:white; box-shadow:0 2px 14px rgba(124,92,191,0.4),inset 0 1px 0 rgba(255,255,255,0.1); }
+    #btn-mic   { flex:1; padding:10px 0; border:none; border-radius:24px; font-size:13px; font-weight:700; cursor:pointer; background:rgba(255,255,255,0.07); color:var(--text); border:1px solid rgba(255,255,255,0.06); }
+    #btn-leave { flex:1; padding:10px 0; border:1px solid rgba(224,82,82,0.3); border-radius:24px; font-size:13px; font-weight:700; cursor:pointer; background:rgba(224,82,82,0.1); color:var(--red); }
     .mic-status { font-size:11px; text-align:center; padding:0 0 3px; display:none; }
     .mic-status.active { display:block; color:var(--green); }
     .mic-status.muted  { display:block; color:var(--red); }
     #noise-indicator { display:none; align-items:center; gap:6px; padding:2px 12px 3px; font-size:10px; color:var(--sub); }
     #noise-indicator.visible { display:flex; }
 
-    /* СТРОКА ВВОДА */
+    /* ─── СТРОКА ВВОДА ─── */
     .tg-input-row { display:flex; align-items:flex-end; gap:8px; padding:6px 10px 8px; position:relative; }
     .btn-attach-tg { width:40px; height:40px; flex-shrink:0; border:none; background:none; color:var(--sub); font-size:22px; border-radius:50%; cursor:pointer; display:flex; align-items:center; justify-content:center; }
     .attach-popup { position:absolute; bottom:60px; left:10px; background:var(--surface2); border-radius:var(--radius); border:1px solid rgba(124,92,191,0.15); box-shadow:0 8px 32px rgba(0,0,0,0.6); padding:8px; flex-direction:column; gap:2px; z-index:200; min-width:180px; display:none; }
@@ -366,13 +368,13 @@
     .understood-banner { position:fixed; top:72px; left:50%; transform:translateX(-50%); background:rgba(20,50,25,0.97); backdrop-filter:blur(12px); color:white; padding:10px 24px; border-radius:22px; font-size:14px; font-weight:700; z-index:9999; pointer-events:none; white-space:nowrap; border:1px solid rgba(61,186,110,0.3); animation:understoodAnim 3s ease forwards; }
     @keyframes understoodAnim { 0%{opacity:0;transform:translateX(-50%) translateY(-12px);} 12%{opacity:1;transform:translateX(-50%) translateY(0);} 80%{opacity:1;} 100%{opacity:0;transform:translateX(-50%) translateY(-8px);} }
 
-    /* LIGHTBOX */
+    /* ─── LIGHTBOX ─── */
     #lightbox { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.98); z-index:3000; align-items:center; justify-content:center; }
     #lightbox.open { display:flex; }
     #lightbox img,#lightbox video { max-width:96vw; max-height:88vh; border-radius:10px; object-fit:contain; }
     #lightbox-close { position:absolute; top:16px; right:18px; font-size:26px; color:rgba(255,255,255,0.5); cursor:pointer; width:40px; height:40px; display:flex; align-items:center; justify-content:center; border-radius:50%; background:rgba(255,255,255,0.07); }
 
-    /* ДЕСКТОП */
+    /* ─── ДЕСКТОП ─── */
     @media (min-width:768px) {
       #screen-main { flex-direction:row !important; }
       .chat-sidebar-panel { width:var(--sidebar-w); border-right:1px solid var(--divider); display:flex; flex-direction:column; flex-shrink:0; background:var(--bg); }
@@ -388,7 +390,7 @@
     #keep-alive-audio,#hidden-audios,#file-input,#room-photo-input,#avatar-input { display:none !important; }
     @keyframes shake { 0%,100%{transform:translateX(0);} 20%{transform:translateX(-8px);} 40%{transform:translateX(8px);} 60%{transform:translateX(-5px);} 80%{transform:translateX(5px);} }
 
-    /* ЭКРАН ЗВОНКА */
+    /* ─── ЭКРАН ЗВОНКА ─── */
     #call-screen { display:none; position:fixed; inset:0; z-index:1000; flex-direction:column; align-items:center; justify-content:space-between; padding:max(env(safe-area-inset-top),24px) 0 max(env(safe-area-inset-bottom),24px); background:radial-gradient(ellipse at 50% 30%,rgba(124,92,191,0.2) 0%,transparent 70%),linear-gradient(180deg,#0d0815 0%,#060610 50%,#030308 100%); }
     #call-screen.active { display:flex; }
     .call-screen-top { width:100%; display:flex; padding:0 20px; }
@@ -429,7 +431,7 @@
 
 <div class="toast-container" id="toast-container"></div>
 
-<!-- DRAWER -->
+<!-- ═══ DRAWER ═══ -->
 <div id="drawer-overlay"></div>
 <div id="drawer">
   <div class="drawer-header">
@@ -451,7 +453,7 @@
   </div>
 </div>
 
-<!-- ЭКРАН АВТОРИЗАЦИИ -->
+<!-- ═══ ЭКРАН АВТОРИЗАЦИИ ═══ -->
 <div id="screen-auth" class="screen active">
   <div class="auth-card">
     <div class="auth-tabs">
@@ -468,13 +470,15 @@
         <div class="field-group">
           <label class="field-label">Никнейм</label>
           <div class="field-input-wrap">
-            <input class="field-input" type="text" id="login-nick" placeholder="Твой никнейм…" maxlength="32" autocomplete="username" autocorrect="off" autocapitalize="none"/>
+            <input class="field-input" type="text" id="login-nick" placeholder="Твой никнейм…"
+                   maxlength="32" autocomplete="username" autocorrect="off" autocapitalize="none"/>
           </div>
         </div>
         <div class="field-group">
           <label class="field-label">Пароль</label>
           <div class="field-input-wrap">
-            <input class="field-input pw" type="password" id="login-pw" placeholder="Пароль…" maxlength="64" autocomplete="current-password"/>
+            <input class="field-input pw" type="password" id="login-pw" placeholder="Пароль…"
+                   maxlength="64" autocomplete="current-password"/>
             <button class="pw-eye" data-for="login-pw" type="button">👁</button>
           </div>
         </div>
@@ -486,13 +490,15 @@
         <div class="field-group">
           <label class="field-label">Придумай никнейм</label>
           <div class="field-input-wrap">
-            <input class="field-input" type="text" id="reg-nick" placeholder="От 2 до 32 символов…" maxlength="32" autocomplete="username" autocorrect="off" autocapitalize="none"/>
+            <input class="field-input" type="text" id="reg-nick" placeholder="От 2 до 32 символов…"
+                   maxlength="32" autocomplete="username" autocorrect="off" autocapitalize="none"/>
           </div>
         </div>
         <div class="field-group">
           <label class="field-label">Пароль</label>
           <div class="field-input-wrap">
-            <input class="field-input pw" id="reg-pw" type="password" placeholder="Минимум 4 символа…" maxlength="64" autocomplete="new-password"/>
+            <input class="field-input pw" id="reg-pw" type="password" placeholder="Минимум 4 символа…"
+                   maxlength="64" autocomplete="new-password"/>
             <button class="pw-eye" data-for="reg-pw" type="button">👁</button>
           </div>
         </div>
@@ -510,7 +516,7 @@
   </div>
 </div>
 
-<!-- ЭКРАН ЛОББИ -->
+<!-- ═══ ЭКРАН ЛОББИ ═══ -->
 <div id="screen-lobby" class="screen">
   <div class="lobby-sidebar">
     <div class="lobby-header">
@@ -519,16 +525,13 @@
       <button class="lobby-avatar-btn" id="btn-open-profile">👤</button>
       <button id="btn-create-room">＋</button>
     </div>
-    <!-- ОБЪЕДИНЁННЫЕ ВКЛАДКИ как в Telegram/WhatsApp -->
     <div class="lobby-tabs">
       <button class="lobby-tab active" id="lobby-tab-all">Все чаты</button>
       <button class="lobby-tab" id="lobby-tab-groups">Группы</button>
       <button class="lobby-tab" id="lobby-tab-private">Личные</button>
     </div>
-    <!-- Единый список — показывает и группы и личные вместе -->
     <div class="unified-chat-list" id="unified-list"></div>
-    <!-- Фильтрованные списки (скрыты) -->
-    <div class="rooms-list" id="rooms-list" style="display:none"></div>
+    <div class="rooms-list" id="rooms-list"   style="display:none"></div>
     <div class="rooms-list" id="private-list" style="display:none"></div>
   </div>
   <div class="lobby-right">
@@ -537,57 +540,111 @@
   </div>
 </div>
 
-<!-- МОДАЛКИ -->
+<!-- ═══ МОДАЛКА: СОЗДАНИЕ ГРУППЫ ═══ -->
 <div class="modal-overlay" id="modal-create-room">
   <div class="modal-sheet">
     <div class="modal-handle"></div>
     <div class="modal-title">✨ Новая группа</div>
     <button class="modal-close" id="btn-close-create">✕</button>
-    <div class="room-photo-picker"><div class="room-photo-btn" id="room-photo-btn"><span class="cam-icon">📷</span><span>Фото</span></div></div>
-    <div class="field-wrap"><div class="field-label">Название</div><input type="text" id="create-room-name" placeholder="Название группы…" maxlength="50"/></div>
-    <div class="field-wrap"><div class="field-label">Пароль (необязательно)</div><div class="pw-row"><input type="password" id="create-room-pw" placeholder="Без пароля — открытая" maxlength="64"/><button class="pw-toggle" id="btn-toggle-create-pw" type="button">👁</button></div></div>
-    <div class="field-wrap"><div class="field-label">Автоудаление</div><select id="create-room-autodelete"><option value="3600000">Через 1 час</option><option value="86400000">Через 1 день</option><option value="604800000">Через 7 дней</option><option value="never" selected>Не удалять</option></select></div>
-    <div class="field-wrap"><div class="field-label">Вступление</div><select id="create-room-joinmode"><option value="open" selected>Свободное</option><option value="approval">По заявке</option></select></div>
+    <div class="room-photo-picker">
+      <div class="room-photo-btn" id="room-photo-btn"><span class="cam-icon">📷</span><span>Фото</span></div>
+    </div>
+    <div class="field-wrap">
+      <div class="field-label">Название</div>
+      <input type="text" id="create-room-name" placeholder="Название группы…" maxlength="50"/>
+    </div>
+    <div class="field-wrap">
+      <div class="field-label">Пароль (необязательно)</div>
+      <div class="pw-row">
+        <input type="password" id="create-room-pw" placeholder="Без пароля — открытая" maxlength="64"/>
+        <button class="pw-toggle" id="btn-toggle-create-pw" type="button">👁</button>
+      </div>
+    </div>
+    <div class="field-wrap">
+      <div class="field-label">Автоудаление</div>
+      <select id="create-room-autodelete">
+        <option value="3600000">Через 1 час</option>
+        <option value="86400000">Через 1 день</option>
+        <option value="604800000">Через 7 дней</option>
+        <option value="never" selected>Не удалять</option>
+      </select>
+    </div>
+    <div class="field-wrap">
+      <div class="field-label">Вступление</div>
+      <select id="create-room-joinmode">
+        <option value="open" selected>Свободное</option>
+        <option value="approval">По заявке</option>
+      </select>
+    </div>
     <div class="field-error" id="create-room-error"></div>
     <button class="btn-primary" id="btn-submit-create">Создать группу</button>
   </div>
 </div>
 
+<!-- ═══ МОДАЛКА: ПАРОЛЬ ГРУППЫ ═══ -->
 <div class="modal-overlay" id="modal-room-password">
   <div class="modal-sheet">
     <div class="modal-handle"></div>
     <div class="modal-title">🔐 Защищённая группа</div>
     <button class="modal-close" id="btn-close-pw-modal">✕</button>
-    <div style="text-align:center;color:var(--sub);font-size:14px;margin-bottom:20px;line-height:1.6">Введи пароль для<br><strong id="pw-modal-room-name" style="color:var(--text)"></strong></div>
-    <div class="field-wrap"><div class="pw-row"><input type="password" id="room-pw-input" placeholder="Пароль группы…" maxlength="64"/><button class="pw-toggle" id="btn-toggle-room-pw" type="button">👁</button></div></div>
+    <div style="text-align:center;color:var(--sub);font-size:14px;margin-bottom:20px;line-height:1.6">
+      Введи пароль для<br>
+      <strong id="pw-modal-room-name" style="color:var(--text)"></strong>
+    </div>
+    <div class="field-wrap">
+      <div class="pw-row">
+        <input type="password" id="room-pw-input" placeholder="Пароль группы…" maxlength="64"/>
+        <button class="pw-toggle" id="btn-toggle-room-pw" type="button">👁</button>
+      </div>
+    </div>
     <div class="field-error" id="room-pw-error"></div>
     <button class="btn-primary" id="btn-submit-room-pw">Войти в группу</button>
   </div>
 </div>
 
+<!-- ═══ МОДАЛКА: ПРОФИЛЬ ═══ -->
 <div class="modal-overlay" id="modal-profile">
   <div class="modal-sheet">
     <div class="modal-handle"></div>
     <div class="modal-title">Мой профиль</div>
     <button class="modal-close" id="btn-close-profile">✕</button>
     <div class="profile-avatar-section">
-      <div class="profile-avatar-wrap" id="profile-avatar-wrap"><div class="profile-avatar" id="profile-avatar-display">👤</div><div class="profile-avatar-edit">✏️</div></div>
+      <div class="profile-avatar-wrap" id="profile-avatar-wrap">
+        <div class="profile-avatar" id="profile-avatar-display">👤</div>
+        <div class="profile-avatar-edit">✏️</div>
+      </div>
       <div class="profile-name" id="profile-name-display">—</div>
     </div>
-    <div class="field-wrap"><div class="field-label">Имя</div><input type="text" id="profile-edit-name" placeholder="Твоё имя…" maxlength="32"/></div>
-    <div class="field-wrap"><div class="field-label">О себе</div><textarea id="profile-edit-bio" placeholder="Расскажи о себе…" maxlength="200" rows="3" style="resize:none;padding:13px 16px;background:var(--bg2);border:1.5px solid rgba(255,255,255,0.07);border-radius:14px;color:var(--text);font-size:15px;outline:none;font-family:inherit;width:100%;"></textarea></div>
+    <div class="field-wrap">
+      <div class="field-label">Имя</div>
+      <input type="text" id="profile-edit-name" placeholder="Твоё имя…" maxlength="32"/>
+    </div>
+    <div class="field-wrap">
+      <div class="field-label">О себе</div>
+      <textarea id="profile-edit-bio" placeholder="Расскажи о себе…" maxlength="200" rows="3"
+        style="resize:none;padding:13px 16px;background:var(--bg2);border:1.5px solid rgba(255,255,255,0.07);border-radius:14px;color:var(--text);font-size:15px;outline:none;font-family:inherit;width:100%;"></textarea>
+    </div>
     <button class="btn-primary" id="btn-save-profile" style="margin-bottom:12px">💾 Сохранить</button>
     <div class="profile-section-title">Друзья</div>
     <div id="friends-list-container"><div class="empty-list">Загрузка…</div></div>
     <div class="profile-section-title">Запросы</div>
     <div id="friend-requests-container"><div class="empty-list">Нет запросов</div></div>
     <div class="profile-section-title">Найти друга</div>
-    <div class="user-search-row"><input type="text" id="friend-search-input" placeholder="Ник пользователя…" maxlength="32" autocorrect="off" autocapitalize="none"/><button id="btn-friend-search">Найти</button></div>
+    <div class="user-search-row">
+      <input type="text" id="friend-search-input" placeholder="Ник пользователя…" maxlength="32" autocorrect="off" autocapitalize="none"/>
+      <button id="btn-friend-search">Найти</button>
+    </div>
     <div id="friend-search-result"></div>
-    <div style="margin-top:24px"><button class="btn-primary" id="btn-logout" style="background:rgba(224,82,82,0.1);color:var(--red);border:1px solid rgba(224,82,82,0.2);box-shadow:none">🚪 Выйти</button></div>
+    <div style="margin-top:24px">
+      <button class="btn-primary" id="btn-logout"
+        style="background:rgba(224,82,82,0.1);color:var(--red);border:1px solid rgba(224,82,82,0.2);box-shadow:none">
+        🚪 Выйти
+      </button>
+    </div>
   </div>
 </div>
 
+<!-- ═══ МОДАЛКА: НАСТРОЙКИ ═══ -->
 <div class="modal-overlay" id="modal-settings">
   <div class="modal-sheet">
     <div class="modal-handle"></div>
@@ -604,6 +661,7 @@
   </div>
 </div>
 
+<!-- ═══ МОДАЛКА: КОНТАКТЫ ═══ -->
 <div class="modal-overlay" id="modal-contacts">
   <div class="modal-sheet">
     <div class="modal-handle"></div>
@@ -614,11 +672,15 @@
     <div class="profile-section-title">Запросы</div>
     <div id="contacts-requests-list"><div class="empty-list">Нет запросов</div></div>
     <div class="profile-section-title">Найти пользователя</div>
-    <div class="user-search-row"><input type="text" id="contacts-search-input" placeholder="Ник…" maxlength="32" autocorrect="off" autocapitalize="none"/><button id="btn-contacts-search">Найти</button></div>
+    <div class="user-search-row">
+      <input type="text" id="contacts-search-input" placeholder="Ник…" maxlength="32" autocorrect="off" autocapitalize="none"/>
+      <button id="btn-contacts-search">Найти</button>
+    </div>
     <div id="contacts-search-result"></div>
   </div>
 </div>
 
+<!-- ═══ МОДАЛКА: УЧАСТНИКИ / НАСТРОЙКИ ГРУППЫ ═══ -->
 <div class="modal-overlay" id="modal-members">
   <div class="modal-sheet">
     <div class="modal-handle"></div>
@@ -626,18 +688,46 @@
     <button class="modal-close" id="btn-close-members">✕</button>
     <div id="rename-section" style="display:none">
       <div class="profile-section-title">Переименовать</div>
-      <div class="rename-row"><input type="text" id="rename-input" placeholder="Новое название…" maxlength="50"/><button id="btn-rename-room">💾</button></div>
+      <div class="rename-row">
+        <input type="text" id="rename-input" placeholder="Новое название…" maxlength="50"/>
+        <button id="btn-rename-room">💾</button>
+      </div>
       <div class="field-error" id="rename-error"></div>
     </div>
     <div id="group-settings-section" style="display:none">
       <div class="profile-section-title">Настройки группы</div>
-      <div class="field-wrap"><div class="field-label">Автоудаление</div><select id="group-autodelete-select"><option value="3600000">Через 1 час</option><option value="86400000">Через 1 день</option><option value="604800000">Через 7 дней</option><option value="never">Не удалять</option></select></div>
-      <div class="field-wrap"><div class="field-label">Вступление</div><select id="group-joinmode-select"><option value="open">Свободное</option><option value="approval">По заявке</option></select></div>
+      <div class="field-wrap">
+        <div class="field-label">Автоудаление</div>
+        <select id="group-autodelete-select">
+          <option value="3600000">Через 1 час</option>
+          <option value="86400000">Через 1 день</option>
+          <option value="604800000">Через 7 дней</option>
+          <option value="never">Не удалять</option>
+        </select>
+      </div>
+      <div class="field-wrap">
+        <div class="field-label">Вступление</div>
+        <select id="group-joinmode-select">
+          <option value="open">Свободное</option>
+          <option value="approval">По заявке</option>
+        </select>
+      </div>
+      <!-- Уведомления группы -->
+      <div class="field-wrap">
+        <div class="field-label">Уведомления группы</div>
+        <select id="group-notif-select">
+          <option value="all">🔔 Все уведомления</option>
+          <option value="mute">🔇 Беззвучно</option>
+          <option value="none">🔕 Выключить</option>
+        </select>
+      </div>
       <button class="btn-primary" id="btn-save-group-settings" style="margin-bottom:8px">💾 Сохранить</button>
       <button class="btn-danger" id="btn-delete-group">🗑 Удалить группу</button>
     </div>
     <div id="join-requests-section" style="display:none">
-      <div class="profile-section-title">Заявки <span id="join-requests-count" style="color:var(--orange)"></span></div>
+      <div class="profile-section-title">
+        Заявки <span id="join-requests-count" style="color:var(--orange)"></span>
+      </div>
       <div id="join-requests-list"><div class="empty-list">Нет заявок</div></div>
     </div>
     <div class="profile-section-title">Онлайн</div>
@@ -645,6 +735,7 @@
   </div>
 </div>
 
+<!-- ═══ МОДАЛКА: ПРИГЛАШЕНИЕ ═══ -->
 <div class="modal-overlay" id="modal-invite">
   <div class="modal-sheet">
     <div class="modal-handle"></div>
@@ -654,37 +745,50 @@
   </div>
 </div>
 
-<!-- ЭКРАН ЧАТА -->
+<!-- ═══ ЭКРАН ЧАТА ═══ -->
 <div id="screen-main" class="screen">
+  <!-- Сайдбар (десктоп) -->
   <div class="chat-sidebar-panel" id="chat-sidebar-panel">
     <div class="lobby-header" style="padding-top:10px">
       <button class="lobby-menu-btn" id="btn-open-drawer-chat">☰</button>
       <div class="lobby-header-title" style="font-size:15px">Чаты</div>
-      <button id="btn-create-room-chat" style="width:32px;height:32px;border:none;background:var(--accent-g);color:white;border-radius:50%;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;">＋</button>
+      <button id="btn-create-room-chat"
+        style="width:32px;height:32px;border:none;background:var(--accent-g);color:white;border-radius:50%;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;">＋</button>
     </div>
-    <!-- ОБЪЕДИНЁННЫЕ ВКЛАДКИ в сайдбаре чата -->
     <div class="lobby-tabs">
       <button class="lobby-tab active" id="chat-tab-all">Все</button>
       <button class="lobby-tab" id="chat-tab-groups">Группы</button>
       <button class="lobby-tab" id="chat-tab-private">Личные</button>
     </div>
     <div class="unified-chat-list" id="chat-unified-list" style="padding-bottom:20px"></div>
-    <div class="rooms-list" id="chat-rooms-list" style="display:none;padding-bottom:20px"></div>
+    <div class="rooms-list" id="chat-rooms-list"   style="display:none;padding-bottom:20px"></div>
     <div class="rooms-list" id="chat-private-list" style="display:none;padding-bottom:20px"></div>
   </div>
 
+  <!-- Основная панель чата -->
   <div class="chat-main-panel">
     <div class="tg-header">
       <button class="header-icon-btn" id="btn-back-lobby" style="font-size:20px">←</button>
       <div class="tg-avatar" id="chat-room-avatar">💬</div>
       <div class="tg-header-info" id="chat-header-info">
         <div class="tg-header-name" id="chat-room-name">Группа</div>
-        <div class="tg-header-sub"><span class="online"><span id="user-count">0</span> участников</span></div>
+        <div class="tg-header-sub">
+          <span class="online"><span id="user-count">0</span> участников</span>
+        </div>
       </div>
       <div class="tg-header-btns">
-        <button class="header-icon-btn" id="btn-private-call" title="Позвонить" style="display:none;color:var(--green)">📞</button>
-        <button class="header-icon-btn" id="btn-invite-friend">👥</button>
-        <button class="header-icon-btn" id="btn-room-members">⚙️</button>
+        <!-- Кнопка звонка (только в личном чате) -->
+        <button class="header-icon-btn" id="btn-private-call"
+                title="Позвонить" style="display:none;color:var(--green)">📞</button>
+        <!-- Кнопка уведомлений текущего чата -->
+        <button class="header-icon-btn" id="btn-notif-settings"
+                title="Настройки уведомлений">🔔</button>
+        <!-- Кнопка участников / пригласить -->
+        <button class="header-icon-btn" id="btn-invite-friend"
+                title="Пригласить / Настройки">👥</button>
+        <!-- Кнопка настроек группы / чата -->
+        <button class="header-icon-btn" id="btn-room-members"
+                title="Участники и настройки">⚙️</button>
       </div>
     </div>
 
@@ -697,14 +801,14 @@
       </div>
       <div class="date-divider">Начало чата</div>
       <div style="align-self:center;text-align:center;color:var(--sub);font-size:12px;background:rgba(10,10,15,0.9);padding:10px 20px;border-radius:14px;max-width:280px;line-height:1.7;margin:4px 0 8px;border:1px solid rgba(255,255,255,0.05);">
-        🔒 Сквозное шифрование
+        🔒 Сквозное шифрование AES-256
       </div>
     </div>
 
     <div class="tg-bottom" id="tg-bottom">
       <div class="voice-bar">
         <button id="btn-join">🎙 Войти в голосовой</button>
-        <button id="btn-mic" style="display:none">🔇 Выкл. микрофон</button>
+        <button id="btn-mic"   style="display:none">🔇 Выкл. микрофон</button>
         <button id="btn-leave" style="display:none">📵 Выйти</button>
       </div>
       <div id="mic-status" class="mic-status"></div>
@@ -719,55 +823,85 @@
         <div id="voice-record-timer" class="voice-record-timer">
           <div class="voice-record-dot"></div>
           <span id="voice-record-time">0:00</span>
+          <span style="font-size:11px;color:var(--sub);margin-left:4px">← свайп для отмены</span>
         </div>
         <textarea id="chat-input" placeholder="Сообщение…" rows="1"></textarea>
-        <!-- Кнопка голосового сообщения -->
-        <button class="voice-record-btn" id="btn-voice-record" title="Голосовое сообщение">🎤</button>
+        <button class="voice-record-btn" id="btn-voice-record"
+                title="Удержи для записи, отпусти для отправки">🎤</button>
         <button id="btn-send">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
+            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+          </svg>
         </button>
       </div>
     </div>
   </div>
 </div>
 
-<!-- ЭКРАН ЗВОНКА -->
+<!-- ═══ ЭКРАН ЗВОНКА ═══ -->
 <div id="call-screen">
-  <div class="call-screen-top"><button class="call-minimize-btn" id="btn-call-minimize">↙</button></div>
+  <div class="call-screen-top">
+    <button class="call-minimize-btn" id="btn-call-minimize">↙</button>
+  </div>
   <div class="call-screen-center">
     <div class="call-avatar-wrap" id="call-screen-avatar">👤</div>
     <div class="call-name" id="call-screen-name">—</div>
-    <div class="call-status"><div class="call-status-dot" id="call-status-dot"></div><span id="call-screen-status">Соединение…</span></div>
+    <div class="call-status">
+      <div class="call-status-dot" id="call-status-dot"></div>
+      <span id="call-screen-status">Соединение…</span>
+    </div>
   </div>
   <div class="call-screen-bottom">
     <div class="call-buttons-row">
-      <div class="call-btn-wrap"><button class="call-btn" id="call-btn-speaker">🔈</button><span class="call-btn-label">Динамик</span></div>
-      <div class="call-btn-wrap"><button class="call-btn" id="call-btn-video" style="opacity:0.4">📷</button><span class="call-btn-label">Видео</span></div>
-      <div class="call-btn-wrap"><button class="call-btn" id="call-btn-mute">🎤</button><span class="call-btn-label">Выкл. звук</span></div>
-      <div class="call-btn-wrap"><button class="call-btn hangup" id="call-btn-hangup">📵</button><span class="call-btn-label" style="color:rgba(255,255,255,0.65)">Завершить</span></div>
+      <div class="call-btn-wrap">
+        <button class="call-btn" id="call-btn-speaker" title="Переключить динамик">🔈</button>
+        <span class="call-btn-label">Динамик</span>
+      </div>
+      <div class="call-btn-wrap">
+        <button class="call-btn" id="call-btn-video" style="opacity:0.4">📷</button>
+        <span class="call-btn-label">Видео</span>
+      </div>
+      <div class="call-btn-wrap">
+        <button class="call-btn" id="call-btn-mute">🎤</button>
+        <span class="call-btn-label">Выкл. звук</span>
+      </div>
+      <div class="call-btn-wrap">
+        <button class="call-btn hangup" id="call-btn-hangup">📵</button>
+        <span class="call-btn-label" style="color:rgba(255,255,255,0.65)">Завершить</span>
+      </div>
     </div>
   </div>
 </div>
 
-<!-- ВХОДЯЩИЙ ЗВОНОК -->
+<!-- ═══ ВХОДЯЩИЙ ЗВОНОК ═══ -->
 <div class="modal-overlay" id="modal-incoming-call" style="align-items:center;justify-content:center;">
   <div class="incoming-call-sheet">
     <div class="incoming-call-avatar" id="incoming-call-avatar">👤</div>
-    <div class="incoming-call-name" id="incoming-call-name">—</div>
+    <div class="incoming-call-name"   id="incoming-call-name">—</div>
     <div class="incoming-call-sub">📞 Голосовой вызов…</div>
     <div class="incoming-call-btns">
-      <div class="incoming-call-btn-wrap"><button class="incoming-call-btn reject" id="btn-call-reject">📵</button><span class="incoming-call-btn-label">Отклонить</span></div>
-      <div class="incoming-call-btn-wrap"><button class="incoming-call-btn accept" id="btn-call-accept">📞</button><span class="incoming-call-btn-label">Принять</span></div>
+      <div class="incoming-call-btn-wrap">
+        <button class="incoming-call-btn reject" id="btn-call-reject">📵</button>
+        <span class="incoming-call-btn-label">Отклонить</span>
+      </div>
+      <div class="incoming-call-btn-wrap">
+        <button class="incoming-call-btn accept" id="btn-call-accept">📞</button>
+        <span class="incoming-call-btn-label">Принять</span>
+      </div>
     </div>
   </div>
 </div>
 
-<!-- LIGHTBOX -->
-<div id="lightbox"><span id="lightbox-close">✕</span><div id="lightbox-content"></div></div>
+<!-- ═══ LIGHTBOX ═══ -->
+<div id="lightbox">
+  <span id="lightbox-close">✕</span>
+  <div id="lightbox-content"></div>
+</div>
 
-<input type="file" id="file-input" accept="*/*">
-<input type="file" id="room-photo-input" accept="image/*">
-<input type="file" id="avatar-input" accept="image/*">
+<!-- Скрытые элементы -->
+<input type="file" id="file-input"        accept="*/*">
+<input type="file" id="room-photo-input"  accept="image/*">
+<input type="file" id="avatar-input"      accept="image/*">
 <audio id="keep-alive-audio" loop playsinline></audio>
 <div id="hidden-audios"></div>
 
@@ -776,7 +910,7 @@
 <script src="app.js"></script>
 
 <script>
-// МОБИЛЬНЫЙ ФИХ
+// ─── Мобильный фикс клавиатуры ───
 (function() {
   const chatMessages = document.getElementById('chat-messages');
   const tgBottom     = document.getElementById('tg-bottom');
@@ -813,7 +947,10 @@
   const chatInput = document.getElementById('chat-input');
   if (chatInput) {
     chatInput.addEventListener('focus', () => {
-      setTimeout(() => { updateLayout(); if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight; }, 350);
+      setTimeout(() => {
+        updateLayout();
+        if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
+      }, 350);
     });
     chatInput.addEventListener('blur', () => {
       setTimeout(() => {
@@ -829,7 +966,7 @@
   window._updateChatLayout = updateLayout;
 })();
 
-// ATTACH POPUP
+// ─── Attach popup ───
 (function() {
   const toggle = document.getElementById('btn-attach-toggle');
   const popup  = document.getElementById('attach-popup');
@@ -842,7 +979,7 @@
   });
 })();
 
-// PW EYES
+// ─── PW eyes ───
 document.querySelectorAll('.pw-eye').forEach(btn => {
   btn.addEventListener('click', () => {
     const inp = document.getElementById(btn.dataset.for);
@@ -851,6 +988,42 @@ document.querySelectorAll('.pw-eye').forEach(btn => {
     btn.textContent = inp.type === 'password' ? '👁' : '🙈';
   });
 });
+
+// ─── Кнопка уведомлений текущего чата ───
+document.getElementById('btn-notif-settings')?.addEventListener('click', () => {
+  const id   = (typeof currentChatType !== 'undefined' && currentChatType === 'private')
+    ? currentChatId
+    : currentRoomId;
+  const name = document.getElementById('chat-room-name')?.textContent || '?';
+  if (id && typeof openChatNotifSettings === 'function') {
+    openChatNotifSettings(id, name);
+  }
+});
+
+// ─── Настройки уведомлений в модалке группы ───
+(function() {
+  const sel = document.getElementById('group-notif-select');
+  const btn = document.getElementById('btn-save-group-settings');
+  if (!sel || !btn) return;
+
+  // Синхронизация при открытии модалки участников
+  const origOpen = window.openMembersModal;
+  // После загрузки app.js подхватываем состояние
+  document.getElementById('modal-members')?.addEventListener('transitionend', () => {});
+
+  // Читаем текущее значение при открытии через MutationObserver
+  const observer = new MutationObserver(() => {
+    const modal = document.getElementById('modal-members');
+    if (modal && modal.classList.contains('open')) {
+      const id = (typeof currentRoomId !== 'undefined') ? currentRoomId : null;
+      if (id && typeof getNotifSetting === 'function') {
+        sel.value = getNotifSetting(id);
+      }
+    }
+  });
+  const modal = document.getElementById('modal-members');
+  if (modal) observer.observe(modal, { attributes: true, attributeFilter: ['class'] });
+})();
 </script>
 </body>
 </html>
