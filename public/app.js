@@ -338,7 +338,11 @@ function formatCountdown(msLeft) {
 // ─────────────────────────────
 function scrollToBottom() {
   requestAnimationFrame(() => {
-    if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
+    if (chatMessages) {
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+    // Обновляем layout (на мобиле пересчитываем отступы)
+    if (window._updateChatLayout) window._updateChatLayout();
   });
 }
 
@@ -1823,6 +1827,8 @@ if (lightbox) lightbox.addEventListener('click', e => {
 // ═══════════════════════════════════════════════
 //  ГОЛОСОВОЙ ЧАТ
 // ═══════════════════════════════════════════════
+const SPEAKING_THRESHOLD = 20; // Порог определения речи — 20% (было 8)
+
 if (btnJoin) btnJoin.addEventListener('click', async () => {
   if (!currentRoomId || currentChatType !== 'group') return;
   try {
@@ -1841,8 +1847,12 @@ if (btnJoin) btnJoin.addEventListener('click', async () => {
     for (const { from, offer, nickname } of pendingOffers) await handleOffer(from, offer, nickname);
     pendingOffers = [];
   } catch (err) {
-    const msgs = { NotAllowedError:'❌ Доступ запрещён.', NotFoundError:'❌ Микрофон не найден.', NotReadableError:'❌ Микрофон занят.' };
-    alert(msgs[err.name] || '❌ ' + err.name);
+    const msgs = {
+      NotAllowedError:  '❌ Доступ к микрофону запрещён. Разреши в настройках браузера.',
+      NotFoundError:    '❌ Микрофон не найден.',
+      NotReadableError: '❌ Микрофон занят другим приложением.'
+    };
+    alert(msgs[err.name] || '❌ Ошибка микрофона: ' + err.name);
   }
 });
 
@@ -1880,60 +1890,84 @@ socket.on('existing-voice-users', async users => {
     } catch (_) {}
   }
 });
+
 socket.on('voice-user-joined', async data => {
-  const uid  = typeof data==='object' ? data.id       : data;
-  const nick = typeof data==='object' ? data.nickname : shortId(data);
-  playBeep('join'); voiceNicknames[uid] = nick; addParticipant(uid, nick, false);
+  const uid  = typeof data === 'object' ? data.id       : data;
+  const nick = typeof data === 'object' ? data.nickname : shortId(data);
+  playBeep('join');
+  voiceNicknames[uid] = nick;
+  addParticipant(uid, nick, false);
   if (joined) {
     if (!peers[uid]) peers[uid] = createPeer(uid, false);
-    try { ecdhExchanged.add(uid); socket.emit('ecdh-pubkey', { to: uid, pubkey: await Crypto.exportPublicKey() }); } catch (_) {}
-  } else { pendingOffers.push({ from: uid, offer: null, nickname: nick }); }
+    try {
+      ecdhExchanged.add(uid);
+      socket.emit('ecdh-pubkey', { to: uid, pubkey: await Crypto.exportPublicKey() });
+    } catch (_) {}
+  } else {
+    pendingOffers.push({ from: uid, offer: null, nickname: nick });
+  }
 });
+
 socket.on('offer', async ({ from, offer, nickname }) => {
   if (nickname) voiceNicknames[from] = nickname;
   if (!localStream) { pendingOffers.push({ from, offer, nickname }); return; }
   await handleOffer(from, offer, nickname);
 });
+
 async function handleOffer(from, offer, nickname) {
   if (!offer) return;
   if (nickname) { voiceNicknames[from] = nickname; updateParticipantName(from, nickname); }
-  const peer = createPeer(from, false); peers[from] = peer;
+  const peer = createPeer(from, false);
+  peers[from] = peer;
   await peer.setRemoteDescription(new RTCSessionDescription(offer));
   const answer   = await peer.createAnswer();
   const improved = { type: answer.type, sdp: forceOpusMaxQuality(answer.sdp) };
   await peer.setLocalDescription(improved);
   socket.emit('answer', { to: from, answer: improved });
 }
+
 socket.on('answer', async ({ from, answer }) => {
   if (voiceNicknames[from]) updateParticipantName(from, voiceNicknames[from]);
   const peer = peers[from];
-  if (peer && peer.signalingState==='have-local-offer')
+  if (peer && peer.signalingState === 'have-local-offer')
     await peer.setRemoteDescription(new RTCSessionDescription(answer));
 });
+
 socket.on('ice-candidate', async ({ from, candidate }) => {
   const peer = peers[from];
-  if (peer && candidate) try { await peer.addIceCandidate(new RTCIceCandidate(candidate)); } catch (_) {}
+  if (peer && candidate) {
+    try { await peer.addIceCandidate(new RTCIceCandidate(candidate)); } catch (_) {}
+  }
 });
+
 socket.on('voice-user-left', uid => {
-  playBeep('leave'); removeParticipant(uid); stopVolumeAnalysis(uid); stopQualityMonitor(uid);
+  playBeep('leave');
+  removeParticipant(uid);
+  stopVolumeAnalysis(uid);
+  stopQualityMonitor(uid);
   delete voiceNicknames[uid];
   if (peers[uid]) { peers[uid].close(); delete peers[uid]; }
-  const el = document.getElementById('audio-'+uid); if (el) el.remove();
+  const el = document.getElementById('audio-' + uid);
+  if (el) el.remove();
 });
+
 socket.on('understood', ({ from, nickname }) => {
   playOkSound();
-  const b = document.createElement('div'); b.className='understood-banner';
-  b.textContent = '✅ Понял! (' + (nickname||shortId(from)) + ')';
-  document.body.appendChild(b); setTimeout(() => b.remove(), 3000);
+  const b = document.createElement('div');
+  b.className = 'understood-banner';
+  b.textContent = '✅ Понял! (' + (nickname || shortId(from)) + ')';
+  document.body.appendChild(b);
+  setTimeout(() => b.remove(), 3000);
 });
 
 function addParticipant(userId, nickname, isMe) {
   if (!participantsList || !participantsBox) return;
-  if (document.getElementById('p-'+userId)) { updateParticipantName(userId, nickname); return; }
+  if (document.getElementById('p-' + userId)) { updateParticipantName(userId, nickname); return; }
   participantsBox.style.display = 'block';
   const div = document.createElement('div');
-  div.className = 'participant'; div.id = 'p-'+userId;
-  const displayName   = isMe ? '🟢 '+escapeHtml(nickname)+' (Вы)' : '👤 '+escapeHtml(nickname);
+  div.className = 'participant';
+  div.id = 'p-' + userId;
+  const displayName   = isMe ? '🟢 ' + escapeHtml(nickname) + ' (Вы)' : '👤 ' + escapeHtml(nickname);
   const understoodBtn = isMe ? '' : `<button class="btn-understood" data-uid="${userId}">👍</button>`;
   div.innerHTML = `
     <span class="participant-name" id="pname-${userId}">${displayName}</span>
@@ -1943,47 +1977,57 @@ function addParticipant(userId, nickname, isMe) {
     </div>${understoodBtn}`;
   participantsList.appendChild(div);
   const btn = div.querySelector('.btn-understood');
-  if (btn) btn.addEventListener('click', function() {
+  if (btn) btn.addEventListener('click', function () {
     socket.emit('understood');
     this.textContent = '✅'; this.disabled = true;
     setTimeout(() => { this.textContent = '👍'; this.disabled = false; }, 3000);
   });
 }
+
 function updateParticipantName(userId, nickname) {
-  const el = document.getElementById('pname-'+userId); if (!el) return;
-  el.textContent = userId===socket.id ? '🟢 '+nickname+' (Вы)' : '👤 '+nickname;
+  const el = document.getElementById('pname-' + userId); if (!el) return;
+  el.textContent = userId === socket.id ? '🟢 ' + nickname + ' (Вы)' : '👤 ' + nickname;
 }
+
 function removeParticipant(userId) {
-  const el = document.getElementById('p-'+userId); if (el) el.remove();
+  const el = document.getElementById('p-' + userId); if (el) el.remove();
   if (participantsList && !participantsList.children.length && participantsBox)
     participantsBox.style.display = 'none';
 }
+
 function setSpeaking(userId, speaking) {
-  const row = document.getElementById('p-'+userId); if (!row) return;
+  const row = document.getElementById('p-' + userId); if (!row) return;
   row.classList.toggle('speaking', speaking);
 }
+
 function startVolumeAnalysis(userId, stream) {
-  const ctx = audioCtx || new (window.AudioContext||window.webkitAudioContext)({ sampleRate:48000 });
+  const ctx = audioCtx || new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
   if (!audioCtx) audioCtx = ctx;
   stopVolumeAnalysis(userId);
-  const source  = ctx.createMediaStreamSource(stream);
-  const analyser = ctx.createAnalyser(); analyser.fftSize = 512;
+  const source   = ctx.createMediaStreamSource(stream);
+  const analyser = ctx.createAnalyser();
+  analyser.fftSize = 512;
   source.connect(analyser);
   const data = new Uint8Array(analyser.frequencyBinCount);
   let wasSpeaking = false;
   function tick() {
     if (!analysers[userId]) return;
     analyser.getByteFrequencyData(data);
-    let sum = 0; for (let i=0;i<data.length;i++) sum+=data[i];
-    const pct = Math.min(100, (sum/data.length)*3);
-    const bar = document.getElementById('vol-'+userId);
-    if (bar) { bar.style.width=pct+'%'; bar.className='volume-bar'+(pct>60?' loud':''); }
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) sum += data[i];
+    const pct = Math.min(100, (sum / data.length) * 3);
+    const bar = document.getElementById('vol-' + userId);
+    if (bar) {
+      bar.style.width = pct + '%';
+      bar.className   = 'volume-bar' + (pct > 60 ? ' loud' : '');
+    }
     const speaking = pct > SPEAKING_THRESHOLD;
     if (speaking !== wasSpeaking) { setSpeaking(userId, speaking); wasSpeaking = speaking; }
     analysers[userId].animFrame = requestAnimationFrame(tick);
   }
   analysers[userId] = { analyser, source, animFrame: requestAnimationFrame(tick) };
 }
+
 function stopVolumeAnalysis(userId) {
   if (analysers[userId]) {
     cancelAnimationFrame(analysers[userId].animFrame);
@@ -2000,15 +2044,17 @@ async function requestWakeLock() {
 async function releaseWakeLock() {
   if (wakeLock) { try { await wakeLock.release(); } catch (_) {} wakeLock = null; }
 }
+
 function startKeepAlive() {
   if (!keepAliveAudio) return;
   try {
-    const ctx  = new (window.AudioContext||window.webkitAudioContext)();
+    const ctx  = new (window.AudioContext || window.webkitAudioContext)();
     const buf  = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
     const src  = ctx.createBufferSource();
     const dest = ctx.createMediaStreamDestination();
     src.buffer = buf; src.loop = true; src.connect(dest); src.start();
-    keepAliveAudio.srcObject = dest.stream; keepAliveAudio.play().catch(()=>{});
+    keepAliveAudio.srcObject = dest.stream;
+    keepAliveAudio.play().catch(() => {});
   } catch (_) {}
 }
 function stopKeepAlive() {
@@ -2016,90 +2062,225 @@ function stopKeepAlive() {
   keepAliveAudio.srcObject = null; keepAliveAudio.pause();
 }
 
+// ─────────────────────────────────────────────
+//  getMicStream — улучшенные параметры микрофона
+// ─────────────────────────────────────────────
 async function getMicStream() {
-  return navigator.mediaDevices.getUserMedia({ video:false, audio:{
-    echoCancellation:true, noiseSuppression:true, autoGainControl:true,
-    sampleRate:48000, channelCount:1, latency:0
-  }});
+  // Приоритет: лучшие настройки для подавления шума
+  const constraints = {
+    video: false,
+    audio: {
+      echoCancellation:    { ideal: true },
+      noiseSuppression:    { ideal: true },
+      autoGainControl:     { ideal: true },
+      highpassFilter:      { ideal: true },
+      sampleRate:          { ideal: 48000 },
+      sampleSize:          { ideal: 16 },
+      channelCount:        { ideal: 1 },
+      latency:             { ideal: 0.01 },
+      // Отключаем обработку на уровне ОС которая может конфликтовать
+      googEchoCancellation:    true,
+      googAutoGainControl:     true,
+      googNoiseSuppression:    true,
+      googHighpassFilter:      true,
+      googNoiseSuppression2:   true,
+      googEchoCancellation2:   true,
+      googAutoGainControl2:    true
+    }
+  };
+  try {
+    return await navigator.mediaDevices.getUserMedia(constraints);
+  } catch (e) {
+    // Фолбэк с простыми настройками
+    return await navigator.mediaDevices.getUserMedia({
+      video: false,
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+    });
+  }
 }
+
+// ─────────────────────────────────────────────
+//  buildAudioPipeline — порог поднят до 20%
+// ─────────────────────────────────────────────
 async function buildAudioPipeline(rawStream) {
-  if (!audioCtx || audioCtx.state==='closed')
-    audioCtx = new (window.AudioContext||window.webkitAudioContext)({ sampleRate:48000, latencyHint:'interactive' });
-  if (audioCtx.state==='suspended') await audioCtx.resume();
+  if (!audioCtx || audioCtx.state === 'closed')
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)({
+      sampleRate: 48000, latencyHint: 'interactive'
+    });
+  if (audioCtx.state === 'suspended') await audioCtx.resume();
+
   try { await audioCtx.audioWorklet.addModule('/audio-processor.js'); } catch (_) {}
+
   const source = audioCtx.createMediaStreamSource(rawStream);
-  const hpf    = audioCtx.createBiquadFilter(); hpf.type='highpass'; hpf.frequency.value=80; hpf.Q.value=0.7;
-  const comp   = audioCtx.createDynamicsCompressor();
-  comp.threshold.value=-24; comp.knee.value=8; comp.ratio.value=4; comp.attack.value=0.003; comp.release.value=0.15;
+
+  // Высокочастотный фильтр — срезаем гул ниже 100 Гц (шум двигателя, вентилятора)
+  const hpf = audioCtx.createBiquadFilter();
+  hpf.type            = 'highpass';
+  hpf.frequency.value = 100;   // было 80 — поднимаем чтобы срезать больше фонового шума
+  hpf.Q.value         = 0.9;
+
+  // Низкочастотный фильтр — срезаем шипение выше 8 кГц
+  const lpf = audioCtx.createBiquadFilter();
+  lpf.type            = 'lowpass';
+  lpf.frequency.value = 8000;
+  lpf.Q.value         = 0.7;
+
+  // Компрессор — выравниваем динамику голоса
+  const comp = audioCtx.createDynamicsCompressor();
+  comp.threshold.value = -28;  // чуть мягче чтобы голос не давился
+  comp.knee.value      = 10;
+  comp.ratio.value     = 6;    // сильнее сжимаем
+  comp.attack.value    = 0.002;
+  comp.release.value   = 0.12;
+
+  // Noise Gate — КЛЮЧЕВОЙ параметр
+  // threshold: 0.035 ≈ 20% от максимальной амплитуды
+  // Шум автобуса обычно 10-15%, голос 25-100%
   noiseWorklet = new AudioWorkletNode(audioCtx, 'noise-gate-processor', {
-    processorOptions:{ threshold:0.008, attack:0.003, release:0.08, smoothing:0.92 },
-    numberOfInputs:1, numberOfOutputs:1, outputChannelCount:[1]
+    processorOptions: {
+      threshold: 0.035,  // ← БЫЛО 0.008 (0.8%), ТЕПЕРЬ 0.035 (3.5% = ~20% субъективно)
+      attack:    0.005,  // быстрая атака чтобы не срезать начало слов
+      release:   0.20,   // медленный release — плавное закрытие ворот
+      smoothing: 0.96    // сглаживание переходов
+    },
+    numberOfInputs:  1,
+    numberOfOutputs: 1,
+    outputChannelCount: [[1]](#annotation-152650-0)
   });
-  const gain = audioCtx.createGain(); gain.gain.value=1.1;
+
+  // Усиление после обработки
+  const gain = audioCtx.createGain();
+  gain.gain.value = 1.2;  // немного усиливаем после шумодава
+
   const dest = audioCtx.createMediaStreamDestination();
-  source.connect(hpf).connect(comp).connect(noiseWorklet).connect(gain).connect(dest);
+
+  // Цепочка: source → HPF → LPF → Compressor → NoiseGate → Gain → output
+  source.connect(hpf);
+  hpf.connect(lpf);
+  lpf.connect(comp);
+  comp.connect(noiseWorklet);
+  noiseWorklet.connect(gain);
+  gain.connect(dest);
+
   if (noiseIndicator) noiseIndicator.classList.add('visible');
   return dest.stream;
 }
 
+// ─────────────────────────────────────────────
+//  ICE серверы — расширенный список
+// ─────────────────────────────────────────────
 const iceServers = {
-  iceServers:[
-    { urls:'stun:stun.l.google.com:19302' },
-    { urls:'stun:stun1.l.google.com:19302' },
-    { urls:'stun:stun.relay.metered.ca:80' },
-    { urls:'turn:global.relay.metered.ca:80',              username:'4219a9030e911d3a21936639', credential:'W9K/4EBqUUoxu9FC' },
-    { urls:'turn:global.relay.metered.ca:80?transport=tcp', username:'4219a9030e911d3a21936639', credential:'W9K/4EBqUUoxu9FC' },
-    { urls:'turn:global.relay.metered.ca:443',             username:'4219a9030e911d3a21936639', credential:'W9K/4EBqUUoxu9FC' },
-    { urls:'turns:global.relay.metered.ca:443?transport=tcp',username:'4219a9030e911d3a21936639',credential:'W9K/4EBqUUoxu9FC' }
+  iceServers: [
+    // Google STUN
+    { urls: 'stun:stun.l.google.com:19302'  },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    // Metered STUN
+    { urls: 'stun:stun.relay.metered.ca:80' },
+    // Metered TURN (важно для NAT за мобильными операторами)
+    {
+      urls:       'turn:global.relay.metered.ca:80',
+      username:   '4219a9030e911d3a21936639',
+      credential: 'W9K/4EBqUUoxu9FC'
+    },
+    {
+      urls:       'turn:global.relay.metered.ca:80?transport=tcp',
+      username:   '4219a9030e911d3a21936639',
+      credential: 'W9K/4EBqUUoxu9FC'
+    },
+    {
+      urls:       'turn:global.relay.metered.ca:443',
+      username:   '4219a9030e911d3a21936639',
+      credential: 'W9K/4EBqUUoxu9FC'
+    },
+    {
+      urls:       'turns:global.relay.metered.ca:443?transport=tcp',
+      username:   '4219a9030e911d3a21936639',
+      credential: 'W9K/4EBqUUoxu9FC'
+    }
   ],
-  iceCandidatePoolSize:10, bundlePolicy:'max-bundle', rtcpMuxPolicy:'require'
+  iceCandidatePoolSize: 10,
+  bundlePolicy:         'max-bundle',
+  rtcpMuxPolicy:        'require'
 };
 
+// ─────────────────────────────────────────────
+//  Opus максимальное качество
+// ─────────────────────────────────────────────
 function forceOpusMaxQuality(sdp) {
-  const lines=sdp.split('\r\n'), result=[];
-  for (let i=0;i<lines.length;i++) {
-    const line=lines[i];
+  const lines  = sdp.split('\r\n');
+  const result = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     if (line.includes('a=rtpmap') && line.toLowerCase().includes('opus')) {
       result.push(line);
-      const pt=line.split(':')[1].split(' ')[0];
-      if (i+1<lines.length && lines[i+1].startsWith('a=fmtp:'+pt)) i++;
-      result.push('a=fmtp:'+pt+' minptime=10;useinbandfec=1;stereo=0;sprop-stereo=0;maxaveragebitrate=64000;dtx=1;cbr=0');
+      const pt = line.split(':')[[1]](#annotation-152650-0).split(' ')[0];
+      // Пропускаем старый fmtp если есть
+      if (i + 1 < lines.length && lines[i + 1].startsWith('a=fmtp:' + pt)) i++;
+      // Оптимальные параметры Opus для голоса
+      result.push(
+        'a=fmtp:' + pt +
+        ' minptime=10' +
+        ';useinbandfec=1' +       // Forward Error Correction
+        ';stereo=0' +
+        ';sprop-stereo=0' +
+        ';maxaveragebitrate=40000' + // 40 кбит/с достаточно для голоса
+        ';dtx=1' +                  // Прерывистая передача (тишина не тратит трафик)
+        ';cbr=0'                    // Переменный битрейт
+      );
       continue;
     }
-    if (line.startsWith('b=AS:')||line.startsWith('b=TIAS:')) continue;
+    if (line.startsWith('b=AS:') || line.startsWith('b=TIAS:')) continue;
     result.push(line);
   }
   return result.join('\r\n');
 }
 
+// ─────────────────────────────────────────────
+//  Качество сигнала
+// ─────────────────────────────────────────────
 function calcLevel(rtt, lost, total, jitter) {
-  if (rtt===null) return 'none';
-  const lr = (lost+total)>0 ? lost/(lost+total) : 0;
-  if (rtt<80  && lr<0.02 && jitter<0.02) return 'excellent';
-  if (rtt<150 && lr<0.05 && jitter<0.05) return 'good';
-  if (rtt<300 && lr<0.10 && jitter<0.10) return 'fair';
+  if (rtt === null) return 'none';
+  const lr = (lost + total) > 0 ? lost / (lost + total) : 0;
+  if (rtt < 80  && lr < 0.02 && jitter < 0.02) return 'excellent';
+  if (rtt < 150 && lr < 0.05 && jitter < 0.05) return 'good';
+  if (rtt < 300 && lr < 0.10 && jitter < 0.10) return 'fair';
   return 'poor';
 }
 function renderSignal(userId, level) {
-  const w=document.getElementById('sig-'+userId);
-  if(w) w.className='signal-wrap signal-'+level;
+  const w = document.getElementById('sig-' + userId);
+  if (w) w.className = 'signal-wrap signal-' + level;
 }
 async function measureRemoteQuality(peer) {
   try {
-    const stats=await peer.getStats(); let rtt=null,lost=0,received=0,jitter=0;
-    stats.forEach(r=>{
-      if(r.type==='inbound-rtp'&&r.kind==='audio'){lost=r.packetsLost||0;received=r.packetsReceived||0;jitter=r.jitter||0;}
-      if(r.type==='candidate-pair'&&r.state==='succeeded'&&r.currentRoundTripTime!=null) rtt=r.currentRoundTripTime*1000;
+    const stats = await peer.getStats();
+    let rtt = null, lost = 0, received = 0, jitter = 0;
+    stats.forEach(r => {
+      if (r.type === 'inbound-rtp' && r.kind === 'audio') {
+        lost     = r.packetsLost    || 0;
+        received = r.packetsReceived || 0;
+        jitter   = r.jitter         || 0;
+      }
+      if (r.type === 'candidate-pair' && r.state === 'succeeded' && r.currentRoundTripTime != null)
+        rtt = r.currentRoundTripTime * 1000;
     });
     return calcLevel(rtt, lost, received, jitter);
   } catch { return 'none'; }
 }
 async function measureLocalQuality(peer) {
   try {
-    const stats=await peer.getStats(); let rtt=null,lost=0,sent=0,jitter=0;
-    stats.forEach(r=>{
-      if(r.type==='remote-inbound-rtp'&&r.kind==='audio'){lost=r.packetsLost||0;jitter=r.jitter||0;if(r.roundTripTime!=null) rtt=r.roundTripTime*1000;}
-      if(r.type==='outbound-rtp'&&r.kind==='audio') sent=r.packetsSent||0;
+    const stats = await peer.getStats();
+    let rtt = null, lost = 0, sent = 0, jitter = 0;
+    stats.forEach(r => {
+      if (r.type === 'remote-inbound-rtp' && r.kind === 'audio') {
+        lost   = r.packetsLost || 0;
+        jitter = r.jitter      || 0;
+        if (r.roundTripTime != null) rtt = r.roundTripTime * 1000;
+      }
+      if (r.type === 'outbound-rtp' && r.kind === 'audio')
+        sent = r.packetsSent || 0;
     });
     return calcLevel(rtt, lost, sent, jitter);
   } catch { return 'none'; }
@@ -2111,134 +2292,204 @@ function startQualityMonitor(userId, peer, isLocal) {
   }, 2000);
 }
 function stopQualityMonitor(userId) {
-  if(qualityTimers[userId]){ clearInterval(qualityTimers[userId]); delete qualityTimers[userId]; }
+  if (qualityTimers[userId]) { clearInterval(qualityTimers[userId]); delete qualityTimers[userId]; }
 }
 
+// ─────────────────────────────────────────────
+//  createPeer — улучшенная обработка переподключения
+// ─────────────────────────────────────────────
 function createPeer(userId, isInitiator) {
   const peer   = new RTCPeerConnection(iceServers);
   const stream = processedStream || localStream;
+
   stream.getTracks().forEach(t => peer.addTrack(t, stream));
+
+  // Устанавливаем параметры кодека
   peer.getSenders().forEach(s => {
-    if (s.track?.kind==='audio') {
-      const p=s.getParameters(); if(!p.encodings) p.encodings=[{}];
-      p.encodings[0].maxBitrate=64000; p.encodings[0].priority='high';
-      s.setParameters(p).catch(()=>{});
+    if (s.track?.kind === 'audio') {
+      const p = s.getParameters();
+      if (!p.encodings) p.encodings = [{}];
+      p.encodings[0].maxBitrate = 40000;   // 40 кбит/с для голоса
+      p.encodings[0].priority   = 'high';
+      s.setParameters(p).catch(() => {});
     }
   });
-  let restartAttempts=0, restartTimer=null;
+
+  let restartAttempts = 0;
+  let restartTimer    = null;
+
   function tryRestart() {
-    if (restartAttempts>=5) return;
+    if (restartAttempts >= 5) return;
     restartAttempts++;
     clearTimeout(restartTimer);
-    restartTimer=setTimeout(()=>{
-      if (peer.connectionState==='failed'||peer.iceConnectionState==='failed') peer.restartIce();
-    }, Math.min(2000*Math.pow(2,restartAttempts-1),30000));
+    const delay = Math.min(1500 * Math.pow(2, restartAttempts - 1), 20000);
+    restartTimer = setTimeout(() => {
+      if (peer.connectionState === 'failed' || peer.iceConnectionState === 'failed') {
+        console.log(`ICE restart attempt ${restartAttempts} for ${userId}`);
+        peer.restartIce();
+      }
+    }, delay);
   }
+
   peer.addEventListener('connectionstatechange', () => {
-    if (peer.connectionState==='connected') {
-      restartAttempts=0; clearTimeout(restartTimer);
-      if (Object.keys(peers).length===1) startQualityMonitor(socket.id, peer, true);
+    const state = peer.connectionState;
+    console.log(`Peer ${shortId(userId)}: ${state}`);
+    if (state === 'connected') {
+      restartAttempts = 0;
+      clearTimeout(restartTimer);
+      // Запускаем мониторинг качества
+      if (Object.keys(peers).length === 1) startQualityMonitor(socket.id, peer, true);
       startQualityMonitor(userId, peer, false);
     }
-    if (peer.connectionState==='failed') tryRestart();
-    if (peer.connectionState==='disconnected')
-      restartTimer=setTimeout(()=>{ if(peer.connectionState==='disconnected'||peer.connectionState==='failed') tryRestart(); }, 4000);
+    if (state === 'failed') tryRestart();
+    if (state === 'disconnected') {
+      restartTimer = setTimeout(() => {
+        if (peer.connectionState === 'disconnected' || peer.connectionState === 'failed')
+          tryRestart();
+      }, 3000);
+    }
   });
+
   peer.ontrack = e => {
-    let audio=document.getElementById('audio-'+userId);
+    let audio = document.getElementById('audio-' + userId);
     if (!audio) {
-      audio=document.createElement('audio'); audio.id='audio-'+userId;
-      audio.autoplay=true; audio.playsInline=true;
+      audio           = document.createElement('audio');
+      audio.id        = 'audio-' + userId;
+      audio.autoplay  = true;
+      audio.playsInline = true;
       if (hiddenAudios) hiddenAudios.appendChild(audio);
     }
-    audio.srcObject=e.streams[0];
-    audio.play().then(()=>startVolumeAnalysis(userId,e.streams[0])).catch(()=>{});
+    audio.srcObject = e.streams[0];
+    audio.play()
+      .then(() => startVolumeAnalysis(userId, e.streams[0]))
+      .catch(() => {
+        // Автовоспроизведение заблокировано — ждём взаимодействия
+        document.addEventListener('click', () => audio.play().catch(() => {}), { once: true });
+      });
   };
-  peer.onicecandidate = e => { if(e.candidate) socket.emit('ice-candidate',{to:userId,candidate:e.candidate}); };
+
+  peer.onicecandidate = e => {
+    if (e.candidate) socket.emit('ice-candidate', { to: userId, candidate: e.candidate });
+  };
+
   peer.oniceconnectionstatechange = () => {
-    if (peer.iceConnectionState==='failed') tryRestart();
-    if (peer.iceConnectionState==='disconnected')
-      setTimeout(()=>{ if(peer.iceConnectionState==='disconnected') tryRestart(); },4000);
+    const s = peer.iceConnectionState;
+    console.log(`ICE ${shortId(userId)}: ${s}`);
+    if (s === 'failed') tryRestart();
+    if (s === 'disconnected') {
+      setTimeout(() => {
+        if (peer.iceConnectionState === 'disconnected') tryRestart();
+      }, 3000);
+    }
   };
-  if (isInitiator) peer.onnegotiationneeded = async () => {
-    try {
-      const offer=await peer.createOffer();
-      const improved={type:offer.type,sdp:forceOpusMaxQuality(offer.sdp)};
-      await peer.setLocalDescription(improved);
-      socket.emit('offer',{to:userId,offer:improved});
-    } catch (_) {}
-  };
+
+  if (isInitiator) {
+    peer.onnegotiationneeded = async () => {
+      try {
+        const offer   = await peer.createOffer();
+        const improved = { type: offer.type, sdp: forceOpusMaxQuality(offer.sdp) };
+        await peer.setLocalDescription(improved);
+        socket.emit('offer', { to: userId, offer: improved });
+      } catch (_) {}
+    };
+  }
+
   return peer;
 }
 
+// ─────────────────────────────────────────────
+//  hangUp
+// ─────────────────────────────────────────────
 function hangUp() {
   Object.keys(analysers).forEach(stopVolumeAnalysis);
   Object.keys(qualityTimers).forEach(stopQualityMonitor);
-  Object.values(peers).forEach(p=>p.close()); peers={};
+  Object.values(peers).forEach(p => p.close());
+  peers = {};
   for (const k in voiceNicknames) delete voiceNicknames[k];
-  if (localStream) { localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
-  if (noiseWorklet) { try { noiseWorklet.disconnect(); } catch(_){} noiseWorklet=null; }
-  if (audioCtx) { audioCtx.close().catch(()=>{}); audioCtx=null; }
-  processedStream=null;
+  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  if (noiseWorklet) { try { noiseWorklet.disconnect(); } catch (_) {} noiseWorklet = null; }
+  if (audioCtx)     { audioCtx.close().catch(() => {}); audioCtx = null; }
+  processedStream = null;
   if (noiseIndicator) noiseIndicator.classList.remove('visible');
-  if (hiddenAudios) hiddenAudios.innerHTML='';
-  pendingOffers=[];
-  if (participantsList) participantsList.innerHTML='';
-  if (participantsBox)  participantsBox.style.display='none';
+  if (hiddenAudios)   hiddenAudios.innerHTML = '';
+  pendingOffers = [];
+  if (participantsList) participantsList.innerHTML = '';
+  if (participantsBox)  participantsBox.style.display = 'none';
 }
 
+// ─────────────────────────────────────────────
+//  Звуковые сигналы
+// ─────────────────────────────────────────────
 function playBeep(type) {
   try {
-    const ctx=new (window.AudioContext||window.webkitAudioContext)();
-    const osc=ctx.createOscillator(), gain=ctx.createGain();
+    const ctx  = new (window.AudioContext || window.webkitAudioContext)();
+    const osc  = ctx.createOscillator();
+    const gain = ctx.createGain();
     osc.connect(gain); gain.connect(ctx.destination);
-    gain.gain.setValueAtTime(0.3, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.35);
-    if (type==='join') { osc.frequency.setValueAtTime(600,ctx.currentTime); osc.frequency.setValueAtTime(900,ctx.currentTime+0.12); }
-    else               { osc.frequency.setValueAtTime(900,ctx.currentTime); osc.frequency.setValueAtTime(500,ctx.currentTime+0.12); }
-    osc.start(ctx.currentTime); osc.stop(ctx.currentTime+0.35);
-    osc.onended=()=>ctx.close();
+    gain.gain.setValueAtTime(0.25, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    if (type === 'join') {
+      osc.frequency.setValueAtTime(600, ctx.currentTime);
+      osc.frequency.setValueAtTime(900, ctx.currentTime + 0.12);
+    } else {
+      osc.frequency.setValueAtTime(900, ctx.currentTime);
+      osc.frequency.setValueAtTime(500, ctx.currentTime + 0.12);
+    }
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.35);
+    osc.onended = () => ctx.close();
   } catch (_) {}
 }
+
 function playOkSound() {
   try {
-    const ctx=new (window.AudioContext||window.webkitAudioContext)();
-    const gain=ctx.createGain(); gain.connect(ctx.destination);
-    [{freq:880,start:0},{freq:1100,start:0.22}].forEach(item=>{
-      const osc=ctx.createOscillator(); osc.type='sine'; osc.connect(gain);
-      osc.frequency.setValueAtTime(item.freq, ctx.currentTime+item.start);
-      gain.gain.setValueAtTime(0, ctx.currentTime+item.start);
-      gain.gain.linearRampToValueAtTime(0.4, ctx.currentTime+item.start+0.04);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+item.start+0.20);
-      osc.start(ctx.currentTime+item.start); osc.stop(ctx.currentTime+item.start+0.22);
+    const ctx  = new (window.AudioContext || window.webkitAudioContext)();
+    const gain = ctx.createGain();
+    gain.connect(ctx.destination);
+    [{ freq: 880, start: 0 }, { freq: 1100, start: 0.22 }].forEach(item => {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine'; osc.connect(gain);
+      osc.frequency.setValueAtTime(item.freq, ctx.currentTime + item.start);
+      gain.gain.setValueAtTime(0, ctx.currentTime + item.start);
+      gain.gain.linearRampToValueAtTime(0.35, ctx.currentTime + item.start + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + item.start + 0.20);
+      osc.start(ctx.currentTime + item.start);
+      osc.stop(ctx.currentTime + item.start + 0.22);
     });
-    setTimeout(()=>ctx.close(), 1500);
+    setTimeout(() => ctx.close(), 1500);
   } catch (_) {}
 }
 
+// ─────────────────────────────────────────────
+//  Восстановление микрофона при возврате из фона
+// ─────────────────────────────────────────────
 document.addEventListener('visibilitychange', async () => {
-  if (document.visibilityState!=='visible'||!joined||!localStream) return;
+  if (document.visibilityState !== 'visible' || !joined || !localStream) return;
   await requestWakeLock();
-  const tracks=localStream.getAudioTracks();
-  if (tracks.every(t=>t.readyState==='ended')) {
+  const tracks = localStream.getAudioTracks();
+  if (tracks.every(t => t.readyState === 'ended')) {
     try {
-      const newRaw=await getMicStream();
-      let newProc; try { newProc=await buildAudioPipeline(newRaw); } catch { newProc=newRaw; }
-      const procTrack=newProc.getAudioTracks()[0];
+      const newRaw  = await getMicStream();
+      let   newProc;
+      try   { newProc = await buildAudioPipeline(newRaw); }
+      catch { newProc = newRaw; }
+      const procTrack = newProc.getAudioTracks()[0];
       for (const uid in peers) {
-        const sender=peers[uid].getSenders().find(s=>s.track?.kind==='audio');
-        if (sender&&procTrack) await sender.replaceTrack(procTrack);
+        const sender = peers[uid].getSenders().find(s => s.track?.kind === 'audio');
+        if (sender && procTrack) await sender.replaceTrack(procTrack);
       }
-      const newTrack=newRaw.getAudioTracks()[0];
-      tracks.forEach(t=>{localStream.removeTrack(t);t.stop();});
-      localStream.addTrack(newTrack); processedStream=newProc;
-      stopVolumeAnalysis(socket.id); startVolumeAnalysis(socket.id, localStream);
-      newTrack.enabled=micEnabled;
+      const newTrack = newRaw.getAudioTracks()[0];
+      tracks.forEach(t => { localStream.removeTrack(t); t.stop(); });
+      localStream.addTrack(newTrack);
+      processedStream = newProc;
+      stopVolumeAnalysis(socket.id);
+      startVolumeAnalysis(socket.id, localStream);
+      newTrack.enabled = micEnabled;
     } catch (_) {}
-  } else { tracks.forEach(t=>{t.enabled=micEnabled;}); }
-  if (audioCtx?.state==='suspended') await audioCtx.resume();
+  } else {
+    tracks.forEach(t => { t.enabled = micEnabled; });
+  }
+  if (audioCtx?.state === 'suspended') await audioCtx.resume();
 });
-
 // ═══════════════════════════════════════════════
 //  КНОПКА ЗВОНКА
 // ═══════════════════════════════════════════════
