@@ -94,40 +94,76 @@
     .drawer-item-label { flex:1; font-weight:500; }
     .drawer-divider { height:1px; background:var(--divider); margin:8px 0; }
 
-    /* ─── AUTH ─── */
+    /* ─── AUTH — АДАПТИВ ─── */
     #screen-auth {
-      align-items:center; justify-content:center; background:var(--bg);
+      align-items:center; justify-content:flex-start;
+      background:var(--bg);
       background-image:radial-gradient(ellipse at 30% 20%,rgba(124,92,191,0.15) 0%,transparent 55%),
                        radial-gradient(ellipse at 80% 80%,rgba(201,168,76,0.08) 0%,transparent 50%);
       overflow-y:auto;
-      padding:20px 0;
+      -webkit-overflow-scrolling:touch;
+      padding:0;
     }
-    .auth-card { width:100%; max-width:400px; margin:0 20px; background:var(--surface); border-radius:28px; border:1px solid rgba(124,92,191,0.2); box-shadow:0 24px 80px rgba(0,0,0,0.8),0 0 0 1px rgba(255,255,255,0.03),inset 0 1px 0 rgba(255,255,255,0.04); overflow:hidden; }
+    .auth-scroll-inner {
+      width:100%;
+      min-height:100%;
+      display:flex;
+      align-items:flex-start;
+      justify-content:center;
+      padding:max(env(safe-area-inset-top),16px) 12px max(env(safe-area-inset-bottom),24px);
+    }
+    .auth-card {
+      width:100%; max-width:420px;
+      background:var(--surface);
+      border-radius:28px;
+      border:1px solid rgba(124,92,191,0.2);
+      box-shadow:0 24px 80px rgba(0,0,0,0.8),0 0 0 1px rgba(255,255,255,0.03),inset 0 1px 0 rgba(255,255,255,0.04);
+      overflow:hidden;
+      flex-shrink:0;
+    }
     .auth-tabs { display:flex; background:rgba(0,0,0,0.3); border-bottom:1px solid var(--divider); }
     .auth-tab { flex:1; padding:16px; font-size:14px; font-weight:600; text-align:center; cursor:pointer; color:var(--sub); border-bottom:2px solid transparent; transition:color 0.2s,border-color 0.2s,background 0.2s; background:none; border-top:none; border-left:none; border-right:none; }
     .auth-tab.active { color:var(--accent2); border-bottom-color:var(--accent); background:rgba(124,92,191,0.05); }
-    .auth-body { padding:28px 24px 24px; }
-    .auth-logo { text-align:center; margin-bottom:24px; }
-    .auth-logo-icon-wrap { width:72px; height:72px; border-radius:22px; background:var(--accent-g); display:inline-flex; align-items:center; justify-content:center; font-size:34px; margin-bottom:14px; box-shadow:0 8px 32px rgba(124,92,191,0.4),inset 0 1px 0 rgba(255,255,255,0.15); }
-    .auth-logo-title { font-size:20px; font-weight:800; letter-spacing:-0.5px; background:linear-gradient(135deg,var(--text),var(--accent2)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
-    .auth-logo-sub { font-size:12px; color:var(--sub); margin-top:5px; letter-spacing:0.3px; }
-    .field-group { margin-bottom:14px; }
-    .field-label { font-size:10px; color:var(--sub); font-weight:700; text-transform:uppercase; letter-spacing:1px; margin-bottom:7px; display:block; }
+    .auth-body { padding:24px 20px 24px; }
+    @media (max-width:380px) { .auth-body { padding:18px 14px 20px; } }
+    .auth-logo { text-align:center; margin-bottom:22px; }
+    .auth-logo-icon-wrap { width:64px; height:64px; border-radius:20px; background:var(--accent-g); display:inline-flex; align-items:center; justify-content:center; font-size:30px; margin-bottom:12px; box-shadow:0 8px 32px rgba(124,92,191,0.4),inset 0 1px 0 rgba(255,255,255,0.15); }
+    .auth-logo-title { font-size:18px; font-weight:800; letter-spacing:-0.5px; background:linear-gradient(135deg,var(--text),var(--accent2)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+    .auth-logo-sub { font-size:11px; color:var(--sub); margin-top:4px; letter-spacing:0.3px; }
+    .field-group { margin-bottom:12px; }
+    .field-label { font-size:10px; color:var(--sub); font-weight:700; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px; display:block; }
     .field-input-wrap { position:relative; }
-    .field-input { width:100%; padding:13px 16px; background:var(--bg2); border:1.5px solid rgba(255,255,255,0.07); border-radius:var(--radius-sm); color:var(--text); font-size:16px; outline:none; font-family:inherit; transition:border-color 0.2s,box-shadow 0.2s; -webkit-appearance:none; -webkit-text-size-adjust:100%; }
+    .field-input {
+      width:100%; padding:12px 14px;
+      background:var(--bg2);
+      border:1.5px solid rgba(255,255,255,0.07);
+      border-radius:var(--radius-sm);
+      color:var(--text); font-size:15px;
+      outline:none; font-family:inherit;
+      transition:border-color 0.2s,box-shadow 0.2s;
+      -webkit-appearance:none;
+      -webkit-text-size-adjust:100%;
+      min-height:44px;
+    }
     .field-input:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(124,92,191,0.15); background:rgba(124,92,191,0.04); }
     .field-input::placeholder { color:var(--sub); }
-    .field-input.pw { padding-right:50px; }
-    .pw-eye { position:absolute; right:14px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; font-size:17px; color:var(--sub); padding:6px; }
-    .hint-text { font-size:11px; color:var(--sub); margin-top:5px; line-height:1.5; }
+    .field-input.pw { padding-right:46px; }
+    .pw-eye { position:absolute; right:12px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; font-size:16px; color:var(--sub); padding:6px; min-width:36px; min-height:36px; display:flex; align-items:center; justify-content:center; }
+    .hint-text { font-size:11px; color:var(--sub); margin-top:4px; line-height:1.5; }
     .hint-text.encrypted { color:rgba(124,92,191,0.7); }
-    .btn-primary { width:100%; padding:14px; background:var(--accent-g); color:white; border:none; border-radius:var(--radius-sm); font-size:15px; font-weight:700; cursor:pointer; transition:opacity 0.2s,transform 0.1s; box-shadow:0 4px 20px rgba(124,92,191,0.4),inset 0 1px 0 rgba(255,255,255,0.1); letter-spacing:0.3px; }
+    .btn-primary { width:100%; padding:14px; background:var(--accent-g); color:white; border:none; border-radius:var(--radius-sm); font-size:15px; font-weight:700; cursor:pointer; transition:opacity 0.2s,transform 0.1s; box-shadow:0 4px 20px rgba(124,92,191,0.4),inset 0 1px 0 rgba(255,255,255,0.1); letter-spacing:0.3px; min-height:48px; }
     .btn-primary:active { transform:scale(0.98); opacity:0.9; }
     .btn-primary:disabled { background:rgba(255,255,255,0.06); color:var(--sub); cursor:not-allowed; box-shadow:none; }
-    .auth-error { font-size:12px; color:#ff7b7b; text-align:center; min-height:18px; margin-bottom:12px; }
-    .hint-recover { text-align:center; margin-top:14px; display:flex; flex-wrap:wrap; justify-content:center; gap:8px; }
-    .hint-recover button { background:none; border:none; color:var(--accent2); font-size:12px; cursor:pointer; opacity:0.8; }
+    .auth-error { font-size:12px; color:#ff7b7b; text-align:center; min-height:18px; margin-bottom:10px; }
+    .hint-recover { text-align:center; margin-top:12px; display:flex; flex-wrap:wrap; justify-content:center; gap:6px; }
+    .hint-recover button { background:none; border:none; color:var(--accent2); font-size:12px; cursor:pointer; opacity:0.8; padding:4px 8px; }
     .hint-recover button:hover { opacity:1; text-decoration:underline; }
+
+    /* username availability */
+    .username-status { font-size:11px; margin-top:4px; display:flex; align-items:center; gap:5px; min-height:16px; }
+    .username-status.ok      { color:var(--green); }
+    .username-status.taken   { color:var(--red); }
+    .username-status.loading { color:var(--sub); }
 
     /* ─── LOBBY ─── */
     #screen-lobby { flex-direction:row !important; }
@@ -173,12 +209,32 @@
     .pc-card { display:flex; align-items:center; gap:14px; padding:12px 14px; margin-bottom:4px; background:var(--surface); border-radius:var(--radius); cursor:pointer; transition:background 0.15s; border:1px solid rgba(255,255,255,0.03); }
     .pc-card:active { background:var(--surface3); }
 
-    /* ─── МОДАЛКИ ─── */
+    /* ─── СВАЙП ДЛЯ ЗАКРЫТИЯ МОДАЛОК ─── */
     .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.85); backdrop-filter:blur(8px); z-index:500; display:none; align-items:flex-end; }
     .modal-overlay.open { display:flex; }
-    .modal-sheet { width:100%; max-width:520px; margin:0 auto; background:var(--surface); border-radius:28px 28px 0 0; border-top:1px solid rgba(124,92,191,0.2); padding:0 20px 32px; padding-bottom:max(32px,calc(env(safe-area-inset-bottom) + 20px)); animation:slideUp 0.3s cubic-bezier(0.34,1.1,0.64,1); max-height:92vh; overflow-y:auto; position:relative; }
-    .modal-handle { width:36px; height:4px; border-radius:2px; background:rgba(255,255,255,0.12); margin:14px auto 18px; }
+    .modal-sheet {
+      width:100%; max-width:520px; margin:0 auto;
+      background:var(--surface);
+      border-radius:28px 28px 0 0;
+      border-top:1px solid rgba(124,92,191,0.2);
+      padding:0 20px 32px;
+      padding-bottom:max(32px,calc(env(safe-area-inset-bottom) + 20px));
+      animation:slideUp 0.3s cubic-bezier(0.34,1.1,0.64,1);
+      max-height:92vh; overflow-y:auto;
+      position:relative;
+      touch-action:pan-y;
+      user-select:none;
+      will-change:transform;
+    }
+    .modal-handle {
+      width:36px; height:4px; border-radius:2px;
+      background:rgba(255,255,255,0.18);
+      margin:14px auto 18px;
+      cursor:grab;
+    }
     @keyframes slideUp { from{transform:translateY(100%);opacity:0;} to{transform:translateY(0);opacity:1;} }
+    @keyframes slideDown { from{transform:translateY(0);opacity:1;} to{transform:translateY(100%);opacity:0;} }
+    .modal-sheet.closing { animation:slideDown 0.28s cubic-bezier(0.4,0,0.8,0.6) forwards; }
     .modal-title { font-size:18px; font-weight:800; text-align:center; margin-bottom:20px; letter-spacing:-0.3px; }
     .modal-close { position:absolute; top:14px; right:18px; width:30px; height:30px; border-radius:50%; background:rgba(255,255,255,0.07); border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:15px; color:var(--sub); }
     .room-photo-picker { display:flex; justify-content:center; margin-bottom:22px; }
@@ -248,7 +304,8 @@
     @supports (padding-top:env(safe-area-inset-top)) {
       .tg-header { padding-top:max(10px,env(safe-area-inset-top)); height:calc(var(--header-h) + env(safe-area-inset-top)); }
     }
-    .tg-avatar { width:40px; height:40px; border-radius:50%; background:var(--accent-g); display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0; overflow:hidden; cursor:pointer; border:1.5px solid rgba(124,92,191,0.3); }
+    .tg-avatar { width:40px; height:40px; border-radius:50%; background:var(--accent-g); display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0; overflow:hidden; cursor:pointer; border:1.5px solid rgba(124,92,191,0.3); transition:transform 0.15s; }
+    .tg-avatar:active { transform:scale(0.92); }
     .tg-avatar img { width:100%;height:100%;object-fit:cover; }
     .tg-header-info { flex:1; min-width:0; cursor:pointer; }
     .tg-header-name { font-size:15px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -388,8 +445,67 @@
     @keyframes shake { 0%,100%{transform:translateX(0);} 20%{transform:translateX(-8px);} 40%{transform:translateX(8px);} 60%{transform:translateX(-5px);} 80%{transform:translateX(5px);} }
 
     /* ─── ЭКРАН ЗВОНКА ─── */
-    #call-screen { display:none; position:fixed; inset:0; z-index:1000; flex-direction:column; align-items:center; justify-content:space-between; padding:max(env(safe-area-inset-top),24px) 0 max(env(safe-area-inset-bottom),24px); background:radial-gradient(ellipse at 50% 30%,rgba(124,92,191,0.2) 0%,transparent 70%),linear-gradient(180deg,#0d0815 0%,#060610 50%,#030308 100%); overflow:hidden; }
+    #call-screen {
+      display:none; position:fixed; inset:0; z-index:1000;
+      flex-direction:column; align-items:center; justify-content:space-between;
+      padding:max(env(safe-area-inset-top),24px) 0 max(env(safe-area-inset-bottom),24px);
+      background:radial-gradient(ellipse at 50% 30%,rgba(124,92,191,0.2) 0%,transparent 70%),
+                 linear-gradient(180deg,#0d0815 0%,#060610 50%,#030308 100%);
+      overflow:hidden;
+    }
     #call-screen.active { display:flex; }
+
+    /* Анимация сворачивания звонка */
+    #call-screen.minimizing {
+      animation:callMinimize 0.35s cubic-bezier(0.4,0,0.2,1) forwards;
+    }
+    @keyframes callMinimize {
+      from { transform:translateY(0); opacity:1; }
+      to   { transform:translateY(-100%); opacity:0; }
+    }
+
+    /* Мини-бар активного звонка */
+    #call-mini-bar {
+      display:none;
+      position:fixed;
+      top:env(safe-area-inset-top,0);
+      left:0; right:0;
+      z-index:999;
+      background:linear-gradient(135deg,#1a0f30,#0d0d1a);
+      border-bottom:1px solid rgba(124,92,191,0.3);
+      padding:8px 16px;
+      flex-direction:row;
+      align-items:center;
+      gap:12px;
+      box-shadow:0 4px 20px rgba(0,0,0,0.5);
+      cursor:pointer;
+      animation:slideDownMini 0.3s cubic-bezier(0.34,1.1,0.64,1);
+    }
+    #call-mini-bar.visible { display:flex; }
+    @keyframes slideDownMini {
+      from { transform:translateY(-100%); opacity:0; }
+      to   { transform:translateY(0); opacity:1; }
+    }
+    .call-mini-avatar {
+      width:32px; height:32px; border-radius:50%;
+      background:var(--accent-g);
+      display:flex; align-items:center; justify-content:center;
+      font-size:14px; overflow:hidden; flex-shrink:0;
+      border:1.5px solid rgba(124,92,191,0.4);
+    }
+    .call-mini-avatar img { width:100%;height:100%;object-fit:cover; }
+    .call-mini-info { flex:1; min-width:0; }
+    .call-mini-name { font-size:13px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .call-mini-status { font-size:11px; color:var(--green); display:flex; align-items:center; gap:5px; }
+    .call-mini-dot { width:6px; height:6px; border-radius:50%; background:var(--green); animation:pulse 1.5s infinite; }
+    .call-mini-hangup {
+      width:32px; height:32px; border-radius:50%;
+      background:var(--red); border:none; color:white;
+      font-size:14px; cursor:pointer;
+      display:flex; align-items:center; justify-content:center;
+      flex-shrink:0;
+    }
+
     .call-screen-top { width:100%; display:flex; padding:0 20px; position:relative; z-index:1; }
     .call-minimize-btn { background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.1); border-radius:12px; width:40px; height:36px; color:rgba(255,255,255,0.7); font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
     .call-screen-center { display:flex; flex-direction:column; align-items:center; gap:22px; flex:1; justify-content:center; position:relative; z-index:1; }
@@ -409,6 +525,20 @@
     .call-btn.hangup { background:linear-gradient(135deg,#c0392b,#96281b); width:70px; height:70px; font-size:26px; border-color:transparent; box-shadow:0 4px 20px rgba(192,57,43,0.5); }
     .call-btn-label { font-size:11px; color:rgba(255,255,255,0.65); text-align:center; white-space:nowrap; }
 
+    /* Превью своего видео — в верхнем углу */
+    #video-local {
+      position:absolute;
+      top:16px; right:16px;
+      width:100px; height:140px;
+      border-radius:14px; object-fit:cover;
+      border:2px solid rgba(255,255,255,0.3);
+      box-shadow:0 4px 16px rgba(0,0,0,0.6);
+      cursor:pointer; z-index:10;
+      background:#111;
+      transition:transform 0.3s;
+    }
+    #video-local:active { transform:scale(0.95); }
+
     /* ─── ВХОДЯЩИЙ ЗВОНОК ─── */
     #modal-incoming-call.modal-overlay { align-items:center; justify-content:center; }
     .incoming-call-sheet { background:linear-gradient(180deg,#0d0815 0%,#060610 100%); border-radius:28px; padding:44px 36px 40px; display:flex; flex-direction:column; align-items:center; gap:14px; width:100%; max-width:360px; border:1px solid rgba(124,92,191,0.2); box-shadow:0 24px 80px rgba(0,0,0,0.8); }
@@ -427,11 +557,41 @@
     /* ─── СБРОС ПАРОЛЯ ─── */
     .reset-section { margin-top:14px; background:var(--surface2); border-radius:14px; padding:16px; border:1px solid rgba(124,92,191,0.15); }
     .reset-section-title { font-size:13px; color:var(--sub); margin-bottom:12px; text-align:center; }
+
+    /* ─── ПРОФИЛЬ СОБЕСЕДНИКА ─── */
+    .peer-profile-sheet {
+      position:fixed; inset:0; z-index:2000;
+      background:var(--bg); overflow-y:auto;
+      display:flex; flex-direction:column;
+      transform:translateX(100%);
+      transition:transform 0.32s cubic-bezier(0.4,0,0.2,1);
+    }
+    .peer-profile-sheet.open { transform:translateX(0); }
+    .peer-profile-sheet.closing {
+      animation:slideOutRight 0.28s cubic-bezier(0.4,0,0.8,0.6) forwards;
+    }
+    @keyframes slideOutRight {
+      from { transform:translateX(0); opacity:1; }
+      to   { transform:translateX(100%); opacity:0; }
+    }
   </style>
 </head>
 <body>
 
 <div class="toast-container" id="toast-container"></div>
+
+<!-- ═══ МИНИ-БАР АКТИВНОГО ЗВОНКА ═══ -->
+<div id="call-mini-bar">
+  <div class="call-mini-avatar" id="call-mini-avatar">👤</div>
+  <div class="call-mini-info">
+    <div class="call-mini-name" id="call-mini-name">—</div>
+    <div class="call-mini-status">
+      <div class="call-mini-dot"></div>
+      <span id="call-mini-status-text">Звонок…</span>
+    </div>
+  </div>
+  <button class="call-mini-hangup" id="call-mini-hangup">📵</button>
+</div>
 
 <!-- ═══ DRAWER ═══ -->
 <div id="drawer-overlay"></div>
@@ -463,6 +623,10 @@
       <span class="drawer-item-icon">⚙️</span>
       <span class="drawer-item-label">Настройки</span>
     </button>
+    <button class="drawer-item" id="dm-about">
+      <span class="drawer-item-icon">ℹ️</span>
+      <span class="drawer-item-label">О проекте</span>
+    </button>
     <button class="drawer-item" id="dm-invite">
       <span class="drawer-item-icon">➕</span>
       <span class="drawer-item-label">Пригласить друзей</span>
@@ -472,117 +636,119 @@
 
 <!-- ═══ ЭКРАН АВТОРИЗАЦИИ ═══ -->
 <div id="screen-auth" class="screen active">
-  <div class="auth-card">
-    <div class="auth-tabs">
-      <button class="auth-tab active" id="tab-login">Вход</button>
-      <button class="auth-tab" id="tab-register">Регистрация</button>
-    </div>
-    <div class="auth-body">
-      <div class="auth-logo">
-        <div class="auth-logo-icon-wrap">🔐</div>
-        <div class="auth-logo-title">Приватный чат</div>
-        <div class="auth-logo-sub">Анонимно · Зашифровано · Безопасно</div>
+  <div class="auth-scroll-inner">
+    <div class="auth-card">
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tab-login">Вход</button>
+        <button class="auth-tab" id="tab-register">Регистрация</button>
       </div>
+      <div class="auth-body">
+        <div class="auth-logo">
+          <div class="auth-logo-icon-wrap">🔐</div>
+          <div class="auth-logo-title">Приватный чат</div>
+          <div class="auth-logo-sub">Анонимно · Зашифровано · Безопасно</div>
+        </div>
 
-      <!-- ── ВХОД ── -->
-      <div id="form-login">
-        <div class="field-group">
-          <label class="field-label">Никнейм или логин</label>
-          <div class="field-input-wrap">
-            <input class="field-input" type="text" id="login-nick"
-                   placeholder="Ник или @логин…" maxlength="32"
-                   autocomplete="username" autocorrect="off" autocapitalize="none"/>
-          </div>
-        </div>
-        <div class="field-group">
-          <label class="field-label">Пароль</label>
-          <div class="field-input-wrap">
-            <input class="field-input pw" type="password" id="login-pw"
-                   placeholder="Пароль…" maxlength="64"
-                   autocomplete="current-password"/>
-            <button class="pw-eye" data-for="login-pw" type="button">👁</button>
-          </div>
-        </div>
-        <div class="auth-error" id="login-error"></div>
-        <button class="btn-primary" id="btn-login">Войти</button>
-        <div class="hint-recover">
-          <button id="btn-show-hint" type="button">💡 Подсказка к паролю</button>
-          <button id="btn-show-reset" type="button">📱 Сброс по телефону</button>
-        </div>
-        <!-- Блок восстановления пароля -->
-        <div id="reset-password-section" style="display:none" class="reset-section">
-          <div class="reset-section-title">Введи номер телефона и новый пароль</div>
-          <div class="field-group" style="margin-bottom:10px">
-            <input class="field-input" type="tel" id="reset-phone"
-                   placeholder="Номер телефона (+7…)" maxlength="20"/>
-          </div>
-          <div class="field-group" style="margin-bottom:10px">
+        <!-- ── ВХОД ── -->
+        <div id="form-login">
+          <div class="field-group">
+            <label class="field-label">Никнейм или логин</label>
             <div class="field-input-wrap">
-              <input class="field-input pw" type="password" id="reset-newpw"
-                     placeholder="Новый пароль…" maxlength="64"/>
-              <button class="pw-eye" data-for="reset-newpw" type="button">👁</button>
+              <input class="field-input" type="text" id="login-nick"
+                     placeholder="Ник или @логин…" maxlength="32"
+                     autocomplete="username" autocorrect="off" autocapitalize="none"/>
             </div>
           </div>
-          <button class="btn-primary" id="btn-reset-password"
-                  style="font-size:14px;padding:12px">🔑 Изменить пароль</button>
+          <div class="field-group">
+            <label class="field-label">Пароль</label>
+            <div class="field-input-wrap">
+              <input class="field-input pw" type="password" id="login-pw"
+                     placeholder="Пароль…" maxlength="64"
+                     autocomplete="current-password"/>
+              <button class="pw-eye" data-for="login-pw" type="button">👁</button>
+            </div>
+          </div>
+          <div class="auth-error" id="login-error"></div>
+          <button class="btn-primary" id="btn-login">Войти</button>
+          <div class="hint-recover">
+            <button id="btn-show-hint" type="button">💡 Подсказка к паролю</button>
+            <button id="btn-show-reset" type="button">📱 Сброс по телефону</button>
+          </div>
+          <div id="reset-password-section" style="display:none" class="reset-section">
+            <div class="reset-section-title">Введи номер телефона и новый пароль</div>
+            <div class="field-group" style="margin-bottom:10px">
+              <input class="field-input" type="tel" id="reset-phone"
+                     placeholder="Номер телефона (+7…)" maxlength="20"/>
+            </div>
+            <div class="field-group" style="margin-bottom:10px">
+              <div class="field-input-wrap">
+                <input class="field-input pw" type="password" id="reset-newpw"
+                       placeholder="Новый пароль…" maxlength="64"/>
+                <button class="pw-eye" data-for="reset-newpw" type="button">👁</button>
+              </div>
+            </div>
+            <button class="btn-primary" id="btn-reset-password"
+                    style="font-size:14px;padding:12px">🔑 Изменить пароль</button>
+          </div>
         </div>
-      </div>
 
-      <!-- ── РЕГИСТРАЦИЯ ── -->
-      <div id="form-register" style="display:none">
-        <div class="field-group">
-          <label class="field-label">Никнейм</label>
-          <div class="field-input-wrap">
-            <input class="field-input" type="text" id="reg-nick"
-                   placeholder="От 2 до 32 символов…" maxlength="32"
-                   autocomplete="off" autocorrect="off" autocapitalize="none"/>
+        <!-- ── РЕГИСТРАЦИЯ ── -->
+        <div id="form-register" style="display:none">
+          <div class="field-group">
+            <label class="field-label">Никнейм</label>
+            <div class="field-input-wrap">
+              <input class="field-input" type="text" id="reg-nick"
+                     placeholder="От 2 до 32 символов…" maxlength="32"
+                     autocomplete="off" autocorrect="off" autocapitalize="none"/>
+            </div>
           </div>
-        </div>
-        <div class="field-group">
-          <label class="field-label">
-            Логин
-            <span style="color:var(--sub);text-transform:none;letter-spacing:0;font-weight:400">(для входа)</span>
-          </label>
-          <div class="field-input-wrap">
-            <input class="field-input" type="text" id="reg-username"
-                   placeholder="@логин_латиницей…" maxlength="32"
-                   autocorrect="off" autocapitalize="none"/>
+          <div class="field-group">
+            <label class="field-label">
+              Логин
+              <span style="color:var(--sub);text-transform:none;letter-spacing:0;font-weight:400;font-size:10px"> — для входа</span>
+            </label>
+            <div class="field-input-wrap">
+              <input class="field-input" type="text" id="reg-username"
+                     placeholder="@логин_латиницей…" maxlength="32"
+                     autocorrect="off" autocapitalize="none"/>
+            </div>
+            <div class="username-status" id="username-status"></div>
+            <div class="hint-text">Только латинские буквы, цифры и _</div>
           </div>
-          <div class="hint-text">Только латинские буквы, цифры и _</div>
-        </div>
-        <div class="field-group">
-          <label class="field-label">Пароль</label>
-          <div class="field-input-wrap">
-            <input class="field-input pw" id="reg-pw" type="password"
-                   placeholder="Минимум 4 символа…" maxlength="64"
-                   autocomplete="new-password"/>
-            <button class="pw-eye" data-for="reg-pw" type="button">👁</button>
+          <div class="field-group">
+            <label class="field-label">Пароль</label>
+            <div class="field-input-wrap">
+              <input class="field-input pw" id="reg-pw" type="password"
+                     placeholder="Минимум 4 символа…" maxlength="64"
+                     autocomplete="new-password"/>
+              <button class="pw-eye" data-for="reg-pw" type="button">👁</button>
+            </div>
           </div>
-        </div>
-        <div class="field-group">
-          <label class="field-label">
-            Номер телефона
-            <span style="color:var(--sub);text-transform:none;letter-spacing:0;font-weight:400">(для восстановления)</span>
-          </label>
-          <div class="field-input-wrap">
-            <input class="field-input" type="tel" id="reg-phone"
-                   placeholder="+7 900 000 00 00" maxlength="20"/>
+          <div class="field-group">
+            <label class="field-label">
+              Номер телефона
+              <span style="color:var(--accent2);text-transform:none;letter-spacing:0;font-weight:600;font-size:10px"> — не обязательно</span>
+            </label>
+            <div class="field-input-wrap">
+              <input class="field-input" type="tel" id="reg-phone"
+                     placeholder="+7 900 000 00 00 (необязательно)" maxlength="20"/>
+            </div>
+            <div class="hint-text">🔒 Только для восстановления пароля. Не виден другим.</div>
           </div>
-          <div class="hint-text">🔒 Используется только для восстановления пароля. Не виден другим.</div>
-        </div>
-        <div class="field-group">
-          <label class="field-label">
-            Подсказка к паролю
-            <span style="color:var(--sub);text-transform:none;letter-spacing:0;font-weight:400">(необязательно)</span>
-          </label>
-          <div class="field-input-wrap">
-            <input class="field-input" type="text" id="reg-hint"
-                   placeholder="Подсказка к паролю…" maxlength="100"/>
+          <div class="field-group">
+            <label class="field-label">
+              Подсказка к паролю
+              <span style="color:var(--sub);text-transform:none;letter-spacing:0;font-weight:400;font-size:10px"> — не обязательно</span>
+            </label>
+            <div class="field-input-wrap">
+              <input class="field-input" type="text" id="reg-hint"
+                     placeholder="Подсказка к паролю…" maxlength="100"/>
+            </div>
+            <div class="hint-text encrypted">🔐 Хранится зашифрованной — видна только тебе</div>
           </div>
-          <div class="hint-text encrypted">🔐 Подсказка хранится зашифрованной — видна только тебе</div>
+          <div class="auth-error" id="reg-error"></div>
+          <button class="btn-primary" id="btn-register">Создать аккаунт</button>
         </div>
-        <div class="auth-error" id="reg-error"></div>
-        <button class="btn-primary" id="btn-register">Создать аккаунт</button>
       </div>
     </div>
   </div>
@@ -869,7 +1035,6 @@
 
 <!-- ═══ ЭКРАН ЧАТА ═══ -->
 <div id="screen-main" class="screen">
-  <!-- Сайдбар (десктоп) -->
   <div class="chat-sidebar-panel" id="chat-sidebar-panel">
     <div class="lobby-header" style="padding-top:10px">
       <button class="lobby-menu-btn" id="btn-open-drawer-chat">☰</button>
@@ -888,11 +1053,12 @@
     <div class="rooms-list" id="chat-private-list" style="display:none;padding-bottom:20px"></div>
   </div>
 
-  <!-- Основная панель чата -->
   <div class="chat-main-panel">
     <div class="tg-header">
       <button class="header-icon-btn" id="btn-back-lobby" style="font-size:20px">←</button>
-      <div class="tg-avatar" id="chat-room-avatar">💬</div>
+      <!-- Аватар кликабельный → профиль собеседника -->
+      <div class="tg-avatar" id="chat-room-avatar" title="Профиль">💬</div>
+      <!-- Имя кликабельное → профиль собеседника -->
       <div class="tg-header-info" id="chat-header-info">
         <div class="tg-header-name" id="chat-room-name">Группа</div>
         <div class="tg-header-sub">
@@ -902,12 +1068,12 @@
       <div class="tg-header-btns">
         <button class="header-icon-btn" id="btn-private-call"
                 title="Позвонить" style="display:none;color:var(--green)">📞</button>
+        <!-- Колокольчик — только уведомления текущего чата -->
         <button class="header-icon-btn" id="btn-notif-settings"
                 title="Уведомления чата">🔔</button>
-        <button class="header-icon-btn" id="btn-invite-friend"
-                title="Пригласить / Уведомления">👥</button>
+        <!-- Участники/Настройки — только для групп -->
         <button class="header-icon-btn" id="btn-room-members"
-                title="Участники и настройки">⚙️</button>
+                title="Участники и настройки" style="display:none">⚙️</button>
       </div>
     </div>
 
@@ -1004,7 +1170,7 @@
   <div class="incoming-call-sheet">
     <div class="incoming-call-avatar" id="incoming-call-avatar">👤</div>
     <div class="incoming-call-name"   id="incoming-call-name">—</div>
-    <div class="incoming-call-sub">📞 Голосовой вызов…</div>
+    <div class="incoming-call-sub" id="incoming-call-sub">📞 Голосовой вызов…</div>
     <div class="incoming-call-btns">
       <div class="incoming-call-btn-wrap">
         <button class="incoming-call-btn reject" id="btn-call-reject">📵</button>
@@ -1109,9 +1275,7 @@
   document.addEventListener('click', () => popup.classList.remove('open'));
   popup.addEventListener('click', e => e.stopPropagation());
   ['btn-photo','btn-video','btn-file'].forEach(id => {
-    document.getElementById(id)?.addEventListener('click', () => {
-      popup.classList.remove('open');
-    });
+    document.getElementById(id)?.addEventListener('click', () => popup.classList.remove('open'));
   });
 })();
 
@@ -1125,16 +1289,164 @@ document.querySelectorAll('.pw-eye').forEach(btn => {
   });
 });
 
-// ─── Кнопка уведомлений текущего чата ───
+// ─── Свайп для закрытия модалок ───
+(function() {
+  function closeModal(overlay) {
+    const sheet = overlay.querySelector('.modal-sheet');
+    if (!sheet) { overlay.classList.remove('open'); return; }
+    sheet.classList.add('closing');
+    sheet.addEventListener('animationend', () => {
+      overlay.classList.remove('open');
+      sheet.classList.remove('closing');
+    }, { once: true });
+  }
+
+  function initSwipe(overlay) {
+    const sheet = overlay.querySelector('.modal-sheet');
+    if (!sheet) return;
+    let startY = 0, startTime = 0, isDragging = false;
+
+    const onStart = (e) => {
+      const target = e.target;
+      // Не перехватываем если тянем скроллируемый контент (не handle)
+      const handle = sheet.querySelector('.modal-handle');
+      const isHandle = handle && handle.contains(target);
+      if (!isHandle && sheet.scrollTop > 0) return;
+      startY    = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
+      startTime = Date.now();
+      isDragging = true;
+      sheet.style.transition = 'none';
+    };
+
+    const onMove = (e) => {
+      if (!isDragging) return;
+      const currentY = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY;
+      const deltaY   = currentY - startY;
+      if (deltaY < 0) return; // Не тянем вверх
+      sheet.style.transform = `translateY(${deltaY}px)`;
+      sheet.style.opacity   = String(1 - deltaY / 400);
+      if (e.cancelable) e.preventDefault();
+    };
+
+    const onEnd = (e) => {
+      if (!isDragging) return;
+      isDragging = false;
+      const currentY  = e.type === 'touchend'
+        ? (e.changedTouches[0]?.clientY || startY)
+        : e.clientY;
+      const deltaY    = currentY - startY;
+      const duration  = Date.now() - startTime;
+      const velocity  = deltaY / duration;
+
+      sheet.style.transition = '';
+      sheet.style.transform  = '';
+      sheet.style.opacity    = '';
+
+      // Закрыть если сдвинули > 120px или быстрый свайп
+      if (deltaY > 120 || (velocity > 0.5 && deltaY > 40)) {
+        closeModal(overlay);
+      }
+    };
+
+    sheet.addEventListener('touchstart', onStart, { passive: true });
+    sheet.addEventListener('touchmove',  onMove,  { passive: false });
+    sheet.addEventListener('touchend',   onEnd,   { passive: true });
+  }
+
+  // Применяем ко всем модалкам
+  document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    initSwipe(overlay);
+
+    // Закрытие по клику на оверлей
+    overlay.addEventListener('click', e => {
+      if (e.target === overlay) closeModal(overlay);
+    });
+  });
+
+  // Экспортируем утилиту
+  window._closeModal = closeModal;
+})();
+
+// ─── Проверка логина в реальтайм ───
+(function() {
+  const input  = document.getElementById('reg-username');
+  const status = document.getElementById('username-status');
+  const regNick = document.getElementById('reg-nick');
+  if (!input || !status) return;
+
+  let timer = null;
+
+  function suggestUsername(base) {
+    return base.toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/__+/g, '_').replace(/^_|_$/g, '') || 'user';
+  }
+
+  // Авто-заполнение логина от ника
+  regNick?.addEventListener('input', () => {
+    if (input.value.trim()) return; // Не перезаписываем если уже введён
+    const suggestion = suggestUsername(regNick.value.trim());
+    if (suggestion.length >= 2) {
+      input.value = suggestion;
+      checkUsername(suggestion);
+    }
+  });
+
+  function checkUsername(val) {
+    val = val.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+    if (!val || val.length < 2) {
+      status.className = 'username-status';
+      status.textContent = '';
+      return;
+    }
+    status.className = 'username-status loading';
+    status.textContent = '⏳ Проверяем…';
+
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      // Проверяем через попытку поиска пользователя
+      if (typeof socket !== 'undefined') {
+        socket.emit('profile-get-user', { nickname: val }, res => {
+          if (res.ok) {
+            // Занят — предлагаем варианты
+            status.className = 'username-status taken';
+            const alt1 = val + Math.floor(Math.random() * 90 + 10);
+            const alt2 = val + '_' + (new Date().getFullYear() % 100);
+            status.innerHTML = `❌ Занят. Попробуй: <button onclick="document.getElementById('reg-username').value='${alt1}';checkUsernameInput()" style="background:none;border:none;color:var(--accent2);cursor:pointer;font-size:11px;text-decoration:underline">${alt1}</button> или <button onclick="document.getElementById('reg-username').value='${alt2}';checkUsernameInput()" style="background:none;border:none;color:var(--accent2);cursor:pointer;font-size:11px;text-decoration:underline">${alt2}</button>`;
+          } else {
+            status.className = 'username-status ok';
+            status.textContent = '✓ Логин свободен';
+          }
+        });
+      }
+    }, 500);
+  }
+
+  window.checkUsernameInput = () => checkUsername(input.value);
+  input.addEventListener('input', () => checkUsername(input.value));
+})();
+
+// ─── Мини-бар звонка — кнопка завершить ───
+document.getElementById('call-mini-hangup')?.addEventListener('click', e => {
+  e.stopPropagation();
+  if (typeof endPrivateCall === 'function') endPrivateCall(true);
+});
+
+// ─── Кнопка колокольчик — только уведомления ───
 document.getElementById('btn-notif-settings')?.addEventListener('click', () => {
   const id   = (typeof currentChatType !== 'undefined' && currentChatType === 'private')
-    ? currentChatId
-    : currentRoomId;
+    ? currentChatId : currentRoomId;
   const name = document.getElementById('chat-room-name')?.textContent || '?';
   if (id && typeof openChatNotifSettings === 'function') {
     openChatNotifSettings(id, name);
   }
 });
+
+// ─── Кнопка ⚙️ — только для групп ───
+(function() {
+  const btn = document.getElementById('btn-room-members');
+  if (btn) btn.addEventListener('click', () => {
+    if (typeof openMembersModal === 'function') openMembersModal();
+  });
+})();
 
 // ─── Синхронизация select уведомлений в настройках группы ───
 (function() {
@@ -1151,6 +1463,12 @@ document.getElementById('btn-notif-settings')?.addEventListener('click', () => {
   });
   observer.observe(modal, { attributes: true, attributeFilter: ['class'] });
 })();
+
+// ─── О проекте из drawer ───
+document.getElementById('dm-about')?.addEventListener('click', () => {
+  if (typeof closeDrawer === 'function') closeDrawer();
+  if (typeof openAboutPage === 'function') openAboutPage();
+});
 </script>
 </body>
 </html>
