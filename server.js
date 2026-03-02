@@ -377,7 +377,7 @@ io.on('connection', (socket) => {
     }).filter(Boolean) });
   });
 
-  // ════════════════════════════
+    // ════════════════════════════
   //  ЛИЧНЫЕ ЧАТЫ (с сохранением)
   // ════════════════════════════
   socket.on('private-chat-open', ({ withNickname }, cb) => {
@@ -409,8 +409,7 @@ io.on('connection', (socket) => {
       if (chat.members.includes(client.nickLower)) {
         const otherLower = chat.members.find(m => m !== client.nickLower);
         const otherUser  = users.get(otherLower);
-        // Последнее сообщение для превью
-        const lastMsg = chat.messages.length
+        const lastMsg    = chat.messages.length
           ? chat.messages[chat.messages.length - 1] : null;
         list.push({
           chatId:       id,
@@ -418,11 +417,12 @@ io.on('connection', (socket) => {
           withAvatar:   otherUser?.avatar   || null,
           withLower:    otherLower,
           createdAt:    chat.createdAt,
-          lastMessage:  lastMsg ? { type: lastMsg.type, timestamp: lastMsg.timestamp } : null
+          lastMessage:  lastMsg
+            ? { type: lastMsg.type, timestamp: lastMsg.timestamp }
+            : null
         });
       }
     }
-    // Сортируем по последнему сообщению
     list.sort((a, b) => {
       const ta = a.lastMessage?.timestamp || a.createdAt;
       const tb = b.lastMessage?.timestamp || b.createdAt;
@@ -441,7 +441,11 @@ io.on('connection', (socket) => {
     cb && cb({ ok: true, messages: chat.messages || [] });
   });
 
-  socket.on('private-message', async ({ chatId, encrypted, iv, type, fileName, fileSize, mimeType, seq }, cb) => {
+  // ── ИСПРАВЛЕНО: деструктуризация включает duration ──
+  socket.on('private-message', async (
+    { chatId, encrypted, iv, type, fileName, fileSize, mimeType, duration, seq },
+    cb
+  ) => {
     const client = clients.get(socket.id);
     if (!client?.authed) return cb && cb({ ok: false, error: 'not_authed' });
     const chat = privateChats.get(chatId);
@@ -452,28 +456,33 @@ io.on('connection', (socket) => {
       from:       client.nickLower,
       fromNick:   client.nickname,
       fromAvatar: users.get(client.nickLower)?.avatar || null,
-      encrypted, iv, type: type || 'text',
-      fileName, fileSize, mimeType,
-      seq, timestamp: Date.now()
+      encrypted,
+      iv,
+      type:     type || 'text',
+      fileName: fileName || null,
+      fileSize: fileSize || null,
+      mimeType: mimeType || null,
+      duration: duration || 0,   // ← длительность голосового сообщения
+      seq,
+      timestamp: Date.now()
     };
 
-    // Сохранить сообщение на сервере
     if (!chat.messages) chat.messages = [];
     chat.messages.push(msg);
-    // Ограничить историю
     if (chat.messages.length > MAX_STORED_MESSAGES)
       chat.messages = chat.messages.slice(-MAX_STORED_MESSAGES);
 
     // Доставить всем в socket-комнате чата
     socket.to('pc:' + chatId).emit('private-message', { chatId, ...msg });
 
-    // Убедиться что оффлайн-участник в комнате
+    // Убедиться что оффлайн-участник подключён к комнате
     const otherLower = chat.members.find(m => m !== client.nickLower);
     for (const [sid, cl] of clients) {
       if (cl.nickLower === otherLower && cl.authed) {
         io.in(sid).socketsJoin('pc:' + chatId);
       }
     }
+
     cb && cb({ ok: true, timestamp: msg.timestamp });
   });
 
@@ -481,11 +490,11 @@ io.on('connection', (socket) => {
     const client = clients.get(socket.id);
     if (!client?.authed) return cb && cb({ ok: false });
     const chat = privateChats.get(chatId);
-    if (!chat || !chat.members.includes(client.nickLower)) return cb && cb({ ok: false });
+    if (!chat || !chat.members.includes(client.nickLower))
+      return cb && cb({ ok: false });
     socket.join('pc:' + chatId);
     cb && cb({ ok: true });
   });
-
   // ════════════════════════════
   //  set-nickname (совместимость)
   // ════════════════════════════
@@ -801,7 +810,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ════════════════════════════
+    // ════════════════════════════
   //  ГОЛОС / ЧАТ
   // ════════════════════════════
   socket.on('offer', ({ to, offer }) => {
@@ -809,59 +818,87 @@ io.on('connection', (socket) => {
     if (!client?.roomId) return;
     io.to(to).emit('offer', { from: socket.id, offer, nickname: client.nickname });
   });
+
   socket.on('answer', ({ to, answer }) => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
     io.to(to).emit('answer', { from: socket.id, answer, nickname: client.nickname });
   });
+
   socket.on('ice-candidate', ({ to, candidate }) => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
     io.to(to).emit('ice-candidate', { from: socket.id, candidate });
   });
+
   socket.on('voice-join', () => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
-    const room   = rooms.get(client.roomId);
+    const room = rooms.get(client.roomId);
     if (!room) return;
-    const others = [...room.members].filter(id => id !== socket.id).map(id => ({
-      id, nickname: clients.get(id)?.nickname || shortId(id)
-    }));
-    socket.to(client.roomId).emit('voice-user-joined', { id: socket.id, nickname: client.nickname });
+    const others = [...room.members]
+      .filter(id => id !== socket.id)
+      .map(id => ({
+        id,
+        nickname: clients.get(id)?.nickname || shortId(id)
+      }));
+    socket.to(client.roomId).emit('voice-user-joined', {
+      id: socket.id,
+      nickname: client.nickname
+    });
     socket.emit('existing-voice-users', others);
   });
+
   socket.on('voice-leave', () => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
     socket.to(client.roomId).emit('voice-user-left', socket.id);
   });
+
   socket.on('typing-start', () => {
     const client = clients.get(socket.id);
     if (!client?.roomId || !client.nickname) return;
-    socket.to(client.roomId).emit('typing-start', { from: socket.id, nickname: client.nickname });
+    socket.to(client.roomId).emit('typing-start', {
+      from: socket.id,
+      nickname: client.nickname
+    });
   });
+
   socket.on('typing-stop', () => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
     socket.to(client.roomId).emit('typing-stop', { from: socket.id });
   });
+
   socket.on('chat-message', (data) => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
+
+    // Валидация seq
     const seqNum = parseInt(data.seq);
     if (!Number.isInteger(seqNum) || seqNum < 0) return;
+
     const room = rooms.get(client.roomId);
     if (!room) return;
+
+    // Защита от дублей
     if (!room.lastSeq) room.lastSeq = new Map();
     const lastSeq = room.lastSeq.get(socket.id) || -1;
     if (seqNum <= lastSeq) return;
     room.lastSeq.set(socket.id, seqNum);
 
     const msg = {
-      from: socket.id, nickname: client.nickname,
-      encrypted: data.encrypted, iv: data.iv, type: data.type,
-      fileName: data.fileName, fileSize: data.fileSize, mimeType: data.mimeType,
-      seq: seqNum, timestamp: Date.now()
+      from:      socket.id,
+      nickname:  client.nickname,
+      encrypted: data.encrypted  || null,
+      iv:        data.iv         || null,
+      type:      data.type       || 'text',
+      fileName:  data.fileName   || null,
+      fileSize:  data.fileSize   || null,
+      mimeType:  data.mimeType   || null,
+      duration:  data.duration   || 0,    // ← длительность голосового сообщения
+      seq:       seqNum,
+      timestamp: Date.now()
     };
 
     // Сохранить в историю группы
@@ -873,25 +910,41 @@ io.on('connection', (socket) => {
     socket.to(client.roomId).emit('typing-stop', { from: socket.id });
     socket.to(client.roomId).emit('chat-message', msg);
   });
+
   socket.on('understood', () => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
-    socket.to(client.roomId).emit('understood', { from: socket.id, nickname: client.nickname });
+    socket.to(client.roomId).emit('understood', {
+      from: socket.id,
+      nickname: client.nickname
+    });
   });
+
   socket.on('ecdh-pubkey', ({ to, pubkey }) => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
-    io.to(to).emit('ecdh-pubkey', { from: socket.id, pubkey, nickname: client.nickname });
+    io.to(to).emit('ecdh-pubkey', {
+      from: socket.id,
+      pubkey,
+      nickname: client.nickname
+    });
   });
+
   socket.on('key-fingerprint', ({ to, fingerprint }) => {
     const client = clients.get(socket.id);
     if (!client?.roomId) return;
-    io.to(to).emit('key-fingerprint', { from: socket.id, nickname: client.nickname, fingerprint });
+    io.to(to).emit('key-fingerprint', {
+      from: socket.id,
+      nickname: client.nickname,
+      fingerprint
+    });
   });
+
   socket.on('leave-room', () => {
     const client = clients.get(socket.id);
     if (client?.roomId) leaveRoom(socket, client.roomId);
   });
+
   socket.on('disconnect', () => {
     const client = clients.get(socket.id);
     if (client?.roomId) leaveRoom(socket, client.roomId);
@@ -904,9 +957,9 @@ io.on('connection', (socket) => {
     if (room) {
       room.members.delete(socket.id);
       if (room.lastSeq) room.lastSeq.delete(socket.id);
-      socket.to(roomId).emit('room-user-left', socket.id);
+      socket.to(roomId).emit('room-user-left',  socket.id);
       socket.to(roomId).emit('voice-user-left', socket.id);
-      socket.to(roomId).emit('typing-stop', { from: socket.id });
+      socket.to(roomId).emit('typing-stop',     { from: socket.id });
       socket.leave(roomId);
       if (room.members.size === 0) scheduleRoomDelete(roomId);
       else broadcastRoomList();
