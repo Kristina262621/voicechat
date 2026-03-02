@@ -1,19 +1,15 @@
 class NoiseGateProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
-    // Поднимаем порог — срабатывает только от ~20% громкости
     this._threshold  = options.processorOptions?.threshold  ?? 0.035;
     this._attack     = options.processorOptions?.attack     ?? 0.005;
     this._release    = options.processorOptions?.release    ?? 0.15;
     this._smoothing  = options.processorOptions?.smoothing  ?? 0.95;
     this._gain       = 0.0;
     this._envelope   = 0.0;
-
-    // Спектральное вычитание шума
     this._noiseFloor      = new Float32Array(128).fill(0.001);
     this._noiseAlpha      = 0.998;
     this._frameCount      = 0;
-    // Калибровка — первые 30 кадров считаем шумом окружения
     this._calibrating     = true;
     this._calibFrames     = 0;
     this._calibMax        = 60;
@@ -32,17 +28,15 @@ class NoiseGateProcessor extends AudioWorkletProcessor {
     if (!input || !input[0]) return true;
 
     const inL  = input[0];
-    const inR  = input[[1]](#annotation-152580-0) || input[0];
+    const inR  = input[1] || input[0];   // ИСПРАВЛЕНО
     const outL = output[0];
-    const outR = output[[1]](#annotation-152580-0) || output[0];
+    const outR = output[1] || output[0]; // ИСПРАВЛЕНО
     const len  = inL.length;
 
-    // RMS текущего фрейма
     let sumSq = 0;
     for (let i = 0; i < len; i++) sumSq += inL[i] * inL[i];
     const rms = Math.sqrt(sumSq / len);
 
-    // Калибровка фонового шума (первые ~60 фреймов = ~1.2 сек)
     if (this._calibrating) {
       this._ambientAccum += rms;
       this._calibFrames++;
@@ -50,15 +44,11 @@ class NoiseGateProcessor extends AudioWorkletProcessor {
         this._ambientNoise = (this._ambientAccum / this._calibMax) * 3.0;
         this._calibrating  = false;
       }
-      // Пока калибруемся — тишина
       for (let i = 0; i < len; i++) { outL[i] = 0; outR[i] = 0; }
       return true;
     }
 
-    // Адаптивный порог = max(staticThreshold, ambientNoise * 2.5)
     const adaptiveThreshold = Math.max(this._threshold, this._ambientNoise * 2.5);
-
-    // Огибающая с attack/release
     const attackCoef = Math.exp(-1 / (sampleRate * this._attack));
     const relCoef    = Math.exp(-1 / (sampleRate * this._release));
     if (rms > this._envelope)
@@ -66,11 +56,9 @@ class NoiseGateProcessor extends AudioWorkletProcessor {
     else
       this._envelope = relCoef   * this._envelope + (1 - relCoef)   * rms;
 
-    // Ворота: плавное открытие/закрытие
     const targetGain = this._envelope > adaptiveThreshold ? 1.0 : 0.0;
     this._gain = this._smoothing * this._gain + (1 - this._smoothing) * targetGain;
 
-    // Обновляем оценку фонового шума когда ворота закрыты
     if (this._gain < 0.1) {
       for (let i = 0; i < len; i++) {
         const abs = Math.abs(inL[i]);
@@ -79,11 +67,9 @@ class NoiseGateProcessor extends AudioWorkletProcessor {
           this._noiseAlpha * this._noiseFloor[idx] +
           (1 - this._noiseAlpha) * abs;
       }
-      // Медленно обновляем ambient
       this._ambientNoise = this._ambientNoise * 0.9995 + rms * 0.0005;
     }
 
-    // Спектральное вычитание + применение усиления
     for (let i = 0; i < len; i++) {
       const nf = this._noiseFloor[i % this._noiseFloor.length];
       const cleanL = Math.sign(inL[i]) * Math.max(0, Math.abs(inL[i]) - nf * 2.0);
