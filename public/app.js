@@ -3210,7 +3210,7 @@ async function buildAudioPipeline(rawStream) {
   comp.ratio.value = 6; comp.attack.value = 0.002; comp.release.value = 0.12;
   noiseWorklet = new AudioWorkletNode(audioCtx, 'noise-gate-processor', {
     processorOptions: { threshold: 0.035, attack: 0.005, release: 0.20, smoothing: 0.96 },
-    numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [[1]](#annotation-154015-0)
+    numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1]
   });
   const gain = audioCtx.createGain();
   gain.gain.value = 1.2;
@@ -3241,7 +3241,7 @@ function forceOpusMaxQuality(sdp) {
     const line = lines[i];
     if (line.includes('a=rtpmap') && line.toLowerCase().includes('opus')) {
       result.push(line);
-      const pt = line.split(':')[[1]](#annotation-154015-0).split(' ')[0];
+      const pt = line.split(':')[1].split(' ')[0];
       if (i + 1 < lines.length && lines[i+1].startsWith('a=fmtp:' + pt)) i++;
       result.push('a=fmtp:' + pt + ' minptime=10;useinbandfec=1;stereo=0;sprop-stereo=0;maxaveragebitrate=40000;dtx=1;cbr=0');
       continue;
