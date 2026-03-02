@@ -95,30 +95,37 @@
     .drawer-divider { height:1px; background:var(--divider); margin:8px 0; }
 
     /* ─── AUTH ─── */
-    #screen-auth { align-items:center; justify-content:center; background:var(--bg); background-image:radial-gradient(ellipse at 30% 20%,rgba(124,92,191,0.15) 0%,transparent 55%),radial-gradient(ellipse at 80% 80%,rgba(201,168,76,0.08) 0%,transparent 50%); }
+    #screen-auth {
+      align-items:center; justify-content:center; background:var(--bg);
+      background-image:radial-gradient(ellipse at 30% 20%,rgba(124,92,191,0.15) 0%,transparent 55%),
+                       radial-gradient(ellipse at 80% 80%,rgba(201,168,76,0.08) 0%,transparent 50%);
+      overflow-y:auto;
+      padding:20px 0;
+    }
     .auth-card { width:100%; max-width:400px; margin:0 20px; background:var(--surface); border-radius:28px; border:1px solid rgba(124,92,191,0.2); box-shadow:0 24px 80px rgba(0,0,0,0.8),0 0 0 1px rgba(255,255,255,0.03),inset 0 1px 0 rgba(255,255,255,0.04); overflow:hidden; }
     .auth-tabs { display:flex; background:rgba(0,0,0,0.3); border-bottom:1px solid var(--divider); }
     .auth-tab { flex:1; padding:16px; font-size:14px; font-weight:600; text-align:center; cursor:pointer; color:var(--sub); border-bottom:2px solid transparent; transition:color 0.2s,border-color 0.2s,background 0.2s; background:none; border-top:none; border-left:none; border-right:none; }
     .auth-tab.active { color:var(--accent2); border-bottom-color:var(--accent); background:rgba(124,92,191,0.05); }
-    .auth-body { padding:32px 28px 28px; }
-    .auth-logo { text-align:center; margin-bottom:30px; }
-    .auth-logo-icon-wrap { width:76px; height:76px; border-radius:22px; background:var(--accent-g); display:inline-flex; align-items:center; justify-content:center; font-size:36px; margin-bottom:16px; box-shadow:0 8px 32px rgba(124,92,191,0.4),inset 0 1px 0 rgba(255,255,255,0.15); }
-    .auth-logo-title { font-size:22px; font-weight:800; letter-spacing:-0.5px; background:linear-gradient(135deg,var(--text),var(--accent2)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+    .auth-body { padding:28px 24px 24px; }
+    .auth-logo { text-align:center; margin-bottom:24px; }
+    .auth-logo-icon-wrap { width:72px; height:72px; border-radius:22px; background:var(--accent-g); display:inline-flex; align-items:center; justify-content:center; font-size:34px; margin-bottom:14px; box-shadow:0 8px 32px rgba(124,92,191,0.4),inset 0 1px 0 rgba(255,255,255,0.15); }
+    .auth-logo-title { font-size:20px; font-weight:800; letter-spacing:-0.5px; background:linear-gradient(135deg,var(--text),var(--accent2)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
     .auth-logo-sub { font-size:12px; color:var(--sub); margin-top:5px; letter-spacing:0.3px; }
-    .field-group { margin-bottom:16px; }
-    .field-label { font-size:10px; color:var(--sub); font-weight:700; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px; display:block; }
+    .field-group { margin-bottom:14px; }
+    .field-label { font-size:10px; color:var(--sub); font-weight:700; text-transform:uppercase; letter-spacing:1px; margin-bottom:7px; display:block; }
     .field-input-wrap { position:relative; }
-    .field-input { width:100%; padding:14px 18px; background:var(--bg2); border:1.5px solid rgba(255,255,255,0.07); border-radius:var(--radius-sm); color:var(--text); font-size:16px; outline:none; font-family:inherit; transition:border-color 0.2s,box-shadow 0.2s; -webkit-appearance:none; -webkit-text-size-adjust:100%; }
+    .field-input { width:100%; padding:13px 16px; background:var(--bg2); border:1.5px solid rgba(255,255,255,0.07); border-radius:var(--radius-sm); color:var(--text); font-size:16px; outline:none; font-family:inherit; transition:border-color 0.2s,box-shadow 0.2s; -webkit-appearance:none; -webkit-text-size-adjust:100%; }
     .field-input:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(124,92,191,0.15); background:rgba(124,92,191,0.04); }
     .field-input::placeholder { color:var(--sub); }
     .field-input.pw { padding-right:50px; }
     .pw-eye { position:absolute; right:14px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; font-size:17px; color:var(--sub); padding:6px; }
-    .hint-text { font-size:11px; color:var(--sub); margin-top:6px; }
-    .btn-primary { width:100%; padding:15px; background:var(--accent-g); color:white; border:none; border-radius:var(--radius-sm); font-size:15px; font-weight:700; cursor:pointer; transition:opacity 0.2s,transform 0.1s; box-shadow:0 4px 20px rgba(124,92,191,0.4),inset 0 1px 0 rgba(255,255,255,0.1); letter-spacing:0.3px; }
+    .hint-text { font-size:11px; color:var(--sub); margin-top:5px; line-height:1.5; }
+    .hint-text.encrypted { color:rgba(124,92,191,0.7); }
+    .btn-primary { width:100%; padding:14px; background:var(--accent-g); color:white; border:none; border-radius:var(--radius-sm); font-size:15px; font-weight:700; cursor:pointer; transition:opacity 0.2s,transform 0.1s; box-shadow:0 4px 20px rgba(124,92,191,0.4),inset 0 1px 0 rgba(255,255,255,0.1); letter-spacing:0.3px; }
     .btn-primary:active { transform:scale(0.98); opacity:0.9; }
     .btn-primary:disabled { background:rgba(255,255,255,0.06); color:var(--sub); cursor:not-allowed; box-shadow:none; }
-    .auth-error { font-size:12px; color:#ff7b7b; text-align:center; min-height:18px; margin-bottom:14px; }
-    .hint-recover { text-align:center; margin-top:16px; }
+    .auth-error { font-size:12px; color:#ff7b7b; text-align:center; min-height:18px; margin-bottom:12px; }
+    .hint-recover { text-align:center; margin-top:14px; display:flex; flex-wrap:wrap; justify-content:center; gap:8px; }
     .hint-recover button { background:none; border:none; color:var(--accent2); font-size:12px; cursor:pointer; opacity:0.8; }
     .hint-recover button:hover { opacity:1; text-decoration:underline; }
 
@@ -137,9 +144,10 @@
     .lobby-menu-btn { width:38px; height:38px; border-radius:50%; background:none; border:none; cursor:pointer; color:var(--text); font-size:22px; display:flex; align-items:center; justify-content:center; }
     .lobby-avatar-btn { width:38px; height:38px; border-radius:50%; background:var(--accent-g); border:2px solid rgba(124,92,191,0.4); cursor:pointer; overflow:hidden; display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0; box-shadow:0 2px 12px rgba(124,92,191,0.3); }
     .lobby-avatar-btn img { width:100%;height:100%;object-fit:cover;border-radius:50%; }
-    #btn-create-room { width:38px; height:38px; flex-shrink:0; border:none; background:var(--accent-g); color:white; font-size:20px; border-radius:50%; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 12px rgba(124,92,191,0.4); }
+    #btn-create-room { width:38px; height:38px; flex-shrink:0; border:none; background:var(--accent-g); color:white; font-size:20px; border-radius:50%; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 12px rgba(124,92,191,0.4); transition:transform 0.15s; }
+    #btn-create-room:active { transform:scale(0.92); }
 
-    /* ─── ОБЪЕДИНЁННЫЕ ВКЛАДКИ ─── */
+    /* ─── ВКЛАДКИ ─── */
     .lobby-tabs { display:flex; background:var(--bg); border-bottom:1px solid var(--divider); flex-shrink:0; padding:0 6px; }
     .lobby-tab { flex:1; padding:12px 6px; font-size:13px; font-weight:600; text-align:center; cursor:pointer; color:var(--sub); border-bottom:2px solid transparent; transition:color 0.2s,border-color 0.2s; background:none; border-top:none; border-left:none; border-right:none; }
     .lobby-tab.active { color:var(--accent2); border-bottom-color:var(--accent); }
@@ -321,19 +329,8 @@
     .voice-msg-duration { font-size:11px; color:var(--sub); flex-shrink:0; min-width:32px; text-align:right; }
 
     /* ─── ЗАПИСЬ ГОЛОСОВОГО ─── */
-    .voice-record-btn {
-      width:44px; height:44px; flex-shrink:0; border-radius:50%;
-      border:none; background:rgba(255,255,255,0.07);
-      color:var(--sub); font-size:20px; cursor:pointer;
-      display:flex; align-items:center; justify-content:center;
-      transition:background 0.2s, color 0.2s, transform 0.15s;
-      user-select:none; -webkit-user-select:none;
-      touch-action:none;
-    }
-    .voice-record-btn.recording {
-      background:var(--red); color:white;
-      animation:recordPulse 1s ease-in-out infinite;
-    }
+    .voice-record-btn { width:44px; height:44px; flex-shrink:0; border-radius:50%; border:none; background:rgba(255,255,255,0.07); color:var(--sub); font-size:20px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background 0.2s,color 0.2s,transform 0.15s; user-select:none; -webkit-user-select:none; touch-action:none; }
+    .voice-record-btn.recording { background:var(--red); color:white; animation:recordPulse 1s ease-in-out infinite; }
     @keyframes recordPulse { 0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(224,82,82,0.4);} 50%{transform:scale(1.05);box-shadow:0 0 0 8px rgba(224,82,82,0);} }
     .voice-record-timer { display:none; align-items:center; gap:6px; font-size:13px; color:var(--red); font-weight:600; padding:0 4px; }
     .voice-record-timer.visible { display:flex; }
@@ -391,27 +388,28 @@
     @keyframes shake { 0%,100%{transform:translateX(0);} 20%{transform:translateX(-8px);} 40%{transform:translateX(8px);} 60%{transform:translateX(-5px);} 80%{transform:translateX(5px);} }
 
     /* ─── ЭКРАН ЗВОНКА ─── */
-    #call-screen { display:none; position:fixed; inset:0; z-index:1000; flex-direction:column; align-items:center; justify-content:space-between; padding:max(env(safe-area-inset-top),24px) 0 max(env(safe-area-inset-bottom),24px); background:radial-gradient(ellipse at 50% 30%,rgba(124,92,191,0.2) 0%,transparent 70%),linear-gradient(180deg,#0d0815 0%,#060610 50%,#030308 100%); }
+    #call-screen { display:none; position:fixed; inset:0; z-index:1000; flex-direction:column; align-items:center; justify-content:space-between; padding:max(env(safe-area-inset-top),24px) 0 max(env(safe-area-inset-bottom),24px); background:radial-gradient(ellipse at 50% 30%,rgba(124,92,191,0.2) 0%,transparent 70%),linear-gradient(180deg,#0d0815 0%,#060610 50%,#030308 100%); overflow:hidden; }
     #call-screen.active { display:flex; }
-    .call-screen-top { width:100%; display:flex; padding:0 20px; }
+    .call-screen-top { width:100%; display:flex; padding:0 20px; position:relative; z-index:1; }
     .call-minimize-btn { background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.1); border-radius:12px; width:40px; height:36px; color:rgba(255,255,255,0.7); font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
-    .call-screen-center { display:flex; flex-direction:column; align-items:center; gap:22px; flex:1; justify-content:center; }
-    .call-avatar-wrap { width:140px; height:140px; border-radius:50%; background:rgba(255,255,255,0.08); display:flex; align-items:center; justify-content:center; font-size:64px; overflow:hidden; position:relative; box-shadow:0 0 0 1px rgba(124,92,191,0.3),0 0 0 16px rgba(124,92,191,0.08),0 0 0 32px rgba(124,92,191,0.04); animation:callRipple 3s ease-in-out infinite; }
+    .call-screen-center { display:flex; flex-direction:column; align-items:center; gap:22px; flex:1; justify-content:center; position:relative; z-index:1; }
+    .call-avatar-wrap { width:140px; height:140px; border-radius:50%; background:rgba(255,255,255,0.08); display:flex; align-items:center; justify-content:center; font-size:64px; overflow:hidden; position:relative; box-shadow:0 0 0 1px rgba(124,92,191,0.3),0 0 0 16px rgba(124,92,191,0.08),0 0 0 32px rgba(124,92,191,0.04); animation:callRipple 3s ease-in-out infinite; transition:opacity 0.3s; }
     @keyframes callRipple { 0%,100%{box-shadow:0 0 0 1px rgba(124,92,191,0.3),0 0 0 16px rgba(124,92,191,0.08),0 0 0 32px rgba(124,92,191,0.04);} 50%{box-shadow:0 0 0 1px rgba(124,92,191,0.4),0 0 0 20px rgba(124,92,191,0.06),0 0 0 40px rgba(124,92,191,0.02);} }
     .call-avatar-wrap img { width:100%;height:100%;object-fit:cover; }
-    .call-name { font-size:28px; font-weight:800; color:white; letter-spacing:-0.5px; }
-    .call-status { font-size:14px; color:rgba(255,255,255,0.6); display:flex; align-items:center; gap:8px; }
+    .call-name { font-size:28px; font-weight:800; color:white; letter-spacing:-0.5px; position:relative; z-index:1; }
+    .call-status { font-size:14px; color:rgba(255,255,255,0.6); display:flex; align-items:center; gap:8px; position:relative; z-index:1; }
     .call-status-dot { width:7px; height:7px; border-radius:50%; background:rgba(255,255,255,0.4); animation:callPulse 1.8s infinite; }
     @keyframes callPulse { 0%,100%{opacity:1;transform:scale(1);} 50%{opacity:0.3;transform:scale(0.6);} }
-    .call-screen-bottom { width:100%; padding:0 24px 10px; }
+    .call-screen-bottom { width:100%; padding:0 24px 10px; position:relative; z-index:1; }
     .call-buttons-row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
     .call-btn-wrap { display:flex; flex-direction:column; align-items:center; gap:10px; flex:1; }
-    .call-btn { width:62px; height:62px; border-radius:50%; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:24px; background:rgba(255,255,255,0.1); color:white; border:1px solid rgba(255,255,255,0.1); backdrop-filter:blur(8px); }
+    .call-btn { width:62px; height:62px; border-radius:50%; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:24px; background:rgba(255,255,255,0.1); color:white; border:1px solid rgba(255,255,255,0.1); backdrop-filter:blur(8px); transition:transform 0.15s,background 0.2s; }
     .call-btn:active { transform:scale(0.9); }
     .call-btn.active { background:rgba(255,255,255,0.22); }
     .call-btn.hangup { background:linear-gradient(135deg,#c0392b,#96281b); width:70px; height:70px; font-size:26px; border-color:transparent; box-shadow:0 4px 20px rgba(192,57,43,0.5); }
     .call-btn-label { font-size:11px; color:rgba(255,255,255,0.65); text-align:center; white-space:nowrap; }
 
+    /* ─── ВХОДЯЩИЙ ЗВОНОК ─── */
     #modal-incoming-call.modal-overlay { align-items:center; justify-content:center; }
     .incoming-call-sheet { background:linear-gradient(180deg,#0d0815 0%,#060610 100%); border-radius:28px; padding:44px 36px 40px; display:flex; flex-direction:column; align-items:center; gap:14px; width:100%; max-width:360px; border:1px solid rgba(124,92,191,0.2); box-shadow:0 24px 80px rgba(0,0,0,0.8); }
     .incoming-call-avatar { width:108px; height:108px; border-radius:50%; background:var(--accent-g); display:flex; align-items:center; justify-content:center; font-size:52px; overflow:hidden; box-shadow:0 0 40px rgba(124,92,191,0.3); }
@@ -420,11 +418,15 @@
     .incoming-call-sub { font-size:14px; color:rgba(255,255,255,0.55); }
     .incoming-call-btns { display:flex; gap:56px; align-items:center; margin-top:20px; }
     .incoming-call-btn-wrap { display:flex; flex-direction:column; align-items:center; gap:12px; }
-    .incoming-call-btn { width:72px; height:72px; border-radius:50%; border:none; cursor:pointer; font-size:28px; display:flex; align-items:center; justify-content:center; }
+    .incoming-call-btn { width:72px; height:72px; border-radius:50%; border:none; cursor:pointer; font-size:28px; display:flex; align-items:center; justify-content:center; transition:transform 0.15s; }
     .incoming-call-btn:active { transform:scale(0.9); }
     .incoming-call-btn.reject { background:linear-gradient(135deg,#c0392b,#96281b); color:white; box-shadow:0 4px 20px rgba(192,57,43,0.45); }
     .incoming-call-btn.accept { background:linear-gradient(135deg,#1e8449,#145a32); color:white; box-shadow:0 4px 20px rgba(30,132,73,0.45); }
     .incoming-call-btn-label { font-size:13px; color:rgba(255,255,255,0.65); }
+
+    /* ─── СБРОС ПАРОЛЯ ─── */
+    .reset-section { margin-top:14px; background:var(--surface2); border-radius:14px; padding:16px; border:1px solid rgba(124,92,191,0.15); }
+    .reset-section-title { font-size:13px; color:var(--sub); margin-bottom:12px; text-align:center; }
   </style>
 </head>
 <body>
@@ -443,13 +445,28 @@
     <div class="drawer-nick" id="drawer-nick"></div>
   </div>
   <div class="drawer-menu">
-    <button class="drawer-item" id="dm-profile"><span class="drawer-item-icon">👤</span><span class="drawer-item-label">Мой профиль</span></button>
-    <button class="drawer-item" id="dm-contacts"><span class="drawer-item-icon">📇</span><span class="drawer-item-label">Контакты</span></button>
+    <button class="drawer-item" id="dm-profile">
+      <span class="drawer-item-icon">👤</span>
+      <span class="drawer-item-label">Мой профиль</span>
+    </button>
+    <button class="drawer-item" id="dm-contacts">
+      <span class="drawer-item-icon">📇</span>
+      <span class="drawer-item-label">Контакты</span>
+    </button>
     <div class="drawer-divider"></div>
-    <button class="drawer-item" id="dm-create-group"><span class="drawer-item-icon">👥</span><span class="drawer-item-label">Создать группу</span></button>
+    <button class="drawer-item" id="dm-create-group">
+      <span class="drawer-item-icon">👥</span>
+      <span class="drawer-item-label">Создать группу</span>
+    </button>
     <div class="drawer-divider"></div>
-    <button class="drawer-item" id="dm-settings"><span class="drawer-item-icon">⚙️</span><span class="drawer-item-label">Настройки</span></button>
-    <button class="drawer-item" id="dm-invite"><span class="drawer-item-icon">➕</span><span class="drawer-item-label">Пригласить друзей</span></button>
+    <button class="drawer-item" id="dm-settings">
+      <span class="drawer-item-icon">⚙️</span>
+      <span class="drawer-item-label">Настройки</span>
+    </button>
+    <button class="drawer-item" id="dm-invite">
+      <span class="drawer-item-icon">➕</span>
+      <span class="drawer-item-label">Пригласить друзей</span>
+    </button>
   </div>
 </div>
 
@@ -466,48 +483,103 @@
         <div class="auth-logo-title">Приватный чат</div>
         <div class="auth-logo-sub">Анонимно · Зашифровано · Безопасно</div>
       </div>
+
+      <!-- ── ВХОД ── -->
       <div id="form-login">
         <div class="field-group">
-          <label class="field-label">Никнейм</label>
+          <label class="field-label">Никнейм или логин</label>
           <div class="field-input-wrap">
-            <input class="field-input" type="text" id="login-nick" placeholder="Твой никнейм…"
-                   maxlength="32" autocomplete="username" autocorrect="off" autocapitalize="none"/>
+            <input class="field-input" type="text" id="login-nick"
+                   placeholder="Ник или @логин…" maxlength="32"
+                   autocomplete="username" autocorrect="off" autocapitalize="none"/>
           </div>
         </div>
         <div class="field-group">
           <label class="field-label">Пароль</label>
           <div class="field-input-wrap">
-            <input class="field-input pw" type="password" id="login-pw" placeholder="Пароль…"
-                   maxlength="64" autocomplete="current-password"/>
+            <input class="field-input pw" type="password" id="login-pw"
+                   placeholder="Пароль…" maxlength="64"
+                   autocomplete="current-password"/>
             <button class="pw-eye" data-for="login-pw" type="button">👁</button>
           </div>
         </div>
         <div class="auth-error" id="login-error"></div>
         <button class="btn-primary" id="btn-login">Войти</button>
-        <div class="hint-recover"><button id="btn-show-hint" type="button">💡 Забыл пароль? Подсказка</button></div>
+        <div class="hint-recover">
+          <button id="btn-show-hint" type="button">💡 Подсказка к паролю</button>
+          <button id="btn-show-reset" type="button">📱 Сброс по телефону</button>
+        </div>
+        <!-- Блок восстановления пароля -->
+        <div id="reset-password-section" style="display:none" class="reset-section">
+          <div class="reset-section-title">Введи номер телефона и новый пароль</div>
+          <div class="field-group" style="margin-bottom:10px">
+            <input class="field-input" type="tel" id="reset-phone"
+                   placeholder="Номер телефона (+7…)" maxlength="20"/>
+          </div>
+          <div class="field-group" style="margin-bottom:10px">
+            <div class="field-input-wrap">
+              <input class="field-input pw" type="password" id="reset-newpw"
+                     placeholder="Новый пароль…" maxlength="64"/>
+              <button class="pw-eye" data-for="reset-newpw" type="button">👁</button>
+            </div>
+          </div>
+          <button class="btn-primary" id="btn-reset-password"
+                  style="font-size:14px;padding:12px">🔑 Изменить пароль</button>
+        </div>
       </div>
+
+      <!-- ── РЕГИСТРАЦИЯ ── -->
       <div id="form-register" style="display:none">
         <div class="field-group">
-          <label class="field-label">Придумай никнейм</label>
+          <label class="field-label">Никнейм</label>
           <div class="field-input-wrap">
-            <input class="field-input" type="text" id="reg-nick" placeholder="От 2 до 32 символов…"
-                   maxlength="32" autocomplete="username" autocorrect="off" autocapitalize="none"/>
+            <input class="field-input" type="text" id="reg-nick"
+                   placeholder="От 2 до 32 символов…" maxlength="32"
+                   autocomplete="off" autocorrect="off" autocapitalize="none"/>
           </div>
+        </div>
+        <div class="field-group">
+          <label class="field-label">
+            Логин
+            <span style="color:var(--sub);text-transform:none;letter-spacing:0;font-weight:400">(для входа)</span>
+          </label>
+          <div class="field-input-wrap">
+            <input class="field-input" type="text" id="reg-username"
+                   placeholder="@логин_латиницей…" maxlength="32"
+                   autocorrect="off" autocapitalize="none"/>
+          </div>
+          <div class="hint-text">Только латинские буквы, цифры и _</div>
         </div>
         <div class="field-group">
           <label class="field-label">Пароль</label>
           <div class="field-input-wrap">
-            <input class="field-input pw" id="reg-pw" type="password" placeholder="Минимум 4 символа…"
-                   maxlength="64" autocomplete="new-password"/>
+            <input class="field-input pw" id="reg-pw" type="password"
+                   placeholder="Минимум 4 символа…" maxlength="64"
+                   autocomplete="new-password"/>
             <button class="pw-eye" data-for="reg-pw" type="button">👁</button>
           </div>
         </div>
         <div class="field-group">
-          <label class="field-label">Подсказка <span style="color:var(--sub);text-transform:none;letter-spacing:0;font-weight:400">(необязательно)</span></label>
+          <label class="field-label">
+            Номер телефона
+            <span style="color:var(--sub);text-transform:none;letter-spacing:0;font-weight:400">(для восстановления)</span>
+          </label>
           <div class="field-input-wrap">
-            <input class="field-input" type="text" id="reg-hint" placeholder="Подсказка к паролю…" maxlength="100"/>
+            <input class="field-input" type="tel" id="reg-phone"
+                   placeholder="+7 900 000 00 00" maxlength="20"/>
           </div>
-          <div class="hint-text">💡 Подсказка хранится открыто</div>
+          <div class="hint-text">🔒 Используется только для восстановления пароля. Не виден другим.</div>
+        </div>
+        <div class="field-group">
+          <label class="field-label">
+            Подсказка к паролю
+            <span style="color:var(--sub);text-transform:none;letter-spacing:0;font-weight:400">(необязательно)</span>
+          </label>
+          <div class="field-input-wrap">
+            <input class="field-input" type="text" id="reg-hint"
+                   placeholder="Подсказка к паролю…" maxlength="100"/>
+          </div>
+          <div class="hint-text encrypted">🔐 Подсказка хранится зашифрованной — видна только тебе</div>
         </div>
         <div class="auth-error" id="reg-error"></div>
         <button class="btn-primary" id="btn-register">Создать аккаунт</button>
@@ -523,7 +595,7 @@
       <button class="lobby-menu-btn" id="btn-open-drawer">☰</button>
       <div class="lobby-header-title">Чаты</div>
       <button class="lobby-avatar-btn" id="btn-open-profile">👤</button>
-      <button id="btn-create-room">＋</button>
+      <button id="btn-create-room" title="Новый чат">＋</button>
     </div>
     <div class="lobby-tabs">
       <button class="lobby-tab active" id="lobby-tab-all">Все чаты</button>
@@ -531,12 +603,12 @@
       <button class="lobby-tab" id="lobby-tab-private">Личные</button>
     </div>
     <div class="unified-chat-list" id="unified-list"></div>
-    <div class="rooms-list" id="rooms-list"   style="display:none"></div>
-    <div class="rooms-list" id="private-list" style="display:none"></div>
+    <div class="rooms-list"  id="rooms-list"   style="display:none"></div>
+    <div class="rooms-list"  id="private-list" style="display:none"></div>
   </div>
   <div class="lobby-right">
     <div class="lobby-right-icon">💬</div>
-    <div class="lobby-right-text">Выбери чат или создай новый</div>
+    <div class="lobby-right-text">Выбери чат или нажми + для нового</div>
   </div>
 </div>
 
@@ -547,7 +619,9 @@
     <div class="modal-title">✨ Новая группа</div>
     <button class="modal-close" id="btn-close-create">✕</button>
     <div class="room-photo-picker">
-      <div class="room-photo-btn" id="room-photo-btn"><span class="cam-icon">📷</span><span>Фото</span></div>
+      <div class="room-photo-btn" id="room-photo-btn">
+        <span class="cam-icon">📷</span><span>Фото</span>
+      </div>
     </div>
     <div class="field-wrap">
       <div class="field-label">Название</div>
@@ -616,25 +690,35 @@
       <div class="profile-name" id="profile-name-display">—</div>
     </div>
     <div class="field-wrap">
-      <div class="field-label">Имя</div>
+      <div class="field-label">Имя / Никнейм</div>
       <input type="text" id="profile-edit-name" placeholder="Твоё имя…" maxlength="32"/>
     </div>
     <div class="field-wrap">
       <div class="field-label">О себе</div>
       <textarea id="profile-edit-bio" placeholder="Расскажи о себе…" maxlength="200" rows="3"
-        style="resize:none;padding:13px 16px;background:var(--bg2);border:1.5px solid rgba(255,255,255,0.07);border-radius:14px;color:var(--text);font-size:15px;outline:none;font-family:inherit;width:100%;"></textarea>
+        style="resize:none;padding:13px 16px;background:var(--bg2);border:1.5px solid rgba(255,255,255,0.07);border-radius:14px;color:var(--text);font-size:15px;outline:none;font-family:inherit;width:100%"></textarea>
+    </div>
+    <div class="field-wrap">
+      <div class="field-label">Номер телефона</div>
+      <input type="tel" id="profile-edit-phone" placeholder="+7 900 000 00 00" maxlength="20"/>
+      <div style="font-size:11px;color:var(--sub);margin-top:5px">🔒 Виден только тебе, используется для восстановления пароля</div>
     </div>
     <button class="btn-primary" id="btn-save-profile" style="margin-bottom:12px">💾 Сохранить</button>
+
     <div class="profile-section-title">Друзья</div>
     <div id="friends-list-container"><div class="empty-list">Загрузка…</div></div>
+
     <div class="profile-section-title">Запросы</div>
     <div id="friend-requests-container"><div class="empty-list">Нет запросов</div></div>
+
     <div class="profile-section-title">Найти друга</div>
     <div class="user-search-row">
-      <input type="text" id="friend-search-input" placeholder="Ник пользователя…" maxlength="32" autocorrect="off" autocapitalize="none"/>
+      <input type="text" id="friend-search-input" placeholder="Ник или @логин…"
+             maxlength="32" autocorrect="off" autocapitalize="none"/>
       <button id="btn-friend-search">Найти</button>
     </div>
     <div id="friend-search-result"></div>
+
     <div style="margin-top:24px">
       <button class="btn-primary" id="btn-logout"
         style="background:rgba(224,82,82,0.1);color:var(--red);border:1px solid rgba(224,82,82,0.2);box-shadow:none">
@@ -650,14 +734,48 @@
     <div class="modal-handle"></div>
     <div class="modal-title">⚙️ Настройки</div>
     <button class="modal-close" id="btn-close-settings">✕</button>
-    <div class="settings-item" id="settings-go-profile"><span class="settings-item-icon">👤</span><span class="settings-item-label">Профиль</span><span class="settings-item-arrow">›</span></div>
-    <div class="settings-item" id="settings-go-privacy"><span class="settings-item-icon">🔒</span><span class="settings-item-label">Конфиденциальность</span><span class="settings-item-arrow">›</span></div>
-    <div class="settings-item" id="settings-go-notifs"><span class="settings-item-icon">🔔</span><span class="settings-item-label">Уведомления</span><span class="settings-item-arrow">›</span></div>
-    <div class="settings-item" id="settings-go-data"><span class="settings-item-icon">💾</span><span class="settings-item-label">Данные и память</span><span class="settings-item-arrow">›</span></div>
-    <div class="settings-item" id="settings-go-lang"><span class="settings-item-icon">🌐</span><span class="settings-item-label">Язык</span><span class="settings-item-value">Русский</span><span class="settings-item-arrow">›</span></div>
-    <div class="settings-item" id="settings-go-chats"><span class="settings-item-icon">💬</span><span class="settings-item-label">Чаты</span><span class="settings-item-arrow">›</span></div>
+
+    <div class="settings-item" id="settings-go-profile">
+      <span class="settings-item-icon">👤</span>
+      <span class="settings-item-label">Профиль</span>
+      <span class="settings-item-arrow">›</span>
+    </div>
+    <div class="settings-item" id="settings-go-privacy">
+      <span class="settings-item-icon">🔒</span>
+      <span class="settings-item-label">Конфиденциальность</span>
+      <span class="settings-item-arrow">›</span>
+    </div>
+    <div class="settings-item" id="settings-go-notifs">
+      <span class="settings-item-icon">🔔</span>
+      <span class="settings-item-label">Уведомления</span>
+      <span class="settings-item-arrow">›</span>
+    </div>
+    <div class="settings-item" id="settings-go-data">
+      <span class="settings-item-icon">💾</span>
+      <span class="settings-item-label">Данные и память</span>
+      <span class="settings-item-arrow">›</span>
+    </div>
+    <div class="settings-item" id="settings-go-lang">
+      <span class="settings-item-icon">🌐</span>
+      <span class="settings-item-label">Язык</span>
+      <span class="settings-item-value">Русский</span>
+      <span class="settings-item-arrow">›</span>
+    </div>
+    <div class="settings-item" id="settings-go-chats">
+      <span class="settings-item-icon">💬</span>
+      <span class="settings-item-label">Настройки чатов</span>
+      <span class="settings-item-arrow">›</span>
+    </div>
+    <div class="settings-item" id="settings-go-about">
+      <span class="settings-item-icon">ℹ️</span>
+      <span class="settings-item-label">О проекте</span>
+      <span class="settings-item-arrow">›</span>
+    </div>
     <div class="drawer-divider" style="margin:10px 0"></div>
-    <div class="settings-item" id="settings-go-logout"><span class="settings-item-icon">🚪</span><span class="settings-item-label" style="color:var(--red)">Выйти</span></div>
+    <div class="settings-item" id="settings-go-logout">
+      <span class="settings-item-icon">🚪</span>
+      <span class="settings-item-label" style="color:var(--red)">Выйти</span>
+    </div>
   </div>
 </div>
 
@@ -673,7 +791,8 @@
     <div id="contacts-requests-list"><div class="empty-list">Нет запросов</div></div>
     <div class="profile-section-title">Найти пользователя</div>
     <div class="user-search-row">
-      <input type="text" id="contacts-search-input" placeholder="Ник…" maxlength="32" autocorrect="off" autocapitalize="none"/>
+      <input type="text" id="contacts-search-input" placeholder="Ник или @логин…"
+             maxlength="32" autocorrect="off" autocapitalize="none"/>
       <button id="btn-contacts-search">Найти</button>
     </div>
     <div id="contacts-search-result"></div>
@@ -686,6 +805,7 @@
     <div class="modal-handle"></div>
     <div class="modal-title" id="members-modal-title">Участники</div>
     <button class="modal-close" id="btn-close-members">✕</button>
+
     <div id="rename-section" style="display:none">
       <div class="profile-section-title">Переименовать</div>
       <div class="rename-row">
@@ -694,6 +814,7 @@
       </div>
       <div class="field-error" id="rename-error"></div>
     </div>
+
     <div id="group-settings-section" style="display:none">
       <div class="profile-section-title">Настройки группы</div>
       <div class="field-wrap">
@@ -712,7 +833,6 @@
           <option value="approval">По заявке</option>
         </select>
       </div>
-      <!-- Уведомления группы -->
       <div class="field-wrap">
         <div class="field-label">Уведомления группы</div>
         <select id="group-notif-select">
@@ -724,12 +844,14 @@
       <button class="btn-primary" id="btn-save-group-settings" style="margin-bottom:8px">💾 Сохранить</button>
       <button class="btn-danger" id="btn-delete-group">🗑 Удалить группу</button>
     </div>
+
     <div id="join-requests-section" style="display:none">
       <div class="profile-section-title">
         Заявки <span id="join-requests-count" style="color:var(--orange)"></span>
       </div>
       <div id="join-requests-list"><div class="empty-list">Нет заявок</div></div>
     </div>
+
     <div class="profile-section-title">Онлайн</div>
     <div id="members-list-container"><div class="empty-list">Загрузка…</div></div>
   </div>
@@ -753,7 +875,8 @@
       <button class="lobby-menu-btn" id="btn-open-drawer-chat">☰</button>
       <div class="lobby-header-title" style="font-size:15px">Чаты</div>
       <button id="btn-create-room-chat"
-        style="width:32px;height:32px;border:none;background:var(--accent-g);color:white;border-radius:50%;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;">＋</button>
+        style="width:32px;height:32px;border:none;background:var(--accent-g);color:white;border-radius:50%;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;"
+        title="Новый чат">＋</button>
     </div>
     <div class="lobby-tabs">
       <button class="lobby-tab active" id="chat-tab-all">Все</button>
@@ -777,16 +900,12 @@
         </div>
       </div>
       <div class="tg-header-btns">
-        <!-- Кнопка звонка (только в личном чате) -->
         <button class="header-icon-btn" id="btn-private-call"
                 title="Позвонить" style="display:none;color:var(--green)">📞</button>
-        <!-- Кнопка уведомлений текущего чата -->
         <button class="header-icon-btn" id="btn-notif-settings"
-                title="Настройки уведомлений">🔔</button>
-        <!-- Кнопка участников / пригласить -->
+                title="Уведомления чата">🔔</button>
         <button class="header-icon-btn" id="btn-invite-friend"
-                title="Пригласить / Настройки">👥</button>
-        <!-- Кнопка настроек группы / чата -->
+                title="Пригласить / Уведомления">👥</button>
         <button class="header-icon-btn" id="btn-room-members"
                 title="Участники и настройки">⚙️</button>
       </div>
@@ -801,7 +920,7 @@
       </div>
       <div class="date-divider">Начало чата</div>
       <div style="align-self:center;text-align:center;color:var(--sub);font-size:12px;background:rgba(10,10,15,0.9);padding:10px 20px;border-radius:14px;max-width:280px;line-height:1.7;margin:4px 0 8px;border:1px solid rgba(255,255,255,0.05);">
-        🔒 Сквозное шифрование AES-256
+        🔒 Сквозное шифрование AES-256-GCM
       </div>
     </div>
 
@@ -815,9 +934,15 @@
       <div id="noise-indicator"><span>🎛 Шумоподавление активно</span></div>
       <div class="tg-input-row">
         <div class="attach-popup" id="attach-popup">
-          <button class="attach-item" id="btn-photo"><span class="attach-item-icon">🖼</span>Фото</button>
-          <button class="attach-item" id="btn-video"><span class="attach-item-icon">🎬</span>Видео</button>
-          <button class="attach-item" id="btn-file"><span class="attach-item-icon">📎</span>Файл</button>
+          <button class="attach-item" id="btn-photo">
+            <span class="attach-item-icon">🖼</span>Фото
+          </button>
+          <button class="attach-item" id="btn-video">
+            <span class="attach-item-icon">🎬</span>Видео
+          </button>
+          <button class="attach-item" id="btn-file">
+            <span class="attach-item-icon">📎</span>Файл (до 100 МБ)
+          </button>
         </div>
         <button class="btn-attach-tg" id="btn-attach-toggle">📎</button>
         <div id="voice-record-timer" class="voice-record-timer">
@@ -827,7 +952,7 @@
         </div>
         <textarea id="chat-input" placeholder="Сообщение…" rows="1"></textarea>
         <button class="voice-record-btn" id="btn-voice-record"
-                title="Удержи для записи, отпусти для отправки">🎤</button>
+                title="Удержи для записи голосового">🎤</button>
         <button id="btn-send">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
             <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
@@ -854,15 +979,15 @@
   <div class="call-screen-bottom">
     <div class="call-buttons-row">
       <div class="call-btn-wrap">
-        <button class="call-btn" id="call-btn-speaker" title="Переключить динамик">🔈</button>
+        <button class="call-btn" id="call-btn-speaker" title="Динамик">🔈</button>
         <span class="call-btn-label">Динамик</span>
       </div>
       <div class="call-btn-wrap">
-        <button class="call-btn" id="call-btn-video" style="opacity:0.4">📷</button>
+        <button class="call-btn" id="call-btn-video" title="Видео">📷</button>
         <span class="call-btn-label">Видео</span>
       </div>
       <div class="call-btn-wrap">
-        <button class="call-btn" id="call-btn-mute">🎤</button>
+        <button class="call-btn" id="call-btn-mute" title="Микрофон">🎤</button>
         <span class="call-btn-label">Выкл. звук</span>
       </div>
       <div class="call-btn-wrap">
@@ -874,7 +999,8 @@
 </div>
 
 <!-- ═══ ВХОДЯЩИЙ ЗВОНОК ═══ -->
-<div class="modal-overlay" id="modal-incoming-call" style="align-items:center;justify-content:center;">
+<div class="modal-overlay" id="modal-incoming-call"
+     style="align-items:center;justify-content:center;">
   <div class="incoming-call-sheet">
     <div class="incoming-call-avatar" id="incoming-call-avatar">👤</div>
     <div class="incoming-call-name"   id="incoming-call-name">—</div>
@@ -899,9 +1025,9 @@
 </div>
 
 <!-- Скрытые элементы -->
-<input type="file" id="file-input"        accept="*/*">
-<input type="file" id="room-photo-input"  accept="image/*">
-<input type="file" id="avatar-input"      accept="image/*">
+<input type="file" id="file-input"       accept="*/*">
+<input type="file" id="room-photo-input" accept="image/*">
+<input type="file" id="avatar-input"     accept="image/*">
 <audio id="keep-alive-audio" loop playsinline></audio>
 <div id="hidden-audios"></div>
 
@@ -934,13 +1060,16 @@
       }
       updateLayout();
       if (vv.height < lastHeight) {
-        setTimeout(() => { if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight; }, 100);
+        setTimeout(() => {
+          if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
+        }, 100);
       }
       lastHeight = vv.height;
     });
     window.visualViewport.addEventListener('scroll', () => {
       const vv = window.visualViewport;
-      if (screenMain.classList.contains('active')) screenMain.style.top = vv.offsetTop + 'px';
+      if (screenMain.classList.contains('active'))
+        screenMain.style.top = vv.offsetTop + 'px';
     });
   }
 
@@ -961,7 +1090,9 @@
     });
   }
 
-  if (window.ResizeObserver && tgBottom) new ResizeObserver(updateLayout).observe(tgBottom);
+  if (window.ResizeObserver && tgBottom)
+    new ResizeObserver(updateLayout).observe(tgBottom);
+
   setTimeout(updateLayout, 100);
   window._updateChatLayout = updateLayout;
 })();
@@ -971,11 +1102,16 @@
   const toggle = document.getElementById('btn-attach-toggle');
   const popup  = document.getElementById('attach-popup');
   if (!toggle || !popup) return;
-  toggle.addEventListener('click', e => { e.stopPropagation(); popup.classList.toggle('open'); });
+  toggle.addEventListener('click', e => {
+    e.stopPropagation();
+    popup.classList.toggle('open');
+  });
   document.addEventListener('click', () => popup.classList.remove('open'));
   popup.addEventListener('click', e => e.stopPropagation());
   ['btn-photo','btn-video','btn-file'].forEach(id => {
-    document.getElementById(id)?.addEventListener('click', () => popup.classList.remove('open'));
+    document.getElementById(id)?.addEventListener('click', () => {
+      popup.classList.remove('open');
+    });
   });
 })();
 
@@ -1000,29 +1136,20 @@ document.getElementById('btn-notif-settings')?.addEventListener('click', () => {
   }
 });
 
-// ─── Настройки уведомлений в модалке группы ───
+// ─── Синхронизация select уведомлений в настройках группы ───
 (function() {
-  const sel = document.getElementById('group-notif-select');
-  const btn = document.getElementById('btn-save-group-settings');
-  if (!sel || !btn) return;
-
-  // Синхронизация при открытии модалки участников
-  const origOpen = window.openMembersModal;
-  // После загрузки app.js подхватываем состояние
-  document.getElementById('modal-members')?.addEventListener('transitionend', () => {});
-
-  // Читаем текущее значение при открытии через MutationObserver
+  const modal = document.getElementById('modal-members');
+  if (!modal) return;
   const observer = new MutationObserver(() => {
-    const modal = document.getElementById('modal-members');
-    if (modal && modal.classList.contains('open')) {
-      const id = (typeof currentRoomId !== 'undefined') ? currentRoomId : null;
-      if (id && typeof getNotifSetting === 'function') {
-        sel.value = getNotifSetting(id);
+    if (modal.classList.contains('open')) {
+      const sel = document.getElementById('group-notif-select');
+      if (sel && typeof currentRoomId !== 'undefined' && currentRoomId
+          && typeof getNotifSetting === 'function') {
+        sel.value = getNotifSetting(currentRoomId);
       }
     }
   });
-  const modal = document.getElementById('modal-members');
-  if (modal) observer.observe(modal, { attributes: true, attributeFilter: ['class'] });
+  observer.observe(modal, { attributes: true, attributeFilter: ['class'] });
 })();
 </script>
 </body>
