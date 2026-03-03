@@ -2583,6 +2583,101 @@ async function sendVoiceMessage(blob, duration, mimeType) {
     }
   } catch(e) { showToast('❌ Ошибка отправки голосового: ' + e.message); }
 }
+// ═══════════════════════════════════════════════
+//  ЗАПИСЬ ГОЛОСОВЫХ СООБЩЕНИЙ (кнопка удержания)
+// ═══════════════════════════════════════════════
+if (btnVoiceRecord) {
+  let isPointerDown = false;
+
+  btnVoiceRecord.addEventListener('touchstart', e => {
+    e.preventDefault();
+    isPointerDown = true;
+    setTimeout(() => { if (isPointerDown && !isVoiceRecording) startVoiceRecording(); }, 100);
+  }, { passive: false });
+
+  btnVoiceRecord.addEventListener('touchend', e => {
+    e.preventDefault();
+    isPointerDown = false;
+    if (isVoiceRecording) stopAndSendVoice();
+  }, { passive: false });
+
+  btnVoiceRecord.addEventListener('touchcancel', e => {
+    e.preventDefault();
+    isPointerDown = false;
+    if (isVoiceRecording) stopAndCancelVoice();
+  }, { passive: false });
+
+  btnVoiceRecord.addEventListener('mousedown', e => {
+    e.preventDefault();
+    isPointerDown = true;
+    if (!isVoiceRecording) startVoiceRecording();
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isPointerDown) { isPointerDown = false; if (isVoiceRecording) stopAndSendVoice(); }
+  });
+
+  let touchStartX = 0;
+  btnVoiceRecord.addEventListener('touchmove', e => {
+    if (!isVoiceRecording) return;
+    const touch = e.touches[0];
+    if (!touchStartX) touchStartX = touch.clientX;
+    const deltaX = touch.clientX - touchStartX;
+    if (deltaX < -60) { touchStartX = 0; stopAndCancelVoice(); showToast('❌ Запись отменена'); }
+  }, { passive: true });
+}
+
+async function startVoiceRecording() {
+  if (isVoiceRecording) return;
+  try { voiceRecordStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false }); }
+  catch (e) { showToast('❌ Нет доступа к микрофону'); return; }
+  isVoiceRecording = true; voiceRecordChunks = []; voiceRecordSeconds = 0;
+  const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+    ? 'audio/webm;codecs=opus'
+    : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
+  voiceRecorder = new MediaRecorder(voiceRecordStream, { mimeType });
+  voiceRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) voiceRecordChunks.push(e.data); };
+  voiceRecorder.onstop = async () => {
+    const blob = new Blob(voiceRecordChunks, { type: mimeType });
+    if (voiceRecordStream) { voiceRecordStream.getTracks().forEach(t => t.stop()); voiceRecordStream = null; }
+    if (blob.size < 100) return;
+    await sendVoiceMessage(blob, voiceRecordSeconds, mimeType);
+  };
+  voiceRecorder.start(100);
+  if (btnVoiceRecord) btnVoiceRecord.classList.add('recording');
+  if (voiceRecordTimer) voiceRecordTimer.classList.add('visible');
+  if (chatInput) chatInput.style.display = 'none';
+  voiceRecordInterval = setInterval(() => {
+    voiceRecordSeconds++;
+    if (voiceRecordTime) voiceRecordTime.textContent = formatDuration(voiceRecordSeconds);
+    if (voiceRecordSeconds >= 120) stopAndSendVoice();
+  }, 1000);
+}
+
+function stopAndSendVoice() {
+  if (!isVoiceRecording) return;
+  isVoiceRecording = false; clearInterval(voiceRecordInterval);
+  if (voiceRecorder && voiceRecorder.state !== 'inactive') voiceRecorder.stop();
+  if (btnVoiceRecord) btnVoiceRecord.classList.remove('recording');
+  if (voiceRecordTimer) voiceRecordTimer.classList.remove('visible');
+  if (chatInput) chatInput.style.display = '';
+  if (voiceRecordTime) voiceRecordTime.textContent = '0:00';
+}
+
+function stopAndCancelVoice() {
+  if (!isVoiceRecording) return;
+  isVoiceRecording = false; clearInterval(voiceRecordInterval);
+  if (voiceRecorder && voiceRecorder.state !== 'inactive') {
+    voiceRecorder.ondataavailable = null; voiceRecorder.onstop = null; voiceRecorder.stop();
+  }
+  if (voiceRecordStream) { voiceRecordStream.getTracks().forEach(t => t.stop()); voiceRecordStream = null; }
+  if (btnVoiceRecord) btnVoiceRecord.classList.remove('recording');
+  if (voiceRecordTimer) voiceRecordTimer.classList.remove('visible');
+  if (chatInput) chatInput.style.display = '';
+  if (voiceRecordTime) voiceRecordTime.textContent = '0:00';
+}
+
+function stopVoiceRecording() { if (isVoiceRecording) stopAndCancelVoice(); }
 
 // ─── Файлы ───
 if (btnPhoto) btnPhoto.addEventListener('click', () => { if(fileInput){ fileInput.accept='image/*'; fileInput.click(); }});
