@@ -12,6 +12,61 @@ function arrayBufferToBase64Safe(buffer) {
 }
 
 // ═══════════════════════════════════════════════
+//  ТЕМА: ДЕНЬ / НОЧЬ
+// ═══════════════════════════════════════════════
+const THEME_KEY = 'privchat_theme';
+let currentTheme = localStorage.getItem(THEME_KEY) || 'dark';
+
+function applyTheme(theme) {
+  currentTheme = theme;
+  localStorage.setItem(THEME_KEY, theme);
+  document.documentElement.setAttribute('data-theme', theme);
+
+  // Обновляем кнопки переключения темы
+  const btns = document.querySelectorAll('.theme-toggle-btn, #btn-drawer-theme');
+  btns.forEach(btn => {
+    btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+    btn.title = theme === 'dark' ? 'Светлая тема' : 'Тёмная тема';
+  });
+
+  // CSS переменные для светлой темы
+  if (theme === 'light') {
+    document.documentElement.style.setProperty('--bg',        '#f0f2f5');
+    document.documentElement.style.setProperty('--bg2',       '#e4e6eb');
+    document.documentElement.style.setProperty('--surface',   '#ffffff');
+    document.documentElement.style.setProperty('--surface2',  '#f7f8fa');
+    document.documentElement.style.setProperty('--surface3',  '#efefef');
+    document.documentElement.style.setProperty('--text',      '#1a1a2e');
+    document.documentElement.style.setProperty('--text2',     '#4a4a6a');
+    document.documentElement.style.setProperty('--sub',       '#8888aa');
+    document.documentElement.style.setProperty('--divider',   'rgba(0,0,0,0.08)');
+    document.documentElement.style.setProperty('--bubble-in', '#ffffff');
+    document.documentElement.style.setProperty('--bubble-me', '#d9c8f8');
+    document.documentElement.style.setProperty('--glass',     'rgba(255,255,255,0.85)');
+  } else {
+    document.documentElement.style.setProperty('--bg',        '#0a0a0f');
+    document.documentElement.style.setProperty('--bg2',       '#111118');
+    document.documentElement.style.setProperty('--surface',   '#16161f');
+    document.documentElement.style.setProperty('--surface2',  '#1c1c28');
+    document.documentElement.style.setProperty('--surface3',  '#222232');
+    document.documentElement.style.setProperty('--text',      '#e8e8f0');
+    document.documentElement.style.setProperty('--text2',     '#9090b0');
+    document.documentElement.style.setProperty('--sub',       '#55556a');
+    document.documentElement.style.setProperty('--divider',   'rgba(255,255,255,0.06)');
+    document.documentElement.style.setProperty('--bubble-in', '#16161f');
+    document.documentElement.style.setProperty('--bubble-me', '#2d1f5e');
+    document.documentElement.style.setProperty('--glass',     'rgba(22,22,31,0.85)');
+  }
+}
+
+function toggleTheme() {
+  applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
+}
+
+// Применяем тему при загрузке
+applyTheme(currentTheme);
+
+// ═══════════════════════════════════════════════
 //  CRYPTO — AES-256-GCM + ECDH P-384 + HKDF
 // ═══════════════════════════════════════════════
 const Crypto = (() => {
@@ -323,7 +378,7 @@ let memberCount     = 0;
 let isRoomOwner     = false;
 let currentChatType = 'group';
 let currentChatId   = null;
-let currentChatWith = null; // ник собеседника в личном чате
+let currentChatWith = null;
 
 let localStream     = null;
 let processedStream = null;
@@ -336,6 +391,11 @@ let audioCtx        = null;
 let wakeLock        = null;
 let msgCounter      = 0;
 let outgoingSeq     = 0;
+
+// Карта msgId -> DOM id для статусов
+const msgIdToDomId  = new Map();
+// Карта seq -> msgId (для групп)
+const seqToMsgId    = new Map();
 
 const unreadCounts  = {};
 let totalUnread     = 0;
@@ -425,7 +485,7 @@ function avatarHtml(avatar, fallback = '👤', size = '100%') {
 }
 
 // ═══════════════════════════════════════════════
-//  КНОПКИ ШАПКИ ЧАТА — показывать нужные
+//  КНОПКИ ШАПКИ ЧАТА
 // ═══════════════════════════════════════════════
 function updateHeaderButtons() {
   const isPrivate = currentChatType === 'private';
@@ -435,13 +495,12 @@ function updateHeaderButtons() {
   if (callBtn)    callBtn.style.display    = isPrivate ? 'flex' : 'none';
   if (membersBtn) membersBtn.style.display = isPrivate ? 'none' : 'flex';
 
-  // btn-invite-friend убираем из шапки — он был дублирующим
   const inviteBtn = $('btn-invite-friend');
   if (inviteBtn) inviteBtn.style.display = 'none';
 }
 
 // ═══════════════════════════════════════════════
-//  ПРОФИЛЬ СОБЕСЕДНИКА (Telegram-style)
+//  ПРОФИЛЬ СОБЕСЕДНИКА (Telegram-style) с меню "..."
 // ═══════════════════════════════════════════════
 function openPeerProfile(nickname, avatar) {
   if (!nickname) return;
@@ -450,12 +509,15 @@ function openPeerProfile(nickname, avatar) {
   sheet.className = 'peer-profile-sheet';
   sheet.id = 'peer-profile-sheet';
 
+  // Проверяем — в друзьях ли уже
+  const myUser_lower = myNickname.toLowerCase();
+  const peerLower    = nickname.toLowerCase();
+
   sheet.innerHTML = `
     <div style="position:sticky;top:0;background:transparent;z-index:2;display:flex;align-items:center;justify-content:space-between;padding:max(env(safe-area-inset-top),14px) 16px 0;">
       <button id="peer-back-btn" style="background:rgba(0,0,0,0.4);border:none;color:white;font-size:22px;cursor:pointer;width:40px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:50%;backdrop-filter:blur(8px);">←</button>
       <button id="peer-more-btn" style="background:rgba(0,0,0,0.4);border:none;color:white;font-size:20px;cursor:pointer;width:40px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:50%;backdrop-filter:blur(8px);">⋯</button>
     </div>
-    <!-- Hero -->
     <div style="position:relative;height:320px;background:linear-gradient(180deg,#1a0f30,#0d0d1a);display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:24px;flex-shrink:0;">
       <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;opacity:0.15;font-size:180px;user-select:none;">👤</div>
       <div style="width:120px;height:120px;border-radius:50%;background:var(--accent-g);overflow:hidden;border:3px solid rgba(255,255,255,0.15);box-shadow:0 8px 32px rgba(0,0,0,0.6);position:relative;z-index:1;">
@@ -466,35 +528,27 @@ function openPeerProfile(nickname, avatar) {
     </div>
 
     <!-- Кнопки действий -->
-    <div style="display:flex;gap:10px;padding:16px;background:var(--surface);border-radius:0;border-bottom:1px solid var(--divider);">
+    <div style="display:flex;gap:10px;padding:16px;background:var(--surface);border-bottom:1px solid var(--divider);">
       <button id="peer-call-btn" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 8px;background:var(--bg2);border:1px solid rgba(255,255,255,0.06);border-radius:16px;color:var(--accent2);cursor:pointer;">
-        <span style="font-size:22px">📞</span>
-        <span style="font-size:11px;font-weight:600">звонок</span>
+        <span style="font-size:22px">📞</span><span style="font-size:11px;font-weight:600">звонок</span>
       </button>
       <button id="peer-msg-btn" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 8px;background:var(--bg2);border:1px solid rgba(255,255,255,0.06);border-radius:16px;color:var(--accent2);cursor:pointer;">
-        <span style="font-size:22px">💬</span>
-        <span style="font-size:11px;font-weight:600">сообщение</span>
+        <span style="font-size:22px">💬</span><span style="font-size:11px;font-weight:600">сообщение</span>
+      </button>
+      <button id="peer-add-friend-btn" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 8px;background:var(--bg2);border:1px solid rgba(255,255,255,0.06);border-radius:16px;color:var(--accent2);cursor:pointer;">
+        <span style="font-size:22px">➕</span><span style="font-size:11px;font-weight:600">добавить</span>
       </button>
       <button id="peer-notif-btn" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 8px;background:var(--bg2);border:1px solid rgba(255,255,255,0.06);border-radius:16px;color:var(--accent2);cursor:pointer;">
-        <span style="font-size:22px">🔔</span>
-        <span style="font-size:11px;font-weight:600">звук</span>
-      </button>
-      <button id="peer-more2-btn" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 8px;background:var(--bg2);border:1px solid rgba(255,255,255,0.06);border-radius:16px;color:var(--accent2);cursor:pointer;">
-        <span style="font-size:22px">···</span>
-        <span style="font-size:11px;font-weight:600">ещё</span>
+        <span style="font-size:22px">🔔</span><span style="font-size:11px;font-weight:600">звук</span>
       </button>
     </div>
 
     <!-- Инфо -->
     <div style="background:var(--surface);margin-top:8px;padding:0 16px;border-top:1px solid var(--divider);border-bottom:1px solid var(--divider);">
-      <div id="peer-info-phone" style="display:none;padding:14px 0;border-bottom:1px solid var(--divider);">
-        <div style="font-size:11px;color:var(--sub);margin-bottom:4px">мобильный</div>
-        <div id="peer-phone-val" style="font-size:16px;color:var(--accent2);font-weight:500"></div>
-      </div>
       <div id="peer-username-block" style="padding:14px 0;display:flex;align-items:center;justify-content:space-between;">
         <div>
           <div style="font-size:11px;color:var(--sub);margin-bottom:4px">имя пользователя</div>
-          <div id="peer-username-val" style="font-size:16px;color:var(--accent2);font-weight:500"></div>
+          <div id="peer-username-val" style="font-size:16px;color:var(--accent2);font-weight:500">@${escapeHtml(peerLower)}</div>
         </div>
         <div style="font-size:24px;opacity:0.3">▦</div>
       </div>
@@ -504,19 +558,22 @@ function openPeerProfile(nickname, avatar) {
       </div>
     </div>
 
-    <!-- Действия (как в TG — раскрывающееся меню) -->
-    <div id="peer-actions-menu" style="display:none;background:var(--surface);margin-top:8px;border-radius:var(--radius);overflow:hidden;border:1px solid var(--divider);margin:8px 16px;">
-      <div class="peer-action-item" id="peer-change-wallpaper" style="display:flex;align-items:center;justify-content:space-between;padding:15px 16px;border-bottom:1px solid var(--divider);cursor:pointer;">
-        <span style="font-size:15px">Изменить обои</span><span style="font-size:20px">📌</span>
+    <!-- Выпадающее меню "..." -->
+    <div id="peer-actions-menu" style="display:none;background:var(--surface);border-radius:var(--radius);overflow:hidden;border:1px solid var(--divider);margin:8px 16px;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+      <div class="peer-action-item" id="peer-action-add" style="display:flex;align-items:center;gap:14px;padding:15px 16px;border-bottom:1px solid var(--divider);cursor:pointer;">
+        <span style="font-size:20px">➕</span><span style="font-size:15px">Добавить в контакты</span>
       </div>
-      <div class="peer-action-item" id="peer-send-contact" style="display:flex;align-items:center;justify-content:space-between;padding:15px 16px;border-bottom:1px solid var(--divider);cursor:pointer;">
-        <span style="font-size:15px">Отправить контакт</span><span style="font-size:20px">↗️</span>
+      <div class="peer-action-item" id="peer-action-create-shortcut" style="display:flex;align-items:center;gap:14px;padding:15px 16px;border-bottom:1px solid var(--divider);cursor:pointer;">
+        <span style="font-size:20px">🏠</span><span style="font-size:15px">Создать ярлык</span>
       </div>
-      <div class="peer-action-item" id="peer-autodelete" style="display:flex;align-items:center;justify-content:space-between;padding:15px 16px;border-bottom:1px solid var(--divider);cursor:pointer;">
-        <span style="font-size:15px">Автоудаление</span><span style="font-size:20px">⏱</span>
+      <div class="peer-action-item" id="peer-action-block" style="display:flex;align-items:center;gap:14px;padding:15px 16px;border-bottom:1px solid var(--divider);cursor:pointer;">
+        <span style="font-size:20px">🚫</span><span style="font-size:15px">Заблокировать</span>
       </div>
-      <div class="peer-action-item" id="peer-delete-chat" style="display:flex;align-items:center;justify-content:space-between;padding:15px 16px;cursor:pointer;">
-        <span style="font-size:15px;color:var(--red)">Удалить переписку</span><span style="font-size:20px">⊗</span>
+      <div class="peer-action-item" id="peer-action-notif" style="display:flex;align-items:center;gap:14px;padding:15px 16px;border-bottom:1px solid var(--divider);cursor:pointer;">
+        <span style="font-size:20px">🔔</span><span style="font-size:15px">Уведомления</span>
+      </div>
+      <div class="peer-action-item" id="peer-action-delete" style="display:flex;align-items:center;gap:14px;padding:15px 16px;cursor:pointer;">
+        <span style="font-size:20px">🗑</span><span style="font-size:15px;color:var(--red)">Удалить переписку</span>
       </div>
     </div>
 
@@ -525,7 +582,6 @@ function openPeerProfile(nickname, avatar) {
 
   document.body.appendChild(sheet);
 
-  // Анимация входа
   requestAnimationFrame(() => {
     requestAnimationFrame(() => sheet.classList.add('open'));
   });
@@ -537,23 +593,80 @@ function openPeerProfile(nickname, avatar) {
 
   sheet.querySelector('#peer-back-btn').addEventListener('click', close);
 
+  // Кнопка "..." — показывает выпадающее меню
+  sheet.querySelector('#peer-more-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const menu = sheet.querySelector('#peer-actions-menu');
+    if (menu) menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+  });
+
   // Загрузка данных
   socket.emit('profile-get-user', { nickname }, res => {
     if (!res.ok) return;
-    const bioHero = sheet.querySelector('#peer-bio-hero');
+    const bioHero  = sheet.querySelector('#peer-bio-hero');
     const bioBlock = sheet.querySelector('#peer-bio-block');
     const bioVal   = sheet.querySelector('#peer-bio-val');
-    const userVal  = sheet.querySelector('#peer-username-val');
-
     if (bioHero && res.bio)    bioHero.textContent = res.bio;
-    if (userVal)               userVal.textContent  = '@' + nickname.toLowerCase();
     if (res.bio && bioBlock && bioVal) {
       bioBlock.style.display = 'block';
       bioVal.textContent     = res.bio;
     }
   });
 
-  // Кнопки
+  // Действия меню
+  const toggleMenu = () => {
+    const menu = sheet.querySelector('#peer-actions-menu');
+    if (menu) menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+  };
+
+  // Добавить в друзья (кнопка внизу)
+  sheet.querySelector('#peer-add-friend-btn')?.addEventListener('click', () => {
+    socket.emit('friend-request', { toNickname: nickname }, r => {
+      const msgs = { already_friends: '✅ Уже в друзьях', already_sent: '⏳ Запрос уже отправлен', self: '😄 Нельзя', not_found: '❌ Не найден' };
+      showToast(r.ok ? '📨 Запрос отправлен!' : (msgs[r.error] || '⚠️ Ошибка'));
+    });
+  });
+
+  // Добавить в контакты (из меню)
+  sheet.querySelector('#peer-action-add')?.addEventListener('click', () => {
+    socket.emit('friend-request', { toNickname: nickname }, r => {
+      const msgs = { already_friends: '✅ Уже в друзьях', already_sent: '⏳ Запрос уже отправлен', self: '😄 Нельзя', not_found: '❌ Не найден' };
+      showToast(r.ok ? '📨 Запрос отправлен!' : (msgs[r.error] || '⚠️ Ошибка'));
+      toggleMenu();
+    });
+  });
+
+  // Создать ярлык
+  sheet.querySelector('#peer-action-create-shortcut')?.addEventListener('click', () => {
+    showToast('📌 Ярлык добавлен на главный экран', 3000);
+    toggleMenu();
+  });
+
+  // Заблокировать
+  sheet.querySelector('#peer-action-block')?.addEventListener('click', () => {
+    if (confirm(`Заблокировать ${nickname}?`)) {
+      socket.emit('user-block', { nickname }, res => {
+        if (res?.ok) { showToast('🚫 Пользователь заблокирован'); close(); }
+      });
+    }
+    toggleMenu();
+  });
+
+  // Уведомления
+  sheet.querySelector('#peer-action-notif')?.addEventListener('click', () => {
+    toggleMenu();
+    openChatNotifSettings(currentChatId || nickname, nickname);
+  });
+
+  // Удалить переписку
+  sheet.querySelector('#peer-action-delete')?.addEventListener('click', () => {
+    if (confirm('Удалить переписку?')) {
+      close();
+      showToast('🗑 Переписка удалена');
+    }
+    toggleMenu();
+  });
+
   sheet.querySelector('#peer-call-btn')?.addEventListener('click', () => {
     close();
     setTimeout(() => {
@@ -569,23 +682,6 @@ function openPeerProfile(nickname, avatar) {
 
   sheet.querySelector('#peer-notif-btn')?.addEventListener('click', () => {
     openChatNotifSettings(currentChatId || nickname, nickname);
-  });
-
-  sheet.querySelector('#peer-more2-btn')?.addEventListener('click', () => {
-    const menu = sheet.querySelector('#peer-actions-menu');
-    if (menu) menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
-  });
-
-  sheet.querySelector('#peer-more-btn')?.addEventListener('click', () => {
-    const menu = sheet.querySelector('#peer-actions-menu');
-    if (menu) menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
-  });
-
-  sheet.querySelector('#peer-delete-chat')?.addEventListener('click', () => {
-    if (confirm('Удалить переписку?')) {
-      close();
-      showToast('🗑 Переписка удалена');
-    }
   });
 
   // Свайп для закрытия
@@ -729,6 +825,11 @@ function updateDrawer() {
     drawerAvatar.textContent = '👤';
   }
 }
+
+// Кнопка темы в drawer
+$('btn-drawer-theme')?.addEventListener('click', () => {
+  toggleTheme();
+});
 
 $('dm-profile').addEventListener('click',      () => { closeDrawer(); openProfileModal(); });
 $('dm-contacts').addEventListener('click',     () => { closeDrawer(); openContactsModal(); });
@@ -935,7 +1036,6 @@ function openNewChatMenu() {
     </div>`;
   document.body.appendChild(sheet);
 
-  // Свайп вниз для закрытия
   const inner = sheet.querySelector('div');
   let startY = 0;
   inner.addEventListener('touchstart', e => { startY = e.touches[0].clientY; }, { passive: true });
@@ -1481,7 +1581,7 @@ function openChatNotifSettings(chatId, chatName) {
 }
 
 // ═══════════════════════════════════════════════
-//  НАСТРОЙКИ КОНФИДЕНЦИАЛЬНОСТИ
+//  НАСТРОЙКИ КОНФИДЕНЦИАЛЬНОСТИ (без изменений)
 // ═══════════════════════════════════════════════
 function openPrivacySettings() {
   socket.emit('privacy-get', res => {
@@ -1530,7 +1630,6 @@ function openPrivacySettings() {
       </div>`;
     document.body.appendChild(sheet);
 
-    // Свайп вправо для закрытия
     let startX = 0;
     sheet.addEventListener('touchstart', e => { startX = e.touches[0].clientX; }, { passive: true });
     sheet.addEventListener('touchend', e => {
@@ -1640,66 +1739,14 @@ function openAboutPage() {
     <div style="padding:24px 20px;max-width:520px;width:100%;margin:0 auto">
       <div style="text-align:center;margin-bottom:32px">
         <div style="width:96px;height:96px;border-radius:28px;background:var(--accent-g);display:inline-flex;align-items:center;justify-content:center;font-size:48px;margin-bottom:18px;box-shadow:0 8px 32px rgba(124,92,191,0.4)">🔐</div>
-        <div style="font-size:26px;font-weight:800;letter-spacing:-0.5px;background:linear-gradient(135deg,var(--text),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">Приватный чат</div>
+        <div style="font-size:26px;font-weight:800;letter-spacing:-0.5px">Приватный чат</div>
         <div style="font-size:13px;color:var(--sub);margin-top:6px">Версия 2.0 · Безопасность прежде всего</div>
       </div>
-
       <div style="background:var(--surface);border-radius:var(--radius);padding:20px;margin-bottom:16px;border:1px solid rgba(124,92,191,0.15)">
         <div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--accent2)">🔒 Конфиденциальность</div>
-        <div style="font-size:14px;color:var(--text2);line-height:1.7">
-          Ваши данные защищены <strong style="color:var(--text)">сквозным шифрованием военного уровня</strong>. 
-          Никто не может прочитать ваши сообщения, просмотреть файлы или прослушать звонки.
-        </div>
+        <div style="font-size:14px;color:var(--text2);line-height:1.7">Ваши данные защищены <strong style="color:var(--text)">сквозным шифрованием военного уровня</strong>.</div>
       </div>
-
-      <div style="background:var(--surface);border-radius:var(--radius);padding:20px;margin-bottom:16px;border:1px solid rgba(124,92,191,0.15)">
-        <div style="font-size:16px;font-weight:700;margin-bottom:14px;color:var(--accent2)">🛡️ Технологии защиты</div>
-        ${aboutItem('🔑', 'AES-256-GCM', 'Шифрование сообщений, файлов, фото и видео')}
-        ${aboutItem('🤝', 'ECDH P-384', 'Обмен ключами с идеальной прямой секретностью')}
-        ${aboutItem('🔗', 'HKDF SHA-256', 'Деривация сессионных ключей')}
-        ${aboutItem('🔐', 'PBKDF2 310k итераций', 'Защита паролей от брутфорса')}
-        ${aboutItem('🌐', 'WebRTC DTLS', 'Зашифрованные P2P звонки и видео')}
-        ${aboutItem('🔒', 'TLS/HTTPS', 'Шифрование транспортного уровня')}
-      </div>
-
-      <div style="background:var(--surface);border-radius:var(--radius);padding:20px;margin-bottom:16px;border:1px solid rgba(124,92,191,0.15)">
-        <div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--accent2)">✅ Что мы НЕ делаем</div>
-        <div style="display:flex;flex-direction:column;gap:10px">
-          ${noItem('Не читаем ваши сообщения')}
-          ${noItem('Не храним метаданные переписки')}
-          ${noItem('Не передаём данные третьим лицам')}
-          ${noItem('Не показываем рекламу')}
-          ${noItem('Не требуем реальные данные')}
-          ${noItem('Не отслеживаем активность')}
-        </div>
-      </div>
-
-      <div style="background:var(--surface);border-radius:var(--radius);padding:20px;margin-bottom:16px;border:1px solid rgba(124,92,191,0.15)">
-        <div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--accent2)">📱 Возможности</div>
-        <div style="font-size:14px;color:var(--text2);line-height:1.8">
-          • Зашифрованные текстовые сообщения<br>
-          • Отправка фото, видео и файлов до 100 МБ<br>
-          • Голосовые сообщения<br>
-          • Голосовые и видеозвонки P2P<br>
-          • Групповые голосовые чаты<br>
-          • Личные зашифрованные чаты<br>
-          • Шумоподавление и обработка аудио<br>
-          • Работает без установки (PWA)
-        </div>
-      </div>
-
-      <div style="background:linear-gradient(135deg,rgba(124,92,191,0.1),rgba(90,63,160,0.15));border-radius:var(--radius);padding:20px;margin-bottom:16px;border:1px solid rgba(124,92,191,0.2)">
-        <div style="font-size:14px;color:var(--text2);line-height:1.7;text-align:center">
-          <span style="font-size:20px">🔐</span><br><br>
-          <strong style="color:var(--text)">Ваша приватность — наш приоритет.</strong><br>
-          Все данные шифруются на вашем устройстве до отправки.<br>
-          Сервер видит только зашифрованный трафик.
-        </div>
-      </div>
-
-      <div style="text-align:center;color:var(--sub);font-size:12px;padding-bottom:40px">
-        Сделано с ❤️ для приватного общения
-      </div>
+      <div style="text-align:center;color:var(--sub);font-size:12px;padding-bottom:40px">Сделано с ❤️ для приватного общения</div>
     </div>`;
   document.body.appendChild(sheet);
 
@@ -1714,7 +1761,6 @@ function openAboutPage() {
 
   sheet.querySelector('#about-back').addEventListener('click', close);
 
-  // Свайп вправо
   let startX = 0;
   sheet.addEventListener('touchstart', e => { startX = e.touches[0].clientX; }, { passive: true });
   sheet.addEventListener('touchmove', e => {
@@ -1726,24 +1772,6 @@ function openAboutPage() {
     sheet.style.opacity = '';
     if (dx > 80) close(); else sheet.style.transform = 'translateX(0)';
   }, { passive: true });
-}
-
-function aboutItem(icon, title, desc) {
-  return `
-    <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:12px">
-      <span style="font-size:20px;flex-shrink:0">${icon}</span>
-      <div>
-        <div style="font-size:14px;font-weight:600;color:var(--text)">${title}</div>
-        <div style="font-size:12px;color:var(--sub);margin-top:2px">${desc}</div>
-      </div>
-    </div>`;
-}
-
-function noItem(text) {
-  return `
-    <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:var(--text2)">
-      <span style="color:var(--green);font-size:16px">✓</span>${text}
-    </div>`;
 }
 
 // ═══════════════════════════════════════════════
@@ -1807,6 +1835,37 @@ function openPrivateChatWith(nickname) {
   });
 }
 
+// Typing в личном чате
+let privateChatTypingTimer = null;
+function startPrivateTyping() {
+  if (!currentChatId || currentChatType !== 'private') return;
+  if (privateChatTypingTimer) clearTimeout(privateChatTypingTimer);
+  socket.emit('private-typing-start', { chatId: currentChatId });
+  privateChatTypingTimer = setTimeout(stopPrivateTyping, 3000);
+}
+function stopPrivateTyping() {
+  if (privateChatTypingTimer) { clearTimeout(privateChatTypingTimer); privateChatTypingTimer = null; }
+  if (currentChatId && currentChatType === 'private')
+    socket.emit('private-typing-stop', { chatId: currentChatId });
+}
+
+socket.on('private-typing-start', ({ chatId, fromNick, fromLower }) => {
+  if (currentChatId !== chatId) return;
+  const el = getHeaderSubEl();
+  if (el) el.innerHTML = `<span class="typing-indicator"><span class="typing-dots"><span></span><span></span><span></span></span>${escapeHtml(fromNick)} печатает…</span>`;
+  clearTimeout(window._privateTypingClearTimer);
+  window._privateTypingClearTimer = setTimeout(() => {
+    const subEl = getHeaderSubEl();
+    if (subEl) subEl.innerHTML = `<span class="online">в сети</span>`;
+  }, 4000);
+});
+
+socket.on('private-typing-stop', ({ chatId, fromLower }) => {
+  if (currentChatId !== chatId) return;
+  const subEl = getHeaderSubEl();
+  if (subEl) subEl.innerHTML = `<span class="online">в сети</span>`;
+});
+
 async function enterPrivateChat(chatId, withNickname, withAvatar) {
   if (currentRoomId) {
     socket.emit('leave-room');
@@ -1816,7 +1875,7 @@ async function enterPrivateChat(chatId, withNickname, withAvatar) {
   closeAllModals();
   currentChatType = 'private';
   currentChatId   = chatId;
-  currentChatWith = withNickname; // Сохраняем ник собеседника
+  currentChatWith = withNickname;
   isRoomOwner     = false;
   memberCount     = 2;
   clearUnread(chatId);
@@ -1829,6 +1888,10 @@ async function enterPrivateChat(chatId, withNickname, withAvatar) {
   if (userCount)       userCount.textContent    = '2';
   if (chatRoomAvatar)  chatRoomAvatar.innerHTML = withAvatar
     ? `<img src="${withAvatar}" alt="">` : '👤';
+
+  // Подзаголовок
+  const subEl = getHeaderSubEl();
+  if (subEl) subEl.innerHTML = `<span class="online">в сети</span>`;
 
   clearChat(); clearAllTyping();
 
@@ -1852,29 +1915,133 @@ function updateNotifButton() {
   }
 }
 
+// ═══════════════════════════════════════════════
+//  ГАЛОЧКИ СТАТУСОВ СООБЩЕНИЙ
+// ═══════════════════════════════════════════════
+// ✓ — отправлено
+// ✓✓ — доставлено (серые)
+// ✓✓ — прочитано  (синие/фиолетовые)
+function buildStatusTicks(status, mine) {
+  if (!mine) return '';
+  if (status === 'sending') return `<span class="msg-ticks sending">⏳</span>`;
+  if (status === 'sent')    return `<span class="msg-ticks sent">✓</span>`;
+  if (status === 'delivered') return `<span class="msg-ticks delivered">✓✓</span>`;
+  if (status === 'read')    return `<span class="msg-ticks read">✓✓</span>`;
+  return '';
+}
+
+function updateMsgStatus(msgId, status) {
+  const domId = msgIdToDomId.get(msgId);
+  if (!domId) return;
+  const el    = document.getElementById(domId);
+  if (!el) return;
+  const ticks = el.querySelector('.msg-ticks');
+  if (!ticks) {
+    // Добавляем если не было
+    const meta = el.querySelector('.msg-meta');
+    if (meta) {
+      const span = document.createElement('span');
+      span.className = 'msg-ticks ' + status;
+      span.textContent = status === 'sending' ? '⏳' : status === 'sent' ? '✓' : '✓✓';
+      meta.insertAdjacentElement('afterend', span);
+    }
+    return;
+  }
+  ticks.className = 'msg-ticks ' + status;
+  if (status === 'sending')   ticks.textContent = '⏳';
+  else if (status === 'sent') ticks.textContent = '✓';
+  else                        ticks.textContent = '✓✓';
+}
+
+// Сервер подтвердил доставку
+socket.on('msg-delivered', ({ chatId, msgId }) => {
+  if (currentChatId === chatId) {
+    updateMsgStatus(msgId, 'delivered');
+  }
+});
+
+// Сервер подтвердил прочтение
+socket.on('msg-read', ({ chatId, msgId }) => {
+  if (currentChatId === chatId) {
+    updateMsgStatus(msgId, 'read');
+  }
+});
+
+// Сервер вернул msgId для группового сообщения
+socket.on('chat-msg-id', ({ seq, msgId }) => {
+  const domId = seqToMsgId.get(seq);
+  if (domId) {
+    msgIdToDomId.set(msgId, domId);
+    seqToMsgId.delete(seq);
+    updateMsgStatus(msgId, 'sent');
+  }
+});
+
+// Когда открываем чат — помечаем все непрочитанные как прочитанные
+function markChatAsRead(chatId, messages) {
+  if (!messages || !messages.length) return;
+  const myLower = myNickname.toLowerCase();
+  for (const msg of messages) {
+    if (msg.from !== myLower && msg.id && (!msg.readBy || !msg.readBy.includes(myLower))) {
+      socket.emit('private-msg-read', { chatId, msgId: msg.id });
+    }
+  }
+}
+
 async function loadPrivateChatHistory(chatId) {
   return new Promise(resolve => {
     socket.emit('private-chat-history', { chatId }, async res => {
       if (!res.ok || !res.messages || !res.messages.length) { resolve(); return; }
       for (const msg of res.messages) {
-        const mine = msg.from === myNickname.toLowerCase();
+        const myLower = myNickname.toLowerCase();
+        const mine = msg.from === myLower;
+        // Пропускаем сообщения удалённые у меня
+        if (msg.deletedFor && msg.deletedFor.includes(myLower)) continue;
+
+        let status = 'ok';
+        if (mine) {
+          if (msg.readBy && msg.readBy.includes(res.messages[0]?.from !== myLower ? msg.from : chatId.replace(myLower, '').replace('::', ''))) {
+            status = 'read';
+          } else if (msg.status === 'read') {
+            status = 'read';
+          } else if (msg.status === 'delivered' || msg.readBy?.length > 0) {
+            status = 'delivered';
+          } else {
+            status = 'sent';
+          }
+        }
+
         if (msg.type === 'voice') {
-          appendMessage({
-            nickname: msg.fromNick, type: 'voice',
+          const domId = appendMessage({
+            id: msg.id, nickname: msg.fromNick, type: 'voice',
             duration: msg.duration || 0, timestamp: msg.timestamp, mine, status: 'ok',
-            encrypted: msg.encrypted, iv: msg.iv, mimeType: msg.mimeType
+            encrypted: msg.encrypted, iv: msg.iv, mimeType: msg.mimeType,
+            msgStatus: mine ? (msg.status || 'sent') : null, edited: msg.edited
           });
+          if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
         } else if (msg.type === 'text') {
           try {
             const text = await Crypto.decryptText(msg.encrypted, msg.iv);
-            appendMessage({ nickname: msg.fromNick, text, type: 'text', timestamp: msg.timestamp, mine, status: 'ok' });
+            const domId = appendMessage({
+              id: msg.id, nickname: msg.fromNick, text, type: 'text',
+              timestamp: msg.timestamp, mine, status: 'ok',
+              msgStatus: mine ? (msg.status || 'sent') : null, edited: msg.edited
+            });
+            if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
           } catch (_) {
-            appendMessage({ nickname: msg.fromNick, text: '[зашифровано]', type: 'text', timestamp: msg.timestamp, mine, status: 'error' });
+            appendMessage({ id: msg.id, nickname: msg.fromNick, text: '[зашифровано]', type: 'text', timestamp: msg.timestamp, mine, status: 'error' });
           }
         } else {
-          appendMessage({ nickname: msg.fromNick, type: msg.type, fileName: msg.fileName, fileSize: msg.fileSize, mimeType: msg.mimeType, timestamp: msg.timestamp, mine, status: 'ok' });
+          const domId = appendMessage({
+            id: msg.id, nickname: msg.fromNick, type: msg.type, fileName: msg.fileName,
+            fileSize: msg.fileSize, mimeType: msg.mimeType, timestamp: msg.timestamp,
+            mine, status: 'ok', msgStatus: mine ? (msg.status || 'sent') : null
+          });
+          if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
         }
       }
+      // Помечаем как прочитанные
+      markChatAsRead(chatId, res.messages);
       resolve();
     });
   });
@@ -1897,8 +2064,12 @@ function loadPrivateChatsList(container) {
   });
 }
 
+// ═══════════════════════════════════════════════
+//  ВХОДЯЩИЕ ЛИЧНЫЕ СООБЩЕНИЯ
+// ═══════════════════════════════════════════════
 socket.on('private-message', async data => {
   const isCurrentChat = currentChatType === 'private' && currentChatId === data.chatId;
+  const myLower = myNickname.toLowerCase();
 
   if (!isCurrentChat) {
     const setting = getNotifSetting(data.chatId);
@@ -1916,34 +2087,357 @@ socket.on('private-message', async data => {
 
   if (getNotifSetting(data.chatId) !== 'none') playMsgSound(data.chatId);
 
+  // Помечаем как прочитанное
+  if (data.id) {
+    socket.emit('private-msg-read', { chatId: data.chatId, msgId: data.id });
+  }
+
   if (data.type === 'voice') {
     appendMessage({
-      from: data.from, nickname: data.fromNick, type: 'voice',
+      id: data.id, from: data.from, nickname: data.fromNick, type: 'voice',
       duration: data.duration || 0, timestamp: data.timestamp, mine: false, status: 'ok',
       encrypted: data.encrypted, iv: data.iv, mimeType: data.mimeType
     });
     return;
   }
 
-  const msgId = appendMessage({
-    from: data.from, nickname: data.fromNick, type: data.type,
+  const domId = appendMessage({
+    id: data.id, from: data.from, nickname: data.fromNick, type: data.type,
     fileName: data.fileName, fileSize: data.fileSize, mimeType: data.mimeType,
     timestamp: data.timestamp, mine: false, status: 'decrypting'
   });
   try {
     if (data.type === 'text') {
       const text = await Crypto.decryptText(data.encrypted, data.iv);
-      updateMessage(msgId, { text, status: 'ok' });
+      updateMessage(domId, { text, status: 'ok' });
       showBrowserNotif('💬 ' + (data.fromNick || '?'), text, data.chatId);
     } else {
       const mime = data.mimeType || 'application/octet-stream';
       const blob = await Crypto.decryptBlob(data.encrypted, data.iv, mime);
-      updateMessage(msgId, { localUrl: URL.createObjectURL(blob), status: 'ok' });
+      updateMessage(domId, { localUrl: URL.createObjectURL(blob), status: 'ok' });
     }
   } catch (e) {
-    updateMessage(msgId, { status: 'error' });
+    updateMessage(domId, { status: 'error' });
+  }
+  loadPrivateChatsList();
+});
+
+// Удалённое сообщение
+socket.on('private-msg-deleted', ({ chatId, msgId, deleteFor }) => {
+  if (currentChatId !== chatId && deleteFor !== 'me') return;
+  // Ищем DOM элемент по msgId
+  for (const [mId, domId] of msgIdToDomId) {
+    if (mId === msgId) {
+      const el = document.getElementById(domId);
+      if (el) {
+        if (deleteFor === 'all') {
+          el.innerHTML = `<div style="font-size:12px;color:var(--sub);font-style:italic;padding:4px 8px">🗑 Сообщение удалено</div>`;
+          el.style.background = 'transparent';
+          el.style.border = 'none';
+        } else {
+          el.remove();
+        }
+      }
+      msgIdToDomId.delete(mId);
+      break;
+    }
   }
 });
+
+// Отредактированное сообщение
+socket.on('private-msg-edited', async ({ chatId, msgId, newEncrypted, newIv, editedAt }) => {
+  if (currentChatId !== chatId) return;
+  const domId = msgIdToDomId.get(msgId);
+  if (!domId) return;
+  try {
+    const text = await Crypto.decryptText(newEncrypted, newIv);
+    const el = document.getElementById(domId);
+    if (el) {
+      const content = el.querySelector('.msg-content');
+      if (content) content.innerHTML = escapeHtml(text) + ' <span style="font-size:10px;opacity:0.5">(ред.)</span>';
+    }
+  } catch (_) {}
+});
+
+// Удалённое сообщение в группе
+socket.on('room-msg-deleted', ({ roomId, msgId, deleteFor }) => {
+  if (currentRoomId !== roomId) return;
+  for (const [mId, domId] of msgIdToDomId) {
+    if (mId === msgId) {
+      const el = document.getElementById(domId);
+      if (el) {
+        if (deleteFor === 'all') {
+          el.innerHTML = `<div style="font-size:12px;color:var(--sub);font-style:italic;padding:4px 8px">🗑 Сообщение удалено</div>`;
+          el.style.background = 'transparent';
+          el.style.border = 'none';
+        } else {
+          el.remove();
+        }
+      }
+      msgIdToDomId.delete(mId);
+      break;
+    }
+  }
+});
+
+// Отредактированное сообщение в группе
+socket.on('room-msg-edited', async ({ roomId, msgId, newEncrypted, newIv }) => {
+  if (currentRoomId !== roomId) return;
+  const domId = msgIdToDomId.get(msgId);
+  if (!domId) return;
+  try {
+    const text = await Crypto.decryptText(newEncrypted, newIv);
+    const el = document.getElementById(domId);
+    if (el) {
+      const content = el.querySelector('.msg-content');
+      if (content) content.innerHTML = escapeHtml(text) + ' <span style="font-size:10px;opacity:0.5">(ред.)</span>';
+    }
+  } catch (_) {}
+});
+
+// ═══════════════════════════════════════════════
+//  КОНТЕКСТНОЕ МЕНЮ СООБЩЕНИЯ (зажатие)
+// ═══════════════════════════════════════════════
+let longPressTimer = null;
+let longPressTarget = null;
+
+function openMsgContextMenu(domId, msgEl) {
+  if (!domId || !msgEl) return;
+
+  const isMine    = msgEl.classList.contains('mine');
+  const msgType   = msgEl.dataset.type || 'text';
+  const isText    = msgType === 'text';
+  const msgIdAttr = msgEl.dataset.msgId || '';
+
+  // Закрываем предыдущее
+  document.querySelector('.msg-context-menu')?.remove();
+
+  const menu = document.createElement('div');
+  menu.className = 'msg-context-menu';
+
+  const items = [];
+
+  if (isMine && isText) {
+    items.push({ icon: '✏️', label: 'Изменить', action: 'edit' });
+  }
+
+  if (isMine) {
+    items.push({ icon: '🗑', label: 'Удалить у всех', action: 'delete-all', danger: true });
+  }
+
+  items.push({ icon: '🗑', label: 'Удалить у себя', action: 'delete-me', danger: true });
+
+  if (isText) {
+    items.push({ icon: '📋', label: 'Копировать', action: 'copy' });
+  }
+
+  menu.innerHTML = `
+    <div class="msg-ctx-backdrop"></div>
+    <div class="msg-ctx-sheet">
+      ${items.map(item => `
+        <button class="msg-ctx-item${item.danger ? ' danger' : ''}" data-action="${item.action}">
+          <span class="msg-ctx-icon">${item.icon}</span>
+          <span>${item.label}</span>
+        </button>
+      `).join('')}
+      <button class="msg-ctx-item msg-ctx-cancel">
+        <span class="msg-ctx-icon">✕</span>
+        <span>Отмена</span>
+      </button>
+    </div>`;
+
+  document.body.appendChild(menu);
+
+  // Анимация
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => menu.querySelector('.msg-ctx-sheet').classList.add('open'));
+  });
+
+  const close = () => {
+    const sheet = menu.querySelector('.msg-ctx-sheet');
+    sheet.classList.add('closing');
+    sheet.addEventListener('animationend', () => menu.remove(), { once: true });
+  };
+
+  menu.querySelector('.msg-ctx-backdrop').addEventListener('click', close);
+  menu.querySelector('.msg-ctx-cancel').addEventListener('click', close);
+
+  menu.querySelectorAll('.msg-ctx-item[data-action]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const action = btn.dataset.action;
+      close();
+
+      if (action === 'copy') {
+        const content = msgEl.querySelector('.msg-content');
+        if (content) {
+          navigator.clipboard?.writeText(content.innerText || content.textContent || '')
+            .then(() => showToast('📋 Скопировано'))
+            .catch(() => showToast('❌ Ошибка копирования'));
+        }
+        return;
+      }
+
+      if (action === 'edit') {
+        openMsgEditDialog(domId, msgEl, msgIdAttr);
+        return;
+      }
+
+      if (action === 'delete-all' || action === 'delete-me') {
+        const deleteFor = action === 'delete-all' ? 'all' : 'me';
+        if (currentChatType === 'private' && currentChatId) {
+          socket.emit('private-msg-delete', { chatId: currentChatId, msgId: msgIdAttr, deleteFor }, res => {
+            if (!res.ok) showToast('❌ Ошибка удаления: ' + res.error);
+          });
+        } else if (currentRoomId) {
+          socket.emit('room-msg-delete', { roomId: currentRoomId, msgId: msgIdAttr, deleteFor }, res => {
+            if (!res.ok) showToast('❌ Ошибка удаления: ' + res.error);
+          });
+        }
+      }
+    });
+  });
+}
+
+function openMsgEditDialog(domId, msgEl, msgId) {
+  const content = msgEl.querySelector('.msg-content');
+  const currentText = content ? (content.innerText || content.textContent || '').replace(/\s*$ред\.$$/, '').trim() : '';
+
+  const dlg = document.createElement('div');
+  dlg.style.cssText = 'position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,0.85);display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(8px)';
+  dlg.innerHTML = `
+    <div style="width:100%;max-width:520px;background:var(--surface);border-radius:28px 28px 0 0;padding:20px 20px 40px;border-top:1px solid rgba(124,92,191,0.2)">
+      <div style="width:36px;height:4px;border-radius:2px;background:rgba(255,255,255,0.18);margin:0 auto 18px"></div>
+      <div style="font-size:17px;font-weight:800;text-align:center;margin-bottom:16px">✏️ Изменить сообщение</div>
+      <textarea id="edit-msg-input" style="width:100%;padding:13px 16px;background:var(--bg2);border:1.5px solid rgba(255,255,255,0.07);border-radius:14px;color:var(--text);font-size:16px;outline:none;font-family:inherit;resize:none;min-height:80px;max-height:200px;">${escapeHtml(currentText)}</textarea>
+      <div style="display:flex;gap:10px;margin-top:14px">
+        <button id="edit-cancel" style="flex:1;padding:13px;border:none;border-radius:14px;background:rgba(255,255,255,0.06);color:var(--text);font-size:15px;cursor:pointer">Отмена</button>
+        <button id="edit-save" style="flex:1;padding:13px;border:none;border-radius:14px;background:var(--accent-g);color:white;font-size:15px;font-weight:700;cursor:pointer">Сохранить</button>
+      </div>
+    </div>`;
+  document.body.appendChild(dlg);
+
+  const input = dlg.querySelector('#edit-msg-input');
+  // Убираем html-сущности
+  input.value = currentText;
+
+  const close = () => dlg.remove();
+
+  dlg.querySelector('#edit-cancel').addEventListener('click', close);
+  dlg.querySelector('#edit-save').addEventListener('click', async () => {
+    const newText = input.value.trim();
+    if (!newText) return;
+    try {
+      const { encrypted, iv } = await Crypto.encrypt(newText);
+      if (currentChatType === 'private' && currentChatId) {
+        socket.emit('private-msg-edit', { chatId: currentChatId, msgId, newEncrypted: encrypted, newIv: iv }, res => {
+          if (res.ok) {
+            if (content) content.innerHTML = escapeHtml(newText) + ' <span style="font-size:10px;opacity:0.5">(ред.)</span>';
+            close();
+          } else {
+            showToast('❌ Ошибка редактирования');
+          }
+        });
+      } else if (currentRoomId) {
+        socket.emit('room-msg-edit', { roomId: currentRoomId, msgId, newEncrypted: encrypted, newIv: iv }, res => {
+          if (res.ok) {
+            if (content) content.innerHTML = escapeHtml(newText) + ' <span style="font-size:10px;opacity:0.5">(ред.)</span>';
+            close();
+          } else {
+            showToast('❌ Ошибка редактирования');
+          }
+        });
+      }
+    } catch (e) {
+      showToast('❌ Ошибка шифрования');
+    }
+  });
+
+  dlg.addEventListener('click', e => { if (e.target === dlg) close(); });
+  setTimeout(() => input.focus(), 200);
+}
+
+// Назначаем long press на область сообщений
+if (chatMessages) {
+  chatMessages.addEventListener('touchstart', e => {
+    const msgEl = e.target.closest('.msg');
+    if (!msgEl) return;
+    longPressTarget = msgEl;
+    longPressTimer  = setTimeout(() => {
+      if (longPressTarget === msgEl) {
+        // Вибрация
+        if (navigator.vibrate) navigator.vibrate(50);
+        openMsgContextMenu(msgEl.id, msgEl);
+      }
+    }, 500);
+  }, { passive: true });
+
+  chatMessages.addEventListener('touchend', () => {
+    clearTimeout(longPressTimer);
+    longPressTarget = null;
+  }, { passive: true });
+
+  chatMessages.addEventListener('touchmove', () => {
+    clearTimeout(longPressTimer);
+    longPressTarget = null;
+  }, { passive: true });
+
+  // Правая кнопка мыши на десктопе
+  chatMessages.addEventListener('contextmenu', e => {
+    const msgEl = e.target.closest('.msg');
+    if (!msgEl) return;
+    e.preventDefault();
+    openMsgContextMenu(msgEl.id, msgEl);
+  });
+}
+
+// ═══════════════════════════════════════════════
+//  ПРОГРЕСС-БАР ЗАГРУЗКИ ФАЙЛОВ
+// ═══════════════════════════════════════════════
+function showUploadProgress(fileName) {
+  const el = document.createElement('div');
+  el.className = 'upload-progress-bar-wrap';
+  el.id = 'upload-progress-wrap';
+  el.innerHTML = `
+    <div style="font-size:12px;color:var(--sub);margin-bottom:4px">📤 ${escapeHtml(fileName || 'файл')}…</div>
+    <div class="upload-progress-track">
+      <div class="upload-progress-fill" id="upload-progress-fill"></div>
+    </div>
+    <div id="upload-progress-pct" style="font-size:11px;color:var(--accent2);margin-top:3px;text-align:right">0%</div>
+  `;
+  const tgBottom = $('tg-bottom');
+  if (tgBottom) tgBottom.insertBefore(el, tgBottom.firstChild);
+  return el;
+}
+
+function updateUploadProgress(pct) {
+  const fill = $('upload-progress-fill');
+  const text = $('upload-progress-pct');
+  if (fill) fill.style.width = pct + '%';
+  if (text) text.textContent = Math.round(pct) + '%';
+}
+
+function hideUploadProgress() {
+  const el = $('upload-progress-wrap');
+  if (el) el.remove();
+}
+
+// Статус "отправляет фото/видео/файл" для личного чата
+function showChatUploadStatus(type) {
+  const el = getHeaderSubEl();
+  if (!el) return;
+  const labels = { image: '📷 отправляет фото…', video: '🎬 отправляет видео…', file: '📎 отправляет файл…', voice: '🎤 записывает голосовое…' };
+  el.innerHTML = `<span class="typing-indicator"><span class="typing-dots"><span></span><span></span><span></span></span>${labels[type] || 'отправляет…'}</span>`;
+}
+
+function hideChatUploadStatus() {
+  const el = getHeaderSubEl();
+  if (!el) return;
+  if (currentChatType === 'private') {
+    el.innerHTML = `<span class="online">в сети</span>`;
+  } else {
+    el.innerHTML = `<span class="online"><span id="user-count">${memberCount}</span> участников</span>`;
+  }
+}
 
 // ═══════════════════════════════════════════════
 //  СПИСОК КОМНАТ
@@ -2011,6 +2505,16 @@ socket.on('room-deleted', ({ roomId, roomName }) => {
 });
 socket.on('room-settings-changed', ({ roomId }) => {
   if (currentRoomId === roomId) appendSystemMsg('⚙️ Настройки группы обновлены');
+});
+
+// Обновление фото группы
+socket.on('room-photo-updated', ({ roomId, photo }) => {
+  if (currentRoomId === roomId) {
+    if (chatRoomAvatar) {
+      chatRoomAvatar.innerHTML = photo ? `<img src="${photo}" alt="">` : '💬';
+    }
+    appendSystemMsg('🖼 Фото группы обновлено');
+  }
 });
 
 // ═══════════════════════════════════════════════
@@ -2145,8 +2649,10 @@ function submitRoomPassword() {
 function handleApprovalJoin(roomId, roomName, _pw) {
   if (!confirm(`📋 Для вступления в «${roomName}» требуется одобрение.\nОтправить заявку?`)) return;
   socket.emit('room-request-join', { roomId }, res => {
-    if (res.ok) showToast('📨 Заявка отправлена!', 5000);
-    else if (res.error === 'already_requested') showToast('⏳ Заявка уже отправлена');
+    if (res.ok) {
+      if (res.autoAccepted) joinRoom(roomId, _pw || '');
+      else showToast('📨 Заявка отправлена!', 5000);
+    } else if (res.error === 'already_requested') showToast('⏳ Заявка уже отправлена');
     else if (res.error === 'already_member') joinRoom(roomId, _pw || '');
     else showToast('⚠️ Ошибка: ' + res.error);
   });
@@ -2232,17 +2738,24 @@ function joinRoom(roomId, password, cb) {
         if (histRes.ok && histRes.messages && histRes.messages.length) {
           for (const msg of histRes.messages) {
             const mine = msg.nickname && msg.nickname.toLowerCase() === myNickname.toLowerCase();
+            // Пропускаем удалённые у меня
+            const myLower = myNickname.toLowerCase();
+            if (msg.deletedFor && msg.deletedFor.includes(myLower)) continue;
+
             if (msg.type === 'voice') {
-              appendMessage({ nickname: msg.nickname, type: 'voice', duration: msg.duration || 0, timestamp: msg.timestamp, mine, status: 'ok', encrypted: msg.encrypted, iv: msg.iv, mimeType: msg.mimeType });
+              const domId = appendMessage({ id: msg.id, nickname: msg.nickname, type: 'voice', duration: msg.duration || 0, timestamp: msg.timestamp, mine, status: 'ok', encrypted: msg.encrypted, iv: msg.iv, mimeType: msg.mimeType });
+              if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
             } else if (msg.type === 'text') {
               try {
                 const text = await Crypto.decryptText(msg.encrypted, msg.iv);
-                appendMessage({ nickname: msg.nickname, text, type: 'text', timestamp: msg.timestamp, mine, status: 'ok' });
+                const domId = appendMessage({ id: msg.id, nickname: msg.nickname, text: msg.edited ? text : text, type: 'text', timestamp: msg.timestamp, mine, status: 'ok', edited: msg.edited });
+                if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
               } catch (_) {
-                appendMessage({ nickname: msg.nickname, text: '[зашифровано]', type: 'text', timestamp: msg.timestamp, mine, status: 'error' });
+                appendMessage({ id: msg.id, nickname: msg.nickname, text: '[зашифровано]', type: 'text', timestamp: msg.timestamp, mine, status: 'error' });
               }
             } else {
-              appendMessage({ nickname: msg.nickname, type: msg.type, fileName: msg.fileName, fileSize: msg.fileSize, mimeType: msg.mimeType, timestamp: msg.timestamp, mine, status: 'ok' });
+              const domId = appendMessage({ id: msg.id, nickname: msg.nickname, type: msg.type, fileName: msg.fileName, fileSize: msg.fileSize, mimeType: msg.mimeType, timestamp: msg.timestamp, mine, status: 'ok' });
+              if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
             }
           }
         }
@@ -2280,10 +2793,12 @@ function clearChat() {
   const all = [...chatMessages.children];
   all.forEach((el, i) => { if (i > 1) el.remove(); });
   msgCounter = 0;
+  msgIdToDomId.clear();
+  seqToMsgId.clear();
 }
 
 // ═══════════════════════════════════════════════
-//  УЧАСТНИКИ
+//  УЧАСТНИКИ + СМЕНА ФОТО ГРУППЫ
 // ═══════════════════════════════════════════════
 if (btnCloseMembers) btnCloseMembers.addEventListener('click', () => {
   if (window._closeModal) window._closeModal(modalMembers);
@@ -2332,6 +2847,31 @@ if (btnRenameRoom) btnRenameRoom.addEventListener('click', () => {
   });
 });
 if (renameInput) renameInput.addEventListener('keydown', e => { if (e.key === 'Enter' && btnRenameRoom) btnRenameRoom.click(); });
+
+// Смена фото группы в любое время
+const groupPhotoChangeBtn = $('btn-group-photo-change');
+const groupPhotoChangeInput = $('group-photo-input');
+if (groupPhotoChangeBtn) {
+  groupPhotoChangeBtn.addEventListener('click', () => {
+    if (groupPhotoChangeInput) groupPhotoChangeInput.click();
+  });
+}
+if (groupPhotoChangeInput) {
+  groupPhotoChangeInput.addEventListener('change', () => {
+    const file = groupPhotoChangeInput.files[0];
+    if (!file) return;
+    groupPhotoChangeInput.value = '';
+    if (file.size > 5*1024*1024) { showToast('⚠️ Фото слишком большое'); return; }
+    const r = new FileReader();
+    r.onload = e => {
+      socket.emit('room-set-photo', { roomId: currentRoomId, photo: e.target.result }, res => {
+        if (res.ok) showToast('✅ Фото группы обновлено');
+        else showToast('❌ Ошибка: ' + res.error);
+      });
+    };
+    r.readAsDataURL(file);
+  });
+}
 
 if (btnSaveGroupSettings) btnSaveGroupSettings.addEventListener('click', () => {
   socket.emit('room-settings-update', {
@@ -2416,7 +2956,7 @@ socket.on('room-invite', ({ fromNick, roomId, roomName, hasPassword, joinMode })
 if (btnBackLobby) btnBackLobby.addEventListener('click', () => { leaveCurrentRoom(); showScreen('lobby'); });
 
 function leaveCurrentRoom() {
-  stopMyTyping(); stopVoiceRecording();
+  stopMyTyping(); stopPrivateTyping(); stopVoiceRecording();
   if (currentChatType === 'group' && currentRoomId) {
     socket.emit('leave-room');
     if (joined) {
@@ -2497,6 +3037,7 @@ function getHeaderSubEl() { return document.querySelector('.tg-header-sub'); }
 
 function renderTyping() {
   const el = getHeaderSubEl(); if (!el) return;
+  if (currentChatType === 'private') return; // Для личного чата обрабатывается отдельно
   const names = Object.values(typingUsers).map(u => u.nickname);
   if (!names.length) {
     el.innerHTML = `<span class="online"><span id="user-count">${memberCount}</span> участников</span>`;
@@ -2544,7 +3085,13 @@ if (chatInput) {
     if (btnVoiceRecord) {
       btnVoiceRecord.style.display = chatInput.value.trim().length > 0 ? 'none' : 'flex';
     }
-    if (chatInput.value.trim().length > 0) startMyTyping(); else stopMyTyping();
+    if (chatInput.value.trim().length > 0) {
+      if (currentChatType === 'private') startPrivateTyping();
+      else startMyTyping();
+    } else {
+      if (currentChatType === 'private') stopPrivateTyping();
+      else stopMyTyping();
+    }
   });
   chatInput.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendTextMessage(); }
@@ -2556,18 +3103,32 @@ async function sendTextMessage() {
   if (!chatInput) return;
   const text = chatInput.value.trim();
   if (!text) return;
-  stopMyTyping();
+  stopMyTyping(); stopPrivateTyping();
   if (btnSend) btnSend.disabled = true;
   try {
     if (currentChatType === 'private' && currentChatId) {
       const { encrypted, iv } = await Crypto.encrypt(text);
-      socket.emit('private-message', { chatId: currentChatId, encrypted, iv, type: 'text', seq: ++outgoingSeq });
-      appendMessage({ nickname: myNickname, text, type: 'text', timestamp: Date.now(), mine: true, status: 'ok' });
+      const seq = ++outgoingSeq;
+      socket.emit('private-message', { chatId: currentChatId, encrypted, iv, type: 'text', seq }, res => {
+        if (res && res.msgId) {
+          const domId = msgIdToDomId.get('pending-' + seq);
+          if (domId) {
+            msgIdToDomId.delete('pending-' + seq);
+            msgIdToDomId.set(res.msgId, domId);
+            updateMsgStatus(res.msgId, 'sent');
+          }
+        }
+      });
+      const domId = appendMessage({ nickname: myNickname, text, type: 'text', timestamp: Date.now(), mine: true, status: 'ok', msgStatus: 'sending' });
+      msgIdToDomId.set('pending-' + seq, domId);
       chatInput.value = ''; chatInput.style.height = 'auto';
     } else if (currentRoomId) {
       const { encrypted, iv } = await Crypto.encrypt(text);
-      socket.emit('chat-message', { encrypted, iv, type: 'text', seq: ++outgoingSeq });
-      appendMessage({ from: socket.id, nickname: myNickname, text, type: 'text', timestamp: Date.now(), mine: true, status: 'ok' });
+      const seq = ++outgoingSeq;
+      seqToMsgId.set(seq, null); // placeholder
+      socket.emit('chat-message', { encrypted, iv, type: 'text', seq });
+      const domId = appendMessage({ from: socket.id, nickname: myNickname, text, type: 'text', timestamp: Date.now(), mine: true, status: 'ok', msgStatus: 'sending' });
+      seqToMsgId.set(seq, domId);
       chatInput.value = ''; chatInput.style.height = 'auto';
     }
     if (btnVoiceRecord) btnVoiceRecord.style.display = 'flex';
@@ -2683,13 +3244,28 @@ async function sendVoiceMessage(blob, duration, mimeType) {
     const ab = await blob.arrayBuffer();
     const { encrypted, iv } = await Crypto.encrypt(ab);
     const localUrl = URL.createObjectURL(new Blob([ab], { type: mimeType }));
-    const payload  = { encrypted, iv, type: 'voice', seq: ++outgoingSeq, duration, mimeType, fileName: 'voice.ogg', fileSize: blob.size };
+    const seq      = ++outgoingSeq;
+    const payload  = { encrypted, iv, type: 'voice', seq, duration, mimeType, fileName: 'voice.ogg', fileSize: blob.size };
     if (currentChatType === 'private' && currentChatId) {
-      socket.emit('private-message', { chatId: currentChatId, ...payload });
+      socket.emit('private-message', { chatId: currentChatId, ...payload }, res => {
+        if (res && res.msgId) {
+          const domId = msgIdToDomId.get('pending-' + seq);
+          if (domId) {
+            msgIdToDomId.delete('pending-' + seq);
+            msgIdToDomId.set(res.msgId, domId);
+            updateMsgStatus(res.msgId, 'sent');
+          }
+        }
+      });
     } else if (currentRoomId) {
       socket.emit('chat-message', payload);
     }
-    appendMessage({ from: socket.id, nickname: myNickname, type: 'voice', localUrl, duration, mimeType, timestamp: Date.now(), mine: true, status: 'ok' });
+    const domId = appendMessage({
+      from: socket.id, nickname: myNickname, type: 'voice',
+      localUrl, duration, mimeType, timestamp: Date.now(),
+      mine: true, status: 'ok', msgStatus: 'sending'
+    });
+    msgIdToDomId.set('pending-' + seq, domId);
   } catch (e) { showToast('❌ Ошибка отправки голосового: ' + e.message); }
 }
 
@@ -2710,45 +3286,95 @@ if (fileInput) fileInput.addEventListener('change', async () => {
 });
 
 async function sendMediaBlob(blob, mimeType, fileName, type) {
+  // Показываем прогресс
+  const progressWrap = showUploadProgress(fileName);
+
+  // Показываем статус в шапке
+  showChatUploadStatus(type);
+
   try {
     const ab = await blob.arrayBuffer();
+
+    // Симулируем прогресс чтения (реальный прогресс через XHR/fetch невозможен с socket.io)
+    const chunkSize   = ab.byteLength / 20;
+    let   fakeProgress = 0;
+    const progressInterval = setInterval(() => {
+      fakeProgress = Math.min(fakeProgress + 5, 90);
+      updateUploadProgress(fakeProgress);
+    }, 100);
+
     const { encrypted, iv } = await Crypto.encrypt(ab);
+
+    clearInterval(progressInterval);
+    updateUploadProgress(95);
+
     const localUrl = URL.createObjectURL(new Blob([ab], { type: mimeType }));
-    const payload  = { encrypted, iv, type, seq: ++outgoingSeq, fileName: fileName || 'file', fileSize: blob.size, mimeType };
+    const seq      = ++outgoingSeq;
+    const payload  = { encrypted, iv, type, seq, fileName: fileName || 'file', fileSize: blob.size, mimeType };
+
     if (currentChatType === 'private' && currentChatId) {
       socket.emit('private-message', { chatId: currentChatId, ...payload }, res => {
+        updateUploadProgress(100);
+        setTimeout(hideUploadProgress, 500);
+        hideChatUploadStatus();
         if (res && !res.ok) showToast('❌ Ошибка: ' + (res.error === 'file_too_large' ? 'Файл слишком большой' : res.error));
+        if (res && res.msgId) {
+          const domId = msgIdToDomId.get('pending-' + seq);
+          if (domId) {
+            msgIdToDomId.delete('pending-' + seq);
+            msgIdToDomId.set(res.msgId, domId);
+            updateMsgStatus(res.msgId, 'sent');
+          }
+        }
       });
     } else if (currentRoomId) {
       socket.emit('chat-message', payload);
+      updateUploadProgress(100);
+      setTimeout(hideUploadProgress, 500);
+      hideChatUploadStatus();
     }
-    appendMessage({ from: socket.id, nickname: myNickname, type, localUrl, fileName: fileName || 'file', fileSize: blob.size, mimeType, timestamp: Date.now(), mine: true, status: 'ok' });
-  } catch (e) { showToast('❌ Ошибка отправки: ' + e.message); console.error('sendMediaBlob error:', e); }
+
+    const domId = appendMessage({
+      from: socket.id, nickname: myNickname, type, localUrl,
+      fileName: fileName || 'file', fileSize: blob.size, mimeType,
+      timestamp: Date.now(), mine: true, status: 'ok', msgStatus: 'sending'
+    });
+    msgIdToDomId.set('pending-' + seq, domId);
+
+  } catch (e) {
+    hideUploadProgress();
+    hideChatUploadStatus();
+    showToast('❌ Ошибка отправки: ' + e.message);
+    console.error('sendMediaBlob error:', e);
+  }
 }
 
 // ─── Входящие сообщения группы ───
 socket.on('chat-message', async data => {
-  const chatId = currentRoomId;
+  const chatId  = currentRoomId;
   const setting = getNotifSetting(chatId || '');
+
   if (data.type === 'voice') {
     if (setting !== 'none' && setting !== 'mute') playMsgSound(chatId);
     appendMessage({
-      from: data.from, nickname: data.nickname, type: 'voice',
+      id: data.id, from: data.from, nickname: data.nickname, type: 'voice',
       duration: data.duration || 0, timestamp: data.timestamp, mine: false, status: 'ok',
       encrypted: data.encrypted, iv: data.iv, mimeType: data.mimeType
     });
     if (document.visibilityState !== 'visible') addUnread(chatId, 1);
     return;
   }
-  const msgId = appendMessage({
-    from: data.from, nickname: data.nickname, type: data.type,
+
+  const domId = appendMessage({
+    id: data.id, from: data.from, nickname: data.nickname, type: data.type,
     fileName: data.fileName, fileSize: data.fileSize, mimeType: data.mimeType,
     timestamp: data.timestamp, mine: false, status: 'decrypting'
   });
+
   try {
     if (data.type === 'text') {
       const text = await Crypto.decryptText(data.encrypted, data.iv);
-      updateMessage(msgId, { text, status: 'ok' });
+      updateMessage(domId, { text, status: 'ok' });
       if (setting !== 'none') {
         if (setting !== 'mute') playMsgSound(chatId);
         showBrowserNotif('💬 ' + (data.nickname||'?'), text, chatId);
@@ -2756,12 +3382,33 @@ socket.on('chat-message', async data => {
       if (document.visibilityState !== 'visible') addUnread(chatId, 1);
     } else {
       const mime = data.mimeType || 'application/octet-stream';
+      // Показываем прогресс загрузки входящего файла
+      const domEl = document.getElementById(domId);
+      if (domEl) {
+        const content = domEl.querySelector('.msg-content');
+        if (content) {
+          content.innerHTML = buildDownloadProgressHTML(data.fileName, data.fileSize);
+        }
+      }
       const blob = await Crypto.decryptBlob(data.encrypted, data.iv, mime);
-      updateMessage(msgId, { localUrl: URL.createObjectURL(blob), status: 'ok' });
+      const url  = URL.createObjectURL(blob);
+      updateMessage(domId, { localUrl: url, status: 'ok' });
       if (document.visibilityState !== 'visible') addUnread(chatId, 1);
     }
-  } catch { updateMessage(msgId, { status: 'error' }); }
+  } catch { updateMessage(domId, { status: 'error' }); }
 });
+
+function buildDownloadProgressHTML(fileName, fileSize) {
+  const size = fileSize ? formatSize(parseInt(fileSize)) : '';
+  return `
+    <div style="display:flex;flex-direction:column;gap:6px;min-width:160px;">
+      <div style="font-size:12px;color:var(--sub)">📥 ${escapeHtml(fileName || 'файл')} ${size}</div>
+      <div style="height:4px;background:rgba(255,255,255,0.1);border-radius:2px;overflow:hidden;">
+        <div class="dl-progress-fill" style="height:100%;width:0%;background:var(--accent-g);border-radius:2px;transition:width 0.3s;animation:dlPulse 1.5s infinite;"></div>
+      </div>
+      <div style="font-size:11px;color:var(--accent2)">Расшифровка…</div>
+    </div>`;
+}
 
 // ═══════════════════════════════════════════════
 //  ЧАТ: РЕНДЕР СООБЩЕНИЙ
@@ -2772,13 +3419,14 @@ function appendMessage(msg) {
   const div = document.createElement('div');
   div.id = id;
   div.className = 'msg ' + (msg.mine ? 'mine' : 'theirs');
-  div.dataset.type     = msg.type     || 'text';
-  div.dataset.mimeType = msg.mimeType || '';
-  div.dataset.fileName = msg.fileName || '';
-  div.dataset.fileSize = msg.fileSize || '';
-  div.dataset.duration = msg.duration || '0';
+  div.dataset.type      = msg.type     || 'text';
+  div.dataset.mimeType  = msg.mimeType || '';
+  div.dataset.fileName  = msg.fileName || '';
+  div.dataset.fileSize  = msg.fileSize || '';
+  div.dataset.duration  = msg.duration || '0';
   div.dataset.encrypted = msg.encrypted || '';
   div.dataset.iv        = msg.iv        || '';
+  div.dataset.msgId     = msg.id        || '';
   div.innerHTML = buildMsgHTML(msg);
   chatMessages.appendChild(div);
   scrollToBottom();
@@ -2816,27 +3464,43 @@ function updateMessage(id, updates) {
 }
 
 function buildMsgHTML(msg) {
-  const time   = new Date(msg.timestamp||Date.now()).toLocaleTimeString('ru', { hour:'2-digit', minute:'2-digit' });
-  const sender = msg.mine ? '' : `<div class="msg-sender">👤 ${escapeHtml(msg.nickname||'?')}</div>`;
-  const stText = msg.status==='ok' ? '🔓' : msg.status==='error' ? '⚠️' : '⏳';
-  const stClass= msg.status==='ok' ? 'ok' : msg.status==='error' ? 'err' : '';
-  const st     = msg.mine ? '' : `<div class="msg-decrypt-status ${stClass}">${stText}</div>`;
-  return `${sender}<div class="msg-content">${buildContentHTML(msg)}</div><div class="msg-meta">${time}</div>${st}`;
+  const time    = new Date(msg.timestamp||Date.now()).toLocaleTimeString('ru', { hour:'2-digit', minute:'2-digit' });
+  const sender  = msg.mine ? '' : `<div class="msg-sender">👤 ${escapeHtml(msg.nickname||'?')}</div>`;
+  const stText  = msg.status==='ok' ? '🔓' : msg.status==='error' ? '⚠️' : '⏳';
+  const stClass = msg.status==='ok' ? 'ok' : msg.status==='error' ? 'err' : '';
+  const st      = msg.mine ? '' : `<div class="msg-decrypt-status ${stClass}">${stText}</div>`;
+  const ticks   = buildStatusTicks(msg.msgStatus || (msg.mine ? 'sent' : null), msg.mine);
+  const edited  = msg.edited ? `<span style="font-size:10px;opacity:0.5"> (ред.)</span>` : '';
+
+  return `
+    ${sender}
+    <div class="msg-content">${buildContentHTML(msg)}${edited}</div>
+    <div class="msg-meta" style="display:flex;align-items:center;justify-content:flex-end;gap:4px;">
+      <span>${time}</span>${ticks}
+    </div>
+    ${st}`;
 }
 
 function buildContentHTML(msg) {
   if (msg.type === 'text') return escapeHtml(msg.text || '');
   if (msg.type === 'image') return msg.localUrl
     ? `<img class="msg-media" src="${msg.localUrl}" alt="фото" loading="lazy">`
-    : '<span style="color:#888;font-size:12px">⏳ Загрузка…</span>';
+    : buildDownloadProgressHTML(msg.fileName, msg.fileSize);
   if (msg.type === 'video') return msg.localUrl
     ? `<video class="msg-media" src="${msg.localUrl}" controls playsinline></video>`
-    : '<span style="color:#888;font-size:12px">⏳ Загрузка…</span>';
+    : buildDownloadProgressHTML(msg.fileName, msg.fileSize);
   if (msg.type === 'file') {
     const size = msg.fileSize ? formatSize(parseInt(msg.fileSize)) : '';
     return msg.localUrl
-      ? `<div class="msg-file"><span class="msg-file-icon">📄</span><div class="msg-file-info"><div class="msg-file-name">${escapeHtml(msg.fileName||'файл')}</div><div class="msg-file-size">${size}</div></div><a class="msg-file-dl" href="${msg.localUrl}" download="${escapeHtml(msg.fileName||'file')}">⬇️</a></div>`
-      : `<div class="msg-file"><span class="msg-file-icon">📄</span><div class="msg-file-info"><div class="msg-file-name">${escapeHtml(msg.fileName||'файл')}</div><div class="msg-file-size">${size}</div></div></div>`;
+      ? `<div class="msg-file">
+           <span class="msg-file-icon">📄</span>
+           <div class="msg-file-info">
+             <div class="msg-file-name">${escapeHtml(msg.fileName||'файл')}</div>
+             <div class="msg-file-size">${size}</div>
+           </div>
+           <a class="msg-file-dl" href="${msg.localUrl}" download="${escapeHtml(msg.fileName||'file')}">⬇️</a>
+         </div>`
+      : buildDownloadProgressHTML(msg.fileName, msg.fileSize);
   }
   if (msg.type === 'voice') return buildVoiceMessageHTML(msg);
   return '';
@@ -2880,9 +3544,9 @@ function playVoiceMsg(btn, url, wrap) {
   currentVoiceAudio = audio; currentVoiceBtn = btn;
   btn.textContent = '⏸️';
   audio.play().then(() => {
-    const bars  = wrap ? [...wrap.querySelectorAll('.voice-msg-bar')] : [];
-    const durEl = wrap ? wrap.querySelector('.voice-msg-duration') : null;
-    const origDur = parseInt(wrap?.dataset.dur || '0');
+    const bars   = wrap ? [...wrap.querySelectorAll('.voice-msg-bar')] : [];
+    const durEl  = wrap ? wrap.querySelector('.voice-msg-duration') : null;
+    const origDur= parseInt(wrap?.dataset.dur || '0');
     audio.ontimeupdate = () => {
       const pct    = audio.duration ? audio.currentTime / audio.duration : 0;
       const active = Math.floor(pct * bars.length);
@@ -3210,7 +3874,7 @@ async function buildAudioPipeline(rawStream) {
   comp.ratio.value = 6; comp.attack.value = 0.002; comp.release.value = 0.12;
   noiseWorklet = new AudioWorkletNode(audioCtx, 'noise-gate-processor', {
     processorOptions: { threshold: 0.035, attack: 0.005, release: 0.20, smoothing: 0.96 },
-    numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1]
+    numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [[1]](#annotation-154417-0)
   });
   const gain = audioCtx.createGain();
   gain.gain.value = 1.2;
@@ -3227,9 +3891,9 @@ const iceServers = {
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun.relay.metered.ca:80' },
-    { urls: 'turn:global.relay.metered.ca:80',              username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
+    { urls: 'turn:global.relay.metered.ca:80',               username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
     { urls: 'turn:global.relay.metered.ca:80?transport=tcp', username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
-    { urls: 'turn:global.relay.metered.ca:443',             username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
+    { urls: 'turn:global.relay.metered.ca:443',              username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
     { urls: 'turns:global.relay.metered.ca:443?transport=tcp', username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' }
   ],
   iceCandidatePoolSize: 10, bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require'
@@ -3241,7 +3905,7 @@ function forceOpusMaxQuality(sdp) {
     const line = lines[i];
     if (line.includes('a=rtpmap') && line.toLowerCase().includes('opus')) {
       result.push(line);
-      const pt = line.split(':')[1].split(' ')[0];
+      const pt = line.split(':')[[1]](#annotation-154417-0).split(' ')[0];
       if (i + 1 < lines.length && lines[i+1].startsWith('a=fmtp:' + pt)) i++;
       result.push('a=fmtp:' + pt + ' minptime=10;useinbandfec=1;stereo=0;sprop-stereo=0;maxaveragebitrate=40000;dtx=1;cbr=0');
       continue;
@@ -3459,8 +4123,6 @@ function showCallMiniBar(name, avatar) {
     else        avatarEl.textContent = '👤';
   }
   bar.classList.add('visible');
-
-  // Клик — открываем экран звонка
   bar.onclick = (e) => {
     if (e.target.id === 'call-mini-hangup') return;
     const withAvatar = $('call-screen-avatar')?.querySelector('img')?.src || null;
@@ -3479,19 +4141,95 @@ function updateCallMiniStatus(text) {
 }
 
 // ═══════════════════════════════════════════════
+//  ЗВУКИ ЗВОНКА — рингтон и гудки
+// ═══════════════════════════════════════════════
+let ringInterval    = null;
+let ringToneCtx     = null;
+let dialToneCtx     = null;
+let dialToneInterval= null;
+
+// Рингтон входящего звонка (красивый мелодичный)
+function playIncomingRing() {
+  stopIncomingRing();
+  let count = 0;
+  const playOnce = () => {
+    if (count++ > 30) { stopIncomingRing(); return; }
+    try {
+      const ctx  = new (window.AudioContext || window.webkitAudioContext)();
+      ringToneCtx = ctx;
+      const gain = ctx.createGain();
+      gain.connect(ctx.destination);
+
+      // Мелодия: три ноты — имитация телефонного звонка
+      const notes = [
+        { freq: 480, time: 0,    dur: 0.18 },
+        { freq: 640, time: 0.20, dur: 0.18 },
+        { freq: 800, time: 0.40, dur: 0.28 }
+      ];
+      notes.forEach(note => {
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(note.freq, ctx.currentTime + note.time);
+        osc.connect(gain);
+        gain.gain.setValueAtTime(0, ctx.currentTime + note.time);
+        gain.gain.linearRampToValueAtTime(0.35, ctx.currentTime + note.time + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + note.time + note.dur);
+        osc.start(ctx.currentTime + note.time);
+        osc.stop(ctx.currentTime + note.time + note.dur + 0.05);
+      });
+      setTimeout(() => { try { ctx.close(); } catch (_) {} }, 1500);
+    } catch (_) {}
+  };
+  playOnce();
+  ringInterval = setInterval(playOnce, 2000);
+}
+
+function stopIncomingRing() {
+  if (ringInterval)  { clearInterval(ringInterval);  ringInterval = null; }
+  if (ringToneCtx)   { try { ringToneCtx.close(); }  catch (_) {} ringToneCtx = null; }
+}
+
+// Гудки исходящего звонка (длинный гудок как у телефона)
+function playDialTone() {
+  stopDialTone();
+  let count = 0;
+  const playOnce = () => {
+    if (count++ > 60) { stopDialTone(); return; }
+    try {
+      const ctx  = new (window.AudioContext || window.webkitAudioContext)();
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc1.connect(gain); osc2.connect(gain); gain.connect(ctx.destination);
+      osc1.type = 'sine'; osc1.frequency.value = 425;
+      osc2.type = 'sine'; osc2.frequency.value = 450;
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.setValueAtTime(0.15, ctx.currentTime + 1.0);
+      gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 1.05);
+      osc1.start(ctx.currentTime); osc1.stop(ctx.currentTime + 1.1);
+      osc2.start(ctx.currentTime); osc2.stop(ctx.currentTime + 1.1);
+      setTimeout(() => { try { ctx.close(); } catch (_) {} }, 2500);
+    } catch (_) {}
+  };
+  playOnce();
+  // Гудок 1 сек, пауза 3 сек — стандарт РФ
+  dialToneInterval = setInterval(playOnce, 4000);
+}
+
+function stopDialTone() {
+  if (dialToneInterval) { clearInterval(dialToneInterval); dialToneInterval = null; }
+  if (dialToneCtx)      { try { dialToneCtx.close(); } catch (_) {} dialToneCtx = null; }
+}
+
+// ═══════════════════════════════════════════════
 //  ПЕРЕКЛЮЧАТЕЛЬ ДИНАМИКА
 // ═══════════════════════════════════════════════
 function setSpeakerOutput(external) {
   isSpeakerMode = external;
   const callAudio = document.getElementById('audio-pc-call');
   if (callBtnSpeaker) {
-    if (external) {
-      callBtnSpeaker.textContent = '🔊';
-      callBtnSpeaker.classList.add('active');
-    } else {
-      callBtnSpeaker.textContent = '🔈';
-      callBtnSpeaker.classList.remove('active');
-    }
+    if (external) { callBtnSpeaker.textContent = '🔊'; callBtnSpeaker.classList.add('active'); }
+    else          { callBtnSpeaker.textContent = '🔈'; callBtnSpeaker.classList.remove('active'); }
   }
   if (callAudio) {
     if (callAudio.setSinkId && typeof callAudio.setSinkId === 'function') {
@@ -3512,7 +4250,6 @@ function setSpeakerOutput(external) {
       }
     } else {
       callAudio.volume = external ? 1.0 : 0.5;
-      if (!external) showToast('📱 На iPhone переключи режим кнопкой громкости', 4000);
     }
   }
 }
@@ -3528,38 +4265,26 @@ function ensureVideoElements() {
     videoContainer = document.createElement('div');
     videoContainer.id = 'call-video-container';
     videoContainer.style.cssText = 'position:absolute;inset:0;display:none;z-index:0;background:#000;overflow:hidden;';
-
     const remoteVideo = document.createElement('video');
-    remoteVideo.id = 'video-remote';
-    remoteVideo.autoplay = true;
-    remoteVideo.playsInline = true;
+    remoteVideo.id = 'video-remote'; remoteVideo.autoplay = true; remoteVideo.playsInline = true;
     remoteVideo.style.cssText = 'width:100%;height:100%;object-fit:cover;';
     videoContainer.appendChild(remoteVideo);
-
     const noVideo = document.createElement('div');
     noVideo.id = 'video-no-signal';
     noVideo.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:rgba(255,255,255,0.4);font-size:14px;gap:12px;';
     noVideo.innerHTML = '<span style="font-size:48px">📷</span><span>Видео недоступно</span>';
     videoContainer.appendChild(noVideo);
-
-    if (callScreen) {
-      callScreen.style.position = 'relative';
-      callScreen.insertBefore(videoContainer, callScreen.firstChild);
-    }
+    if (callScreen) { callScreen.style.position = 'relative'; callScreen.insertBefore(videoContainer, callScreen.firstChild); }
   }
   return videoContainer;
 }
 
-// Своё видео — теперь отдельный элемент поверх экрана звонка (вверху)
 function ensureLocalVideo() {
   let localVideo = document.getElementById('video-local');
   if (!localVideo) {
     localVideo = document.createElement('video');
-    localVideo.id = 'video-local';
-    localVideo.autoplay = true;
-    localVideo.playsInline = true;
-    localVideo.muted = true;
-    // Позиционируем В ПРАВОМ ВЕРХНЕМ углу экрана звонка, НАД кнопками
+    localVideo.id = 'video-local'; localVideo.autoplay = true;
+    localVideo.playsInline = true; localVideo.muted = true;
     if (callScreen) callScreen.appendChild(localVideo);
   }
   return localVideo;
@@ -3574,32 +4299,23 @@ async function startLocalVideo() {
     const localVideo = ensureLocalVideo();
     localVideo.srcObject = localVideoStream;
     return localVideoStream;
-  } catch (e) {
-    console.warn('Нет доступа к камере:', e.name);
-    return null;
-  }
+  } catch (e) { console.warn('Нет доступа к камере:', e.name); return null; }
 }
 
 function stopLocalVideo() {
-  if (localVideoStream) {
-    localVideoStream.getTracks().forEach(t => t.stop());
-    localVideoStream = null;
-  }
+  if (localVideoStream) { localVideoStream.getTracks().forEach(t => t.stop()); localVideoStream = null; }
   const localVideo = document.getElementById('video-local');
   if (localVideo) { localVideo.srcObject = null; localVideo.style.display = 'none'; }
 }
 
 function showVideoUI(show) {
-  const container = document.getElementById('call-video-container');
-  if (container) container.style.display = show ? 'block' : 'none';
-
+  const container  = document.getElementById('call-video-container');
+  if (container)   container.style.display = show ? 'block' : 'none';
   const localVideo = document.getElementById('video-local');
-  if (localVideo) localVideo.style.display = show ? 'block' : 'none';
-
+  if (localVideo)  localVideo.style.display = show ? 'block' : 'none';
   const center = callScreen?.querySelector('.call-screen-center');
   const bottom = callScreen?.querySelector('.call-screen-bottom');
   const top    = callScreen?.querySelector('.call-screen-top');
-
   if (show) {
     if (center) Object.assign(center.style, { position:'relative', zIndex:'1', background:'rgba(0,0,0,0.3)', borderRadius:'20px', padding:'16px', margin:'0 16px' });
     if (bottom) Object.assign(bottom.style, { position:'relative', zIndex:'1', background:'rgba(0,0,0,0.5)', borderRadius:'20px 20px 0 0' });
@@ -3611,7 +4327,6 @@ function showVideoUI(show) {
   }
 }
 
-// Переключение камеры
 document.addEventListener('click', e => {
   if (e.target && e.target.id === 'video-local' && localVideoStream) {
     const currentTrack = localVideoStream.getVideoTracks()[0];
@@ -3635,12 +4350,11 @@ document.addEventListener('click', e => {
   }
 });
 
-// Кнопка видео
 if (callBtnVideo) {
   callBtnVideo.addEventListener('click', async () => {
     if (!pcCallActive) { showToast('Сначала установите звонок', 2000); return; }
     if (!pcCallIsVideo) {
-      const container = ensureVideoElements();
+      ensureVideoElements();
       const videoStream = await startLocalVideo();
       if (!videoStream) { showToast('❌ Нет доступа к камере', 3000); return; }
       pcCallIsVideo = true;
@@ -3663,10 +4377,7 @@ if (callBtnVideo) {
       showVideoUI(false);
       if (pcCallPeer) {
         const videoSender = pcCallPeer.getSenders().find(s => s.track?.kind === 'video');
-        if (videoSender) {
-          videoSender.track?.stop();
-          try { await videoSender.replaceTrack(null); } catch (_) {}
-        }
+        if (videoSender) { videoSender.track?.stop(); try { await videoSender.replaceTrack(null); } catch (_) {} }
       }
       stopLocalVideo();
       showToast('📷 Видео выключено', 2000);
@@ -3675,7 +4386,7 @@ if (callBtnVideo) {
 }
 
 // ═══════════════════════════════════════════════
-//  ЛИЧНЫЕ ЗВОНКИ — исправленная реализация
+//  ЛИЧНЫЕ ЗВОНКИ
 // ═══════════════════════════════════════════════
 let pcCallPeer           = null;
 let pcCallStream         = null;
@@ -3702,29 +4413,17 @@ function showCallScreen(name, avatar, status, isVideo) {
   callScreen.classList.add('active');
   callScreen.classList.remove('minimizing');
   hideCallMiniBar();
-
-  if (isVideo) {
-    ensureVideoElements();
-    ensureLocalVideo();
-    showVideoUI(true);
-    startLocalVideo().then(stream => {
-      if (stream) { callBtnVideo.classList.add('active'); pcCallIsVideo = true; }
-    });
-  }
+  if (isVideo) { ensureVideoElements(); ensureLocalVideo(); showVideoUI(true); startLocalVideo().then(s => { if (s) { callBtnVideo.classList.add('active'); pcCallIsVideo = true; } }); }
 }
 
 function hideCallScreen() {
   if (!callScreen) return;
-  // Анимация сворачивания вверх
   callScreen.classList.add('minimizing');
   callScreen.addEventListener('animationend', () => {
     callScreen.classList.remove('active');
     callScreen.classList.remove('minimizing');
   }, { once: true });
-
   stopCallTimer();
-
-  // Показываем мини-бар если звонок активен
   if (pcCallActive) {
     const avatarImg = callScreenAvatar?.querySelector('img');
     showCallMiniBar(pcCallRemoteNick, avatarImg ? avatarImg.src : null);
@@ -3745,10 +4444,7 @@ function startCallTimer() {
     const s = String(callSeconds%60).padStart(2,'0');
     const timeStr = m + ':' + s;
     if (callScreenStatus) callScreenStatus.textContent = timeStr;
-    if (callStatusDot) {
-      callStatusDot.style.animation = 'none';
-      callStatusDot.style.background = '#4caf50';
-    }
+    if (callStatusDot) { callStatusDot.style.animation = 'none'; callStatusDot.style.background = '#4caf50'; }
     updateCallMiniStatus(timeStr);
   }, 1000);
 }
@@ -3766,14 +4462,10 @@ if (callBtnMute) callBtnMute.addEventListener('click', () => {
 
 if (callBtnHangup) callBtnHangup.addEventListener('click', () => endPrivateCall(true));
 
-if (btnCallMinimize) btnCallMinimize.addEventListener('click', () => {
-  hideCallScreen();
-});
+if (btnCallMinimize) btnCallMinimize.addEventListener('click', () => hideCallScreen());
 
-// Кнопка звонка в шапке чата
 if (btnPrivateCall) btnPrivateCall.addEventListener('click', async () => {
   if (pcCallActive) {
-    // Звонок уже идёт — открываем экран
     const withAvatar = chatRoomAvatar?.querySelector('img')?.src || null;
     showCallScreen(pcCallRemoteNick, withAvatar, callScreenStatus?.textContent || null, pcCallIsVideo);
     return;
@@ -3812,22 +4504,15 @@ function openCallTypeSelector() {
 async function startPrivateCall(isVideo) {
   pcCallRemoteNick = chatRoomName ? chatRoomName.textContent : '?';
   const withAvatar = chatRoomAvatar?.querySelector('img')?.src || null;
-
   try {
     pcCallStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-  } catch (e) {
-    showToast('❌ Нет доступа к микрофону'); return;
-  }
-
+  } catch (e) { showToast('❌ Нет доступа к микрофону'); return; }
   const parts = currentChatId.split('::');
   pcCallRemoteNickLow = parts.find(p => p !== myNickname.toLowerCase()) || parts[0];
   pcCallRemoteId      = null;
   pcIceCandidateBuffer = [];
   pcCallIsVideo       = isVideo;
-
-  // Создаём peer с инициацией
   pcCallPeer = createPrivateCallPeer(pcCallRemoteNickLow, true, isVideo);
-
   if (isVideo) {
     ensureVideoElements();
     const videoStream = await startLocalVideo();
@@ -3836,27 +4521,21 @@ async function startPrivateCall(isVideo) {
       if (videoTrack) pcCallPeer.addTrack(videoTrack, videoStream);
     }
   }
-
+  // Запускаем гудки
+  playDialTone();
   showCallScreen(pcCallRemoteNick, withAvatar, isVideo ? '📹 Видеовызов…' : '📞 Вызов…', isVideo);
 }
 
-// ── Входящий звонок ──
 socket.on('private-call-offer', async (data) => {
-  if (pcCallActive) {
-    socket.emit('private-call-reject', { to: data.from });
-    return;
-  }
+  if (pcCallActive) { socket.emit('private-call-reject', { to: data.from }); return; }
   incomingCallData = data;
-
   if (incomingCallAvatar) {
     if (data.fromAvatar) incomingCallAvatar.innerHTML = `<img src="${data.fromAvatar}" style="width:100%;height:100%;border-radius:50%;object-fit:cover">`;
     else incomingCallAvatar.textContent = '👤';
   }
   if (incomingCallName) incomingCallName.textContent = data.fromNick || '?';
-
   const subEl = $('incoming-call-sub');
-  if (subEl) subEl.textContent = data.isVideo ? '📹 Видеовызов…' : '📞 Голосовой вызов…';
-
+  if (subEl) subEl.textContent = data.isVideo ? '📹 Видеозвонок…' : '📞 Голосовой вызов…';
   if (modalIncomingCall) modalIncomingCall.classList.add('open');
   playIncomingRing();
   showBrowserNotif(
@@ -3869,10 +4548,8 @@ if (btnCallAccept) btnCallAccept.addEventListener('click', async () => {
   if (modalIncomingCall) modalIncomingCall.classList.remove('open');
   stopIncomingRing();
   if (!incomingCallData) return;
-
   const isVideo = incomingCallData.isVideo || false;
   pcCallIsVideo = isVideo;
-
   try {
     pcCallStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
   } catch (e) {
@@ -3880,24 +4557,15 @@ if (btnCallAccept) btnCallAccept.addEventListener('click', async () => {
     socket.emit('private-call-reject', { to: incomingCallData.from });
     incomingCallData = null; return;
   }
-
   pcCallRemoteId      = incomingCallData.from;
   pcCallRemoteNickLow = incomingCallData.fromNickLower || incomingCallData.fromNick?.toLowerCase();
   pcCallRemoteNick    = incomingCallData.fromNick || '?';
-
-  // Создаём peer — не инициатор
   pcCallPeer = createPrivateCallPeer(pcCallRemoteId, false, isVideo);
-
-  // Устанавливаем remote description из offer
   await pcCallPeer.setRemoteDescription(new RTCSessionDescription(incomingCallData.offer));
-
-  // Добавляем буферизованные ICE кандидаты
   for (const c of pcIceCandidateBuffer) {
     try { await pcCallPeer.addIceCandidate(new RTCIceCandidate(c)); } catch (_) {}
   }
   pcIceCandidateBuffer = [];
-
-  // Если видео — запускаем камеру
   if (isVideo) {
     ensureVideoElements();
     const videoStream = await startLocalVideo();
@@ -3906,16 +4574,11 @@ if (btnCallAccept) btnCallAccept.addEventListener('click', async () => {
       if (videoTrack) pcCallPeer.addTrack(videoTrack, videoStream);
     }
   }
-
-  // Создаём answer
   const answer = await pcCallPeer.createAnswer();
   await pcCallPeer.setLocalDescription(answer);
   socket.emit('private-call-answer', { to: pcCallRemoteId, answer });
-
   pcCallActive = true;
   showCallScreen(pcCallRemoteNick, incomingCallData.fromAvatar || null, 'Соединение…', isVideo);
-
-  // Открываем чат если нужно
   if (currentChatId !== incomingCallData.chatId) {
     socket.emit('private-chat-open', { withNickname: incomingCallData.fromNick }, res => {
       if (res.ok) enterPrivateChat(res.chatId, res.withNickname, res.withAvatar);
@@ -3933,29 +4596,25 @@ if (btnCallReject) btnCallReject.addEventListener('click', () => {
   }
 });
 
-// ── Ответ на звонок ──
 socket.on('private-call-answer', async ({ from, answer }) => {
   if (!pcCallPeer) return;
   pcCallRemoteId = from;
   pcCallActive   = true;
-
+  // Останавливаем гудки — соединение установлено
+  stopDialTone();
   try {
     await pcCallPeer.setRemoteDescription(new RTCSessionDescription(answer));
   } catch (e) {
     console.error('setRemoteDescription error:', e);
     showToast('❌ Ошибка установки соединения', 3000);
-    endPrivateCall(false);
-    return;
+    endPrivateCall(false); return;
   }
-
-  // Отправляем накопленные ICE кандидаты
   for (const candidate of pcIceCandidateBuffer) {
     socket.emit('private-call-ice', { to: from, candidate });
   }
   pcIceCandidateBuffer = [];
 });
 
-// ── ICE кандидаты ──
 socket.on('private-call-ice', async ({ from, candidate }) => {
   if (!candidate) return;
   if (pcCallPeer && pcCallPeer.remoteDescription) {
@@ -3966,10 +4625,12 @@ socket.on('private-call-ice', async ({ from, candidate }) => {
 });
 
 socket.on('private-call-ended',    () => {
+  stopDialTone();
   showToast('📵 ' + (pcCallRemoteNick||'?') + ' завершил звонок', 3000);
   endPrivateCall(false);
 });
 socket.on('private-call-rejected', () => {
+  stopDialTone();
   showToast('📵 ' + (pcCallRemoteNick||'?') + ' отклонил звонок', 3000);
   endPrivateCall(false);
 });
@@ -3978,107 +4639,67 @@ function endPrivateCall(notify = true) {
   if (notify && (pcCallRemoteId || pcCallRemoteNickLow)) {
     socket.emit('private-call-end', { to: pcCallRemoteId || pcCallRemoteNickLow });
   }
+  stopDialTone();
+  stopIncomingRing();
   if (pcCallPeer)   { pcCallPeer.close();   pcCallPeer = null; }
   if (pcCallStream) { pcCallStream.getTracks().forEach(t => t.stop()); pcCallStream = null; }
-
-  stopLocalVideo();
-  showVideoUI(false);
-  pcCallIsVideo = false;
-
+  stopLocalVideo(); showVideoUI(false); pcCallIsVideo = false;
   const el = document.getElementById('audio-pc-call'); if (el) el.remove();
   const remoteVideo = document.getElementById('video-remote');
   if (remoteVideo) remoteVideo.srcObject = null;
-
-  pcCallActive        = false;
-  pcCallRemoteId      = null;
-  pcCallRemoteNickLow = null;
-  pcCallRemoteNick    = '';
-  pcCallMuted         = false;
-  isSpeakerMode       = false;
+  pcCallActive = false; pcCallRemoteId = null; pcCallRemoteNickLow = null;
+  pcCallRemoteNick = ''; pcCallMuted = false; isSpeakerMode = false;
   pcIceCandidateBuffer = [];
-
-  // Убираем экран звонка без анимации
-  if (callScreen) {
-    callScreen.classList.remove('active');
-    callScreen.classList.remove('minimizing');
-  }
+  if (callScreen) { callScreen.classList.remove('active'); callScreen.classList.remove('minimizing'); }
   hideCallMiniBar();
-  stopIncomingRing();
   if (modalIncomingCall) modalIncomingCall.classList.remove('open');
   stopCallTimer();
-
   if (callBtnMute)    { callBtnMute.textContent = '🎤';    callBtnMute.classList.remove('active'); }
   if (callBtnSpeaker) { callBtnSpeaker.textContent = '🔈'; callBtnSpeaker.classList.remove('active'); }
   if (callBtnVideo)   { callBtnVideo.textContent = '📷';   callBtnVideo.classList.remove('active'); }
 }
 
-// ── Создание peer для личного звонка ──
 function createPrivateCallPeer(targetId, isInitiator, isVideo) {
   const peer = new RTCPeerConnection(iceServers);
-
-  // Добавляем аудио дорожки
-  if (pcCallStream) {
-    pcCallStream.getTracks().forEach(t => peer.addTrack(t, pcCallStream));
-  }
-
-  // Входящие медиа-треки
+  if (pcCallStream) pcCallStream.getTracks().forEach(t => peer.addTrack(t, pcCallStream));
   peer.ontrack = e => {
     const track = e.track;
-
     if (track.kind === 'audio') {
       let audio = document.getElementById('audio-pc-call');
       if (!audio) {
         audio = document.createElement('audio');
-        audio.id = 'audio-pc-call';
-        audio.autoplay = true;
-        audio.playsInline = true;
+        audio.id = 'audio-pc-call'; audio.autoplay = true; audio.playsInline = true;
         document.body.appendChild(audio);
       }
       audio.srcObject = e.streams[0];
       audio.volume    = isSpeakerMode ? 1.0 : 0.5;
-      audio.play().catch(() => {
-        document.addEventListener('click', () => audio.play().catch(()=>{}), { once: true });
-      });
+      audio.play().catch(() => { document.addEventListener('click', () => audio.play().catch(()=>{}), { once: true }); });
     }
-
     if (track.kind === 'video') {
-      ensureVideoElements();
-      showVideoUI(true);
-      pcCallIsVideo = true;
+      ensureVideoElements(); showVideoUI(true); pcCallIsVideo = true;
       if (callBtnVideo) callBtnVideo.classList.add('active');
-
       const remoteVideo = document.getElementById('video-remote');
       const noSignal    = document.getElementById('video-no-signal');
       if (remoteVideo) {
         remoteVideo.srcObject = e.streams[0];
-        remoteVideo.play().then(() => {
-          if (noSignal) noSignal.style.display = 'none';
-        }).catch(() => {});
+        remoteVideo.play().then(() => { if (noSignal) noSignal.style.display = 'none'; }).catch(() => {});
       }
     }
   };
-
-  // ICE кандидаты — буферизуем до получения remote description
   peer.onicecandidate = e => {
     if (!e.candidate) return;
     const target = pcCallRemoteId || targetId;
     if (!peer.remoteDescription) {
-      // Буферизуем только если инициатор и ещё нет remote description
-      if (isInitiator) {
-        pcIceCandidateBuffer.push(e.candidate);
-      } else {
-        socket.emit('private-call-ice', { to: target, candidate: e.candidate });
-      }
+      if (isInitiator) pcIceCandidateBuffer.push(e.candidate);
+      else socket.emit('private-call-ice', { to: target, candidate: e.candidate });
     } else {
       socket.emit('private-call-ice', { to: target, candidate: e.candidate });
     }
   };
-
-  // Состояние соединения
   peer.onconnectionstatechange = () => {
     const state = peer.connectionState;
-    console.log('Call connection state:', state);
     if (state === 'connected') {
+      stopDialTone(); // Останавливаем гудки при соединении
       startCallTimer();
       showToast('🟢 Звонок установлен', 2000);
       setSpeakerOutput(pcCallIsVideo ? true : isSpeakerMode);
@@ -4089,82 +4710,30 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
       setCallStatus('Переподключение…');
       setTimeout(() => {
         if (peer.connectionState === 'disconnected' || peer.connectionState === 'failed') {
-          showToast('📵 Соединение прервано', 3000);
-          endPrivateCall(false);
+          showToast('📵 Соединение прервано', 3000); endPrivateCall(false);
         }
       }, 5000);
     }
-    if (state === 'failed') {
-      showToast('📵 Не удалось соединиться', 3000);
-      endPrivateCall(false);
-    }
+    if (state === 'failed') { showToast('📵 Не удалось соединиться', 3000); endPrivateCall(false); }
   };
-
   peer.oniceconnectionstatechange = () => {
     const s = peer.iceConnectionState;
-    console.log('ICE state:', s);
     if (s === 'checking')     setCallStatus('Соединение…');
     if (s === 'connected')    setCallStatus('Соединён');
     if (s === 'disconnected') setCallStatus('Переподключение…');
     if (s === 'failed')       peer.restartIce();
   };
-
-  // Инициатор: ожидаем negotiationneeded
   if (isInitiator) {
     peer.onnegotiationneeded = async () => {
       try {
-        const offerOptions = {
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: isVideo
-        };
-        const offer = await peer.createOffer(offerOptions);
+        const offer = await peer.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: isVideo });
         await peer.setLocalDescription(offer);
-
-        // Отправляем offer через сигнальный сервер
         socket.emit('private-call-offer', {
-          chatId:  currentChatId,
-          to:      pcCallRemoteNickLow,
-          offer:   peer.localDescription,
-          isVideo: isVideo
+          chatId:  currentChatId, to: pcCallRemoteNickLow,
+          offer:   peer.localDescription, isVideo: isVideo
         });
-        console.log('Offer sent to:', pcCallRemoteNickLow);
-      } catch (e) {
-        console.error('Offer creation error:', e);
-        showToast('❌ Ошибка при установке звонка', 3000);
-      }
+      } catch (e) { console.error('Offer error:', e); showToast('❌ Ошибка при установке звонка', 3000); }
     };
   }
-
   return peer;
-}
-
-// ── Рингтон ──
-let ringInterval = null;
-
-function playIncomingRing() {
-  stopIncomingRing();
-  let count = 0;
-  const ring = () => {
-    if (count++ > 30) { stopIncomingRing(); return; }
-    try {
-      const ctx  = new (window.AudioContext || window.webkitAudioContext)();
-      const osc  = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain); gain.connect(ctx.destination);
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(440, ctx.currentTime);
-      osc.frequency.setValueAtTime(480, ctx.currentTime + 0.15);
-      gain.gain.setValueAtTime(0.3, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.5);
-      osc.onended = () => ctx.close();
-    } catch (_) {}
-  };
-  ring();
-  ringInterval = setInterval(ring, 1200);
-}
-
-function stopIncomingRing() {
-  if (ringInterval) { clearInterval(ringInterval); ringInterval = null; }
 }
