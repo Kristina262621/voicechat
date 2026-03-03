@@ -708,11 +708,6 @@ function openPeerProfile(nickname, avatar) {
     toggleMenu();
   });
 
-  const toggleMenu2 = () => {
-    const menu = sheet.querySelector('#peer-actions-menu');
-    if (menu) menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
-  };
-
   sheet.querySelector('#peer-call-btn')?.addEventListener('click', () => {
     close();
     setTimeout(() => {
@@ -2985,7 +2980,10 @@ if (btnJoin) btnJoin.addEventListener('click', async () => {
     addParticipant(socket.id, myNickname, true);
     startVolumeAnalysis(socket.id, localStream);
     socket.emit('voice-join');
-    for (const { from, offer, nickname } of pendingOffers) await handleOffer(from, offer, nickname);
+    // Обрабатываем отложенные оферы
+    for (const { from, offer, nickname } of pendingOffers) {
+      if (offer) await handleOffer(from, offer, nickname);
+    }
     pendingOffers = [];
   } catch (err) {
     const msgs = {
@@ -3024,10 +3022,14 @@ socket.on('existing-voice-users', async users => {
   for (const user of users) {
     voiceNicknames[user.id] = user.nickname || shortId(user.id);
     addParticipant(user.id, voiceNicknames[user.id], false);
-    peers[user.id] = createPeer(user.id, true);
+    if (!peers[user.id]) {
+      peers[user.id] = createPeer(user.id, true);
+    }
     try {
-      ecdhExchanged.add(user.id);
-      socket.emit('ecdh-pubkey', { to: user.id, pubkey: await Crypto.exportPublicKey() });
+      if (!ecdhExchanged.has(user.id)) {
+        ecdhExchanged.add(user.id);
+        socket.emit('ecdh-pubkey', { to: user.id, pubkey: await Crypto.exportPublicKey() });
+      }
     } catch (_) {}
   }
 });
@@ -3039,13 +3041,14 @@ socket.on('voice-user-joined', async data => {
   voiceNicknames[uid] = nick;
   addParticipant(uid, nick, false);
   if (joined) {
+    // Новый пользователь — мы инициируем offer к нему
     if (!peers[uid]) peers[uid] = createPeer(uid, false);
     try {
-      ecdhExchanged.add(uid);
-      socket.emit('ecdh-pubkey', { to: uid, pubkey: await Crypto.exportPublicKey() });
+      if (!ecdhExchanged.has(uid)) {
+        ecdhExchanged.add(uid);
+        socket.emit('ecdh-pubkey', { to: uid, pubkey: await Crypto.exportPublicKey() });
+      }
     } catch (_) {}
-  } else {
-    pendingOffers.push({ from: uid, offer: null, nickname: nick });
   }
 });
 
@@ -3058,20 +3061,74 @@ socket.on('offer', async ({ from, offer, nickname }) => {
 async function handleOffer(from, offer, nickname) {
   if (!offer) return;
   if (nickname) { voiceNicknames[from] = nickname; updateParticipantName(from, nickname); }
-  const peer = createPeer(from, false);
+
+  // Закрываем старый peer если был
+  if (peers[from]) { try { peers[from].close(); } catch(_) {} delete peers[from]; }
+
+  const peer = new RTCPeerConnection(iceServers);
   peers[from] = peer;
-  await peer.setRemoteDescription(new RTCSessionDescription(offer));
-  const answer   = await peer.createAnswer();
-  const improved = { type: answer.type, sdp: forceOpusMaxQuality(answer.sdp) };
-  await peer.setLocalDescription(improved);
-  socket.emit('answer', { to: from, answer: improved });
+
+  // ─── КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ для групп: добавляем треки ПЕРЕД setRemoteDescription ───
+  const stream = processedStream || localStream;
+  if (stream) {
+    stream.getTracks().forEach(t => {
+      try { peer.addTrack(t, stream); } catch(_) {}
+    });
+  }
+
+  peer.ontrack = e => {
+    const stream = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
+    if (e.track.kind !== 'audio') return;
+    let audio = document.getElementById('audio-' + from);
+    if (!audio) {
+      audio = document.createElement('audio');
+      audio.id = 'audio-' + from;
+      audio.autoplay = true;
+      audio.playsInline = true;
+      if (hiddenAudios) hiddenAudios.appendChild(audio);
+    }
+    if (audio.srcObject !== stream) {
+      audio.srcObject = stream;
+      audio.play()
+        .then(() => startVolumeAnalysis(from, stream))
+        .catch(() => { document.addEventListener('click', () => audio.play().catch(() => {}), { once: true }); });
+    }
+  };
+
+  peer.onicecandidate = e => {
+    if (e.candidate) socket.emit('ice-candidate', { to: from, candidate: e.candidate });
+  };
+
+  peer.oniceconnectionstatechange = () => {
+    const s = peer.iceConnectionState;
+    if (s === 'failed') peer.restartIce();
+    if (s === 'disconnected') setTimeout(() => { if (peer.iceConnectionState === 'disconnected') peer.restartIce(); }, 3000);
+  };
+
+  peer.onconnectionstatechange = () => {
+    if (peer.connectionState === 'connected') {
+      startQualityMonitor(from, peer, false);
+    }
+  };
+
+  try {
+    await peer.setRemoteDescription(new RTCSessionDescription(offer));
+    const answer   = await peer.createAnswer();
+    const improved = { type: answer.type, sdp: forceOpusMaxQuality(answer.sdp) };
+    await peer.setLocalDescription(improved);
+    socket.emit('answer', { to: from, answer: improved });
+  } catch(e) {
+    console.error('handleOffer error:', e);
+  }
 }
 
 socket.on('answer', async ({ from, answer }) => {
   if (voiceNicknames[from]) updateParticipantName(from, voiceNicknames[from]);
   const peer = peers[from];
-  if (peer && peer.signalingState === 'have-local-offer')
-    await peer.setRemoteDescription(new RTCSessionDescription(answer));
+  if (peer && peer.signalingState === 'have-local-offer') {
+    try { await peer.setRemoteDescription(new RTCSessionDescription(answer)); }
+    catch(e) { console.error('answer setRemoteDescription error:', e); }
+  }
 });
 
 socket.on('ice-candidate', async ({ from, candidate }) => {
@@ -3141,24 +3198,28 @@ function startVolumeAnalysis(userId, stream) {
   const ctx = audioCtx || new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
   if (!audioCtx) audioCtx = ctx;
   stopVolumeAnalysis(userId);
-  const source   = ctx.createMediaStreamSource(stream);
-  const analyser = ctx.createAnalyser();
-  analyser.fftSize = 512;
-  source.connect(analyser);
-  const data = new Uint8Array(analyser.frequencyBinCount);
-  let wasSpeaking = false;
-  function tick() {
-    if (!analysers[userId]) return;
-    analyser.getByteFrequencyData(data);
-    let sum = 0; for (let i = 0; i < data.length; i++) sum += data[i];
-    const pct = Math.min(100, (sum / data.length) * 3);
-    const bar = document.getElementById('vol-' + userId);
-    if (bar) { bar.style.width = pct + '%'; bar.className = 'volume-bar' + (pct > 60 ? ' loud' : ''); }
-    const speaking = pct > SPEAKING_THRESHOLD;
-    if (speaking !== wasSpeaking) { setSpeaking(userId, speaking); wasSpeaking = speaking; }
-    analysers[userId].animFrame = requestAnimationFrame(tick);
+  try {
+    const source   = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    source.connect(analyser);
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    let wasSpeaking = false;
+    function tick() {
+      if (!analysers[userId]) return;
+      analyser.getByteFrequencyData(data);
+      let sum = 0; for (let i = 0; i < data.length; i++) sum += data[i];
+      const pct = Math.min(100, (sum / data.length) * 3);
+      const bar = document.getElementById('vol-' + userId);
+      if (bar) { bar.style.width = pct + '%'; bar.className = 'volume-bar' + (pct > 60 ? ' loud' : ''); }
+      const speaking = pct > SPEAKING_THRESHOLD;
+      if (speaking !== wasSpeaking) { setSpeaking(userId, speaking); wasSpeaking = speaking; }
+      analysers[userId].animFrame = requestAnimationFrame(tick);
+    }
+    analysers[userId] = { analyser, source, animFrame: requestAnimationFrame(tick) };
+  } catch(e) {
+    console.warn('startVolumeAnalysis error:', e);
   }
-  analysers[userId] = { analyser, source, animFrame: requestAnimationFrame(tick) };
 }
 
 function stopVolumeAnalysis(userId) {
@@ -3268,52 +3329,102 @@ function forceOpusMaxQuality(sdp) {
   return result.join('\r\n');
 }
 
-function calcLevel(rtt, lost, total, jitter) {
-  if (rtt === null) return 'none';
-  const lr = (lost + total) > 0 ? lost / (lost + total) : 0;
-  if (rtt < 80  && lr < 0.02 && jitter < 0.02) return 'excellent';
-  if (rtt < 150 && lr < 0.05 && jitter < 0.05) return 'good';
-  if (rtt < 300 && lr < 0.10 && jitter < 0.10) return 'fair';
+// ═══════════════════════════════════════════════
+//  ШКАЛА КАЧЕСТВА СИГНАЛА — ИСПРАВЛЕННАЯ ВЕРСИЯ
+// ═══════════════════════════════════════════════
+function calcLevel(rtt, lostRatio, jitter) {
+  // rtt в мс, lostRatio 0..1, jitter в секундах
+  if (rtt === null && lostRatio === null) return 'none';
+  const r = rtt !== null ? rtt : 999;
+  const j = jitter !== null ? jitter * 1000 : 999; // переводим в мс
+  const l = lostRatio !== null ? lostRatio : 1;
+
+  // 4 палки — отличное
+  if (r < 100 && l < 0.02 && j < 20)  return 'excellent';
+  // 3 палки — хорошее
+  if (r < 200 && l < 0.05 && j < 50)  return 'good';
+  // 2 палки — среднее
+  if (r < 400 && l < 0.15 && j < 100) return 'fair';
+  // 1 палка — плохое
   return 'poor';
 }
+
 function renderSignal(userId, level) {
   const w = document.getElementById('sig-' + userId);
-  if (w) w.className = 'signal-wrap signal-' + level;
-}
-async function measureRemoteQuality(peer) {
-  try {
-    const stats = await peer.getStats(); let rtt=null,lost=0,received=0,jitter=0;
-    stats.forEach(r => {
-      if (r.type==='inbound-rtp'&&r.kind==='audio')  { lost=r.packetsLost||0; received=r.packetsReceived||0; jitter=r.jitter||0; }
-      if (r.type==='candidate-pair'&&r.state==='succeeded'&&r.currentRoundTripTime!=null) rtt=r.currentRoundTripTime*1000;
-    });
-    return calcLevel(rtt,lost,received,jitter);
-  } catch { return 'none'; }
-}
-async function measureLocalQuality(peer) {
-  try {
-    const stats = await peer.getStats(); let rtt=null,lost=0,sent=0,jitter=0;
-    stats.forEach(r => {
-      if (r.type==='remote-inbound-rtp'&&r.kind==='audio') { lost=r.packetsLost||0; jitter=r.jitter||0; if(r.roundTripTime!=null) rtt=r.roundTripTime*1000; }
-      if (r.type==='outbound-rtp'&&r.kind==='audio') sent=r.packetsSent||0;
-    });
-    return calcLevel(rtt,lost,sent,jitter);
-  } catch { return 'none'; }
-}
-function startQualityMonitor(userId, peer, isLocal) {
-  stopQualityMonitor(userId);
-  qualityTimers[userId] = setInterval(async () => {
-    renderSignal(userId, isLocal ? await measureLocalQuality(peer) : await measureRemoteQuality(peer));
-  }, 2000);
-}
-function stopQualityMonitor(userId) {
-  if (qualityTimers[userId]) { clearInterval(qualityTimers[userId]); delete qualityTimers[userId]; }
+  if (!w) return;
+  // Убираем все классы signal-*
+  w.className = 'signal-wrap signal-' + (level || 'none');
 }
 
+async function measureQuality(peer, isLocal) {
+  try {
+    const stats = await peer.getStats();
+    let rtt = null, lostRatio = null, jitter = null;
+
+    stats.forEach(r => {
+      // RTT из candidate-pair (наиболее надёжно)
+      if (r.type === 'candidate-pair' && r.state === 'succeeded') {
+        if (r.currentRoundTripTime != null) rtt = r.currentRoundTripTime * 1000;
+      }
+
+      if (isLocal) {
+        // Для отправителя — смотрим remote-inbound-rtp
+        if (r.type === 'remote-inbound-rtp' && r.kind === 'audio') {
+          if (r.roundTripTime != null) rtt = r.roundTripTime * 1000;
+          if (r.jitter != null) jitter = r.jitter;
+          if (r.packetsLost != null) {
+            // Считаем ratio из outbound-rtp
+            stats.forEach(s => {
+              if (s.type === 'outbound-rtp' && s.kind === 'audio' && s.packetsSent > 0) {
+                lostRatio = Math.max(0, r.packetsLost) / (Math.max(0, r.packetsLost) + s.packetsSent);
+              }
+            });
+          }
+        }
+      } else {
+        // Для получателя — смотрим inbound-rtp
+        if (r.type === 'inbound-rtp' && r.kind === 'audio') {
+          if (r.jitter != null) jitter = r.jitter;
+          const total = (r.packetsReceived || 0) + (r.packetsLost || 0);
+          if (total > 0) lostRatio = Math.max(0, r.packetsLost || 0) / total;
+        }
+      }
+    });
+
+    return calcLevel(rtt, lostRatio, jitter);
+  } catch {
+    return 'none';
+  }
+}
+
+function startQualityMonitor(userId, peer, isLocal) {
+  stopQualityMonitor(userId);
+  // Сразу ставим хорошее — при подключении нет данных
+  renderSignal(userId, 'good');
+  qualityTimers[userId] = setInterval(async () => {
+    const level = await measureQuality(peer, isLocal);
+    renderSignal(userId, level);
+  }, 3000);
+}
+
+function stopQualityMonitor(userId) {
+  if (qualityTimers[userId]) { clearInterval(qualityTimers[userId]); delete qualityTimers[userId]; }
+  renderSignal(userId, 'none');
+}
+
+// ─── createPeer для групповых звонков ───
 function createPeer(userId, isInitiator) {
   const peer   = new RTCPeerConnection(iceServers);
+
+  // ─── КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: добавляем треки СРАЗУ при создании peer ───
   const stream = processedStream || localStream;
-  stream.getTracks().forEach(t => peer.addTrack(t, stream));
+  if (stream) {
+    stream.getTracks().forEach(t => {
+      try { peer.addTrack(t, stream); } catch(_) {}
+    });
+  }
+
+  // Устанавливаем параметры кодека
   peer.getSenders().forEach(s => {
     if (s.track?.kind === 'audio') {
       const p = s.getParameters();
@@ -3322,6 +3433,7 @@ function createPeer(userId, isInitiator) {
       s.setParameters(p).catch(() => {});
     }
   });
+
   let restartAttempts = 0, restartTimer = null;
   function tryRestart() {
     if (restartAttempts >= 5) return;
@@ -3332,12 +3444,16 @@ function createPeer(userId, isInitiator) {
       if (peer.connectionState === 'failed' || peer.iceConnectionState === 'failed') peer.restartIce();
     }, delay);
   }
+
   peer.addEventListener('connectionstatechange', () => {
     const state = peer.connectionState;
     if (state === 'connected') {
       restartAttempts = 0; clearTimeout(restartTimer);
-      if (Object.keys(peers).length === 1) startQualityMonitor(socket.id, peer, true);
-      startQualityMonitor(userId, peer, false);
+      startQualityMonitor(userId, peer, isInitiator);
+      // Если это мы — запускаем мониторинг и для себя
+      if (isInitiator && !qualityTimers[socket.id]) {
+        startQualityMonitor(socket.id, peer, true);
+      }
     }
     if (state === 'failed') tryRestart();
     if (state === 'disconnected') {
@@ -3346,36 +3462,55 @@ function createPeer(userId, isInitiator) {
       }, 3000);
     }
   });
+
   peer.ontrack = e => {
+    const trackStream = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
+    if (e.track.kind !== 'audio') return;
+
     let audio = document.getElementById('audio-' + userId);
     if (!audio) {
       audio = document.createElement('audio');
-      audio.id = 'audio-' + userId; audio.autoplay = true; audio.playsInline = true;
+      audio.id = 'audio-' + userId;
+      audio.autoplay = true;
+      audio.playsInline = true;
       if (hiddenAudios) hiddenAudios.appendChild(audio);
     }
-    audio.srcObject = e.streams[0];
-    audio.play()
-      .then(() => startVolumeAnalysis(userId, e.streams[0]))
-      .catch(() => { document.addEventListener('click', () => audio.play().catch(() => {}), { once: true }); });
+    // ─── КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: всегда обновляем srcObject ───
+    if (audio.srcObject !== trackStream) {
+      audio.srcObject = trackStream;
+      audio.play()
+        .then(() => startVolumeAnalysis(userId, trackStream))
+        .catch(() => {
+          document.addEventListener('click', () => {
+            audio.play().catch(() => {});
+          }, { once: true });
+        });
+    }
   };
+
   peer.onicecandidate = e => {
     if (e.candidate) socket.emit('ice-candidate', { to: userId, candidate: e.candidate });
   };
+
   peer.oniceconnectionstatechange = () => {
     const s = peer.iceConnectionState;
     if (s === 'failed') tryRestart();
     if (s === 'disconnected') setTimeout(() => { if (peer.iceConnectionState === 'disconnected') tryRestart(); }, 3000);
   };
+
   if (isInitiator) {
     let offerSent = false;
     peer.onnegotiationneeded = async () => {
       if (offerSent) return; offerSent = true;
       try {
-        const offer    = await peer.createOffer();
+        const offer    = await peer.createOffer({ offerToReceiveAudio: true });
         const improved = { type: offer.type, sdp: forceOpusMaxQuality(offer.sdp) };
         await peer.setLocalDescription(improved);
         socket.emit('offer', { to: userId, offer: improved });
-      } catch (_) {}
+      } catch (e) {
+        console.error('createOffer error:', e);
+        offerSent = false;
+      }
     };
   }
   return peer;
@@ -3384,7 +3519,7 @@ function createPeer(userId, isInitiator) {
 function hangUp() {
   Object.keys(analysers).forEach(stopVolumeAnalysis);
   Object.keys(qualityTimers).forEach(stopQualityMonitor);
-  Object.values(peers).forEach(p => p.close());
+  Object.values(peers).forEach(p => { try { p.close(); } catch(_) {} });
   peers = {};
   for (const k in voiceNicknames) delete voiceNicknames[k];
   if (localStream)  { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
@@ -3589,7 +3724,6 @@ function ensureVideoElements() {
   if (!vc) {
     vc = document.createElement('div');
     vc.id = 'call-video-container';
-    // ─── ИСПРАВЛЕНИЕ: видео теперь на весь экран ───
     vc.style.cssText = 'position:fixed;inset:0;display:none;z-index:998;background:#000;overflow:hidden;';
     const rv = document.createElement('video');
     rv.id = 'video-remote'; rv.autoplay = true; rv.playsInline = true;
@@ -3610,7 +3744,6 @@ function ensureLocalVideo() {
   if (!lv) {
     lv = document.createElement('video');
     lv.id = 'video-local'; lv.autoplay = true; lv.playsInline = true; lv.muted = true;
-    // Стиль уже задан в CSS index.html
     document.body.appendChild(lv);
   }
   return lv;
@@ -3713,7 +3846,6 @@ let pcIceCandidateBuffer = [];
 let callTimer            = null;
 let callSeconds          = 0;
 
-// ─── Таймер для скрытия панели управления ───
 let callControlsHideTimer = null;
 let callControlsVisible   = true;
 
@@ -3738,7 +3870,6 @@ function hideCallControls() {
   if (top)    Object.assign(top.style,    { opacity:'0', pointerEvents:'none', transform:'translateY(-60px)', transition:'opacity 0.3s, transform 0.3s' });
 }
 
-// Тап по экрану звонка — показать/скрыть управление
 if (callScreen) {
   callScreen.addEventListener('click', e => {
     if (e.target.closest('button')) return;
@@ -3757,10 +3888,9 @@ function showCallScreen(name, avatar, status, isVideo) {
     if (avatar) callScreenAvatar.innerHTML = `<img src="${avatar}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
     else        callScreenAvatar.textContent = '👤';
   }
-  // ─── ИСПРАВЛЕНИЕ 2: для видео скрываем центральный блок с именем/фото ───
   const center = callScreen.querySelector('.call-screen-center');
   if (center) {
-    center.style.display = isVideo ? 'none' : 'flex';
+    center.style.display  = isVideo ? 'none' : 'flex';
     center.style.position = 'relative';
     center.style.zIndex   = '1000';
   }
@@ -3769,7 +3899,6 @@ function showCallScreen(name, avatar, status, isVideo) {
   callScreen.classList.add('active');
   callScreen.classList.remove('minimizing');
   hideCallMiniBar();
-  // Сбрасываем стили панелей
   const bottom = callScreen.querySelector('.call-screen-bottom');
   const top    = callScreen.querySelector('.call-screen-top');
   if (bottom) Object.assign(bottom.style, { opacity:'1', pointerEvents:'all', transform:'translateY(0)', transition:'opacity 0.3s, transform 0.3s', position:'relative', zIndex:'1001' });
@@ -3887,7 +4016,11 @@ async function startPrivateCall(isVideo) {
     pcCallStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
   } catch (e) { showToast('❌ Нет доступа к микрофону'); return; }
 
+  // ─── Создаём peer и сразу добавляем аудио треки ───
   pcCallPeer = createPrivateCallPeer(pcCallRemoteNickLow, true, isVideo);
+  pcCallStream.getAudioTracks().forEach(t => {
+    try { pcCallPeer.addTrack(t, pcCallStream); } catch(_) {}
+  });
 
   if (isVideo) {
     ensureVideoElements();
@@ -3899,6 +4032,7 @@ async function startPrivateCall(isVideo) {
       }
     }
   }
+
   playDialTone();
   showCallScreen(pcCallRemoteNick, withAvatar, isVideo ? '📹 Видеовызов…' : '📞 Вызов…', isVideo);
 }
@@ -3939,15 +4073,13 @@ if (btnCallAccept) btnCallAccept.addEventListener('click', async () => {
   pcCallRemoteNickLow = data.fromNickLower || data.fromNick?.toLowerCase();
   pcCallRemoteNick    = data.fromNick || '?';
 
-  // ─── ИСПРАВЛЕНИЕ 1: создаём peer ПЕРЕД setRemoteDescription ───
+  // ─── Создаём peer (НЕ initiator) ───
   pcCallPeer = createPrivateCallPeer(pcCallRemoteId, false, isVideo);
 
-  // Добавляем аудио треки сразу
-  if (pcCallStream) {
-    pcCallStream.getTracks().forEach(t => {
-      try { pcCallPeer.addTrack(t, pcCallStream); } catch(_) {}
-    });
-  }
+  // ─── Добавляем аудио треки ПЕРЕД setRemoteDescription ───
+  pcCallStream.getAudioTracks().forEach(t => {
+    try { pcCallPeer.addTrack(t, pcCallStream); } catch(_) {}
+  });
 
   try {
     await pcCallPeer.setRemoteDescription(new RTCSessionDescription(data.offer));
@@ -3957,7 +4089,7 @@ if (btnCallAccept) btnCallAccept.addEventListener('click', async () => {
     endPrivateCall(false); return;
   }
 
-  // Добавляем буферизованные ICE кандидаты
+  // ─── Добавляем буферизованные ICE кандидаты после setRemoteDescription ───
   for (const c of pcIceCandidateBuffer) {
     try { await pcCallPeer.addIceCandidate(new RTCIceCandidate(c)); } catch (_) {}
   }
@@ -4013,6 +4145,7 @@ socket.on('private-call-answer', async ({ from, answer }) => {
   if (!pcCallPeer) return;
   pcCallRemoteId = from;
   stopDialTone();
+
   if (pcCallPeer.signalingState !== 'have-local-offer') {
     console.warn('Unexpected signalingState on answer:', pcCallPeer.signalingState);
     return;
@@ -4024,8 +4157,8 @@ socket.on('private-call-answer', async ({ from, answer }) => {
     showToast('❌ Ошибка установки соединения', 3000);
     endPrivateCall(false); return;
   }
-  pcCallActive = true;
-  // Отправляем буферизованные ICE кандидаты
+
+  // ─── Отправляем накопленные ICE кандидаты ───
   for (const candidate of pcIceCandidateBuffer) {
     socket.emit('private-call-ice', { to: pcCallRemoteId, candidate });
   }
@@ -4050,7 +4183,7 @@ function endPrivateCall(notify = true) {
   }
   clearTimeout(callControlsHideTimer);
   stopDialTone(); stopIncomingRing();
-  if (pcCallPeer)   { pcCallPeer.close();   pcCallPeer = null; }
+  if (pcCallPeer)   { try { pcCallPeer.close(); } catch(_) {} pcCallPeer = null; }
   if (pcCallStream) { pcCallStream.getTracks().forEach(t => t.stop()); pcCallStream = null; }
   stopLocalVideo(); showVideoUI(false); pcCallIsVideo = false;
   const el = document.getElementById('audio-pc-call'); if (el) el.remove();
@@ -4062,7 +4195,6 @@ function endPrivateCall(notify = true) {
   hideCallMiniBar();
   if (modalIncomingCall) modalIncomingCall.classList.remove('open');
   stopCallTimer();
-  // Восстанавливаем видимость центральной части
   const center = callScreen?.querySelector('.call-screen-center');
   if (center) center.style.display = 'flex';
   const bottom = callScreen?.querySelector('.call-screen-bottom');
@@ -4075,11 +4207,11 @@ function endPrivateCall(notify = true) {
   if (callBtnVideo)   { callBtnVideo.textContent = '📷';   callBtnVideo.classList.remove('active'); }
 }
 
-// ─── ГЛАВНАЯ ИСПРАВЛЕННАЯ ФУНКЦИЯ createPrivateCallPeer ───
+// ─── createPrivateCallPeer ───
 function createPrivateCallPeer(targetId, isInitiator, isVideo) {
   const peer = new RTCPeerConnection(iceServers);
 
-  // ─── ИСПРАВЛЕНИЕ 1: добавляем transceiver'ы явно для правильного согласования ───
+  // ─── ИСПРАВЛЕНИЕ: для initiator добавляем transceiver'ы чтобы SDP содержал нужные секции ───
   if (isInitiator) {
     peer.addTransceiver('audio', { direction: 'sendrecv' });
     if (isVideo) {
@@ -4087,19 +4219,12 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
     }
   }
 
-  // Добавляем аудио треки от микрофона (если не добавлены через transceiver)
-  if (pcCallStream && !isInitiator) {
-    pcCallStream.getAudioTracks().forEach(t => {
-      try { peer.addTrack(t, pcCallStream); } catch(_) {}
-    });
-  }
-
-  // ─── ИСПРАВЛЕНИЕ 2: правильная обработка входящих треков ───
+  // ─── Обработка входящих треков ───
   peer.ontrack = e => {
     const track  = e.track;
     const stream = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([track]);
 
-    console.log('ontrack:', track.kind, 'streams:', e.streams.length);
+    console.log('private ontrack:', track.kind, 'readyState:', track.readyState);
 
     if (track.kind === 'audio') {
       let audio = document.getElementById('audio-pc-call');
@@ -4110,11 +4235,14 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
         audio.playsInline = true;
         document.body.appendChild(audio);
       }
-      // ─── КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: всегда обновляем srcObject ───
+      // ─── КЛЮЧЕВОЕ: всегда обновляем srcObject при получении трека ───
       audio.srcObject = stream;
       audio.volume = isSpeakerMode ? 1.0 : 0.7;
       audio.play().catch(() => {
-        document.addEventListener('click', () => audio.play().catch(() => {}), { once: true });
+        // Автовоспроизведение заблокировано — ждём первого касания
+        const resume = () => { audio.play().catch(() => {}); document.removeEventListener('click', resume); document.removeEventListener('touchstart', resume); };
+        document.addEventListener('click',      resume, { once: true });
+        document.addEventListener('touchstart', resume, { once: true });
       });
     }
 
@@ -4132,22 +4260,26 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
       const ns = document.getElementById('video-no-signal');
 
       if (rv) {
-        // ─── КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: создаём новый MediaStream только для видео ───
+        // Создаём или обновляем remote stream
         let remoteStream = rv.srcObject;
-        if (!remoteStream) {
+        if (!remoteStream || !(remoteStream instanceof MediaStream)) {
           remoteStream = new MediaStream();
           rv.srcObject = remoteStream;
         }
-        // Убираем старые видео треки и добавляем новый
+        // Убираем старые треки того же типа
         remoteStream.getVideoTracks().forEach(t => remoteStream.removeTrack(t));
         remoteStream.addTrack(track);
 
-        // Если в event.streams[0] есть аудио — синхронизируем аудио элемент
+        // Синхронизируем аудио если есть в том же stream
         if (e.streams[0]) {
           const audioEl = document.getElementById('audio-pc-call');
-          if (audioEl && audioEl.srcObject !== e.streams[0]) {
-            audioEl.srcObject = e.streams[0];
-            audioEl.play().catch(() => {});
+          if (audioEl) {
+            e.streams[0].getAudioTracks().forEach(at => {
+              const existing = (audioEl.srcObject instanceof MediaStream) ? audioEl.srcObject : null;
+              if (existing && !existing.getAudioTracks().includes(at)) {
+                existing.addTrack(at);
+              }
+            });
           }
         }
 
@@ -4155,14 +4287,15 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
           .then(() => {
             if (ns) ns.style.display = 'none';
             console.log('Видео собеседника воспроизводится');
-            // Скрываем центр (имя/аватар) когда видео пошло
             const center = callScreen?.querySelector('.call-screen-center');
             if (center) center.style.display = 'none';
             showCallControls();
           })
           .catch(err => {
             console.warn('Ошибка воспроизведения видео:', err);
-            document.addEventListener('click', () => rv.play().catch(() => {}), { once: true });
+            const resume = () => { rv.play().catch(() => {}); };
+            document.addEventListener('click',      resume, { once: true });
+            document.addEventListener('touchstart', resume, { once: true });
           });
       }
     }
@@ -4172,7 +4305,7 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
     if (!e.candidate) return;
     const target = pcCallRemoteId || targetId;
     if (isInitiator && !pcCallRemoteId) {
-      // Буферизуем пока не знаем remote id
+      // Буферизуем пока не знаем remote socket id
       pcIceCandidateBuffer.push(e.candidate);
     } else {
       socket.emit('private-call-ice', { to: target, candidate: e.candidate });
@@ -4181,7 +4314,7 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
 
   peer.onconnectionstatechange = () => {
     const state = peer.connectionState;
-    console.log('Call connection state:', state);
+    console.log('Private call connection state:', state);
     if (state === 'connected') {
       stopDialTone();
       pcCallActive = true;
@@ -4189,10 +4322,7 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
       showToast('🟢 Звонок установлен', 2000);
       setSpeakerOutput(pcCallIsVideo ? true : isSpeakerMode);
       setCallStatus('Соединён');
-      if (pcCallIsVideo) {
-        // Запускаем автоскрытие панели
-        showCallControls();
-      }
+      if (pcCallIsVideo) showCallControls();
     }
     if (state === 'connecting')   setCallStatus('Соединение…');
     if (state === 'disconnected') {
@@ -4212,7 +4342,7 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
 
   peer.oniceconnectionstatechange = () => {
     const s = peer.iceConnectionState;
-    console.log('ICE state:', s);
+    console.log('Private ICE state:', s);
     if (s === 'checking')     setCallStatus('Соединение…');
     if (s === 'connected')    { stopDialTone(); setCallStatus('Соединён'); }
     if (s === 'disconnected') setCallStatus('Переподключение…');
@@ -4237,7 +4367,8 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
           isVideo: isVideo
         });
       } catch (e) {
-        console.error('Offer error:', e);
+        console.error('Private call offer error:', e);
+        offerCreated = false;
         showToast('❌ Ошибка при установке звонка', 3000);
         endPrivateCall(false);
       }
@@ -4264,6 +4395,16 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
     .group-photo-change-btn:active { background:rgba(124,92,191,0.12); }
 
     .msg-ticks { margin-left:2px; transition:color 0.3s; }
+
+    /* Шкала сигнала — классы */
+    .signal-none .bar        { background:rgba(255,255,255,0.1) !important; }
+    .signal-excellent .bar   { background:var(--green) !important; }
+    .signal-good .bar:nth-child(-n+3) { background:#8bc34a !important; }
+    .signal-good .bar:nth-child(4)    { background:rgba(255,255,255,0.1) !important; }
+    .signal-fair .bar:nth-child(-n+2) { background:var(--orange) !important; }
+    .signal-fair .bar:nth-child(n+3)  { background:rgba(255,255,255,0.1) !important; }
+    .signal-poor .bar:nth-child(1)    { background:var(--red) !important; }
+    .signal-poor .bar:nth-child(n+2)  { background:rgba(255,255,255,0.1) !important; }
 
     /* ─── ЭКРАН ЗВОНКА: полноэкранное видео ─── */
     #call-video-container {
@@ -4310,7 +4451,6 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
       background: linear-gradient(to top, rgba(0,0,0,0.75), transparent) !important;
       border-radius: 0 !important;
     }
-    /* Маленькое превью своего видео */
     #video-local {
       position: fixed !important;
       top: max(env(safe-area-inset-top, 0px) + 60px, 80px) !important;
