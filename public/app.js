@@ -4775,61 +4775,71 @@ const _origOpenMsgContextMenu = openMsgContextMenu;
 window.openMsgContextMenu = function(domId, msgEl) {
   _origOpenMsgContextMenu(domId, msgEl);
 
-  const sheet = document.querySelector('.msg-ctx-sheet');
-  if (!sheet) return;
-  const msgId = msgEl?.dataset?.msgId || '';
-  if (!msgId) return;
+  // Ждём пока sheet появится в DOM
+  requestAnimationFrame(() => {
+    const sheet = document.querySelector('.msg-ctx-sheet');
+    if (!sheet) return;
+    const msgId = msgEl?.dataset?.msgId || '';
+    if (!msgId) return;
 
-  // ── 1. Строка быстрых реакций ──
-  const reactionRow = document.createElement('div');
-  reactionRow.style.cssText = `
-    display:flex;gap:6px;flex-wrap:wrap;
-    padding:8px 16px 4px;
-    border-bottom:1px solid var(--divider);
-  `;
-  reactionRow.innerHTML = REACTION_EMOJIS.slice(0, 6).map(emoji =>
-    `<button class="ctx-reaction-btn" data-emoji="${emoji}"
-       style="width:36px;height:36px;border:none;background:none;
-              font-size:22px;cursor:pointer;border-radius:10px;">
-       ${emoji}
-     </button>`
-  ).join('') + `
-    <button class="ctx-reaction-btn ctx-more-emoji" data-emoji=""
-      style="width:36px;height:36px;border:none;
-             background:rgba(255,255,255,0.06);
-             font-size:16px;cursor:pointer;
-             border-radius:10px;color:var(--sub)">+</button>`;
+    // ── 1. Строка быстрых реакций ──
+    const reactionRow = document.createElement('div');
+    reactionRow.style.cssText = `
+      display:flex;gap:6px;flex-wrap:wrap;
+      padding:8px 16px 4px;
+      border-bottom:1px solid var(--divider);
+    `;
+    reactionRow.innerHTML = REACTION_EMOJIS.slice(0, 6).map(emoji =>
+      `<button class="ctx-reaction-btn" data-emoji="${emoji}"
+         style="width:36px;height:36px;border:none;background:none;
+                font-size:22px;cursor:pointer;border-radius:10px;">
+         ${emoji}
+       </button>`
+    ).join('') + `
+      <button class="ctx-reaction-btn ctx-more-emoji" data-emoji=""
+        style="width:36px;height:36px;border:none;
+               background:rgba(255,255,255,0.06);
+               font-size:16px;cursor:pointer;
+               border-radius:10px;color:var(--sub)">+</button>`;
 
-  const handle = sheet.querySelector('.modal-handle') || sheet.firstChild;
-  if (handle) handle.insertAdjacentElement('afterend', reactionRow);
-  else        sheet.insertBefore(reactionRow, sheet.firstChild);
+    // Ищем modal-handle — это всегда Element, не TextNode
+    const handle = sheet.querySelector('.modal-handle');
+    if (handle) {
+      // Вставляем ПОСЛЕ handle
+      handle.insertAdjacentElement('afterend', reactionRow);
+    } else {
+      // Вставляем в начало sheet напрямую
+      sheet.insertBefore(reactionRow, sheet.firstElementChild);
+    }
 
-  reactionRow.querySelectorAll('.ctx-reaction-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelector('.msg-context-menu')?.remove();
-      if (!btn.dataset.emoji) openReactionPicker(msgId, msgEl);
-      else                    toggleReaction(msgId, btn.dataset.emoji, msgEl);
+    reactionRow.querySelectorAll('.ctx-reaction-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelector('.msg-context-menu')?.remove();
+        if (!btn.dataset.emoji) openReactionPicker(msgId, msgEl);
+        else                    toggleReaction(msgId, btn.dataset.emoji, msgEl);
+      });
     });
-  });
 
-  // ── 2. Кнопка "Ответить" ──
-  const replyBtn = document.createElement('button');
-  replyBtn.className = 'msg-ctx-item';
-  replyBtn.style.cssText = `
-    display:flex;align-items:center;gap:14px;padding:14px 16px;
-    border-radius:12px;border:none;background:none;
-    color:var(--text);font-size:15px;cursor:pointer;
-    width:100%;text-align:left;
-  `;
-  replyBtn.innerHTML = '<span style="font-size:20px">↩️</span><span>Ответить</span>';
-  replyBtn.addEventListener('click', () => {
-    document.querySelector('.msg-context-menu')?.remove();
-    setReplyTo(msgId, msgEl);
-  });
+    // ── 2. Кнопка "Ответить" ──
+    const replyBtn = document.createElement('button');
+    replyBtn.className = 'msg-ctx-item';
+    replyBtn.style.cssText = `
+      display:flex;align-items:center;gap:14px;padding:14px 16px;
+      border-radius:12px;border:none;background:none;
+      color:var(--text);font-size:15px;cursor:pointer;
+      width:100%;text-align:left;
+    `;
+    replyBtn.innerHTML = '<span style="font-size:20px">↩️</span><span>Ответить</span>';
+    replyBtn.addEventListener('click', () => {
+      document.querySelector('.msg-context-menu')?.remove();
+      setReplyTo(msgId, msgEl);
+    });
 
-  const firstItem = sheet.querySelector('.msg-ctx-item[data-action]');
-  if (firstItem) firstItem.insertAdjacentElement('beforebegin', replyBtn);
-  else           sheet.appendChild(replyBtn);
+    // Вставляем перед первой action-кнопкой
+    const firstItem = sheet.querySelector('.msg-ctx-item[data-action]');
+    if (firstItem) firstItem.insertAdjacentElement('beforebegin', replyBtn);
+    else           sheet.appendChild(replyBtn);
+  });
 };
 
 // ═══════════════════════════════════════════════
