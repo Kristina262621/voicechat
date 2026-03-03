@@ -1,16 +1,14 @@
 FROM node:20-alpine
 
-# Зависимости для better-sqlite3 (нативный модуль)
 RUN apk add --no-cache python3 make g++
 
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm install --omit=dev
 
 COPY . .
 
-# Создаём папку для данных SQLite
 RUN mkdir -p /app/data
 
 EXPOSE 3000
