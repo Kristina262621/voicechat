@@ -971,6 +971,15 @@
     <div class="modal-handle"></div>
     <div class="modal-title" id="members-modal-title">Участники</div>
     <button class="modal-close" id="btn-close-members">✕</button>
+        <!-- Смена фото группы -->
+    <div id="group-photo-section" style="display:none;margin-bottom:4px">
+      <div class="profile-section-title">Фото группы</div>
+      <button class="group-photo-change-btn" id="btn-group-photo-change">
+        <span style="font-size:20px">🖼</span>
+        <span>Изменить фото группы</span>
+      </button>
+      <input type="file" id="group-photo-input" accept="image/*" style="display:none">
+    </div>
 
     <div id="rename-section" style="display:none">
       <div class="profile-section-title">Переименовать</div>
@@ -1472,3 +1481,4 @@ document.getElementById('dm-about')?.addEventListener('click', () => {
 </script>
 </body>
 </html>
+
