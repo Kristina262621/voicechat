@@ -9,11 +9,16 @@ const nodeCrypto = require('crypto');
 const app = express();
 
 app.use((req, res, next) => {
+  // ИСПРАВЛЕНО: убрали запрет микрофона и камеры из Permissions-Policy
+  // Теперь разрешаем camera и microphone (пустое значение = разрешено запрашивать)
+  res.setHeader('Permissions-Policy', 'geolocation=()');
+
+  // ИСПРАВЛЕНО: добавили mediastream и разрешили нужные источники в CSP
   res.setHeader('Content-Security-Policy',
     "default-src 'self'; " +
     "script-src 'self' 'unsafe-inline'; " +
     "style-src 'self' 'unsafe-inline'; " +
-    "media-src 'self' blob:; " +
+    "media-src 'self' blob: mediastream:; " +
     "img-src 'self' data: blob:; " +
     "connect-src 'self' wss: ws:; " +
     "frame-ancestors 'none';"
@@ -21,7 +26,6 @@ app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   next();
 });
 
@@ -108,7 +112,6 @@ setInterval(() => {
 // ════════════════════════════════════════════
 function hashPassword(pw) {
   if (!pw) return null;
-  // Используем PBKDF2 для хеширования паролей
   const salt   = 'voicechat-pw-salt-v2-' + pw.slice(0, 2);
   return nodeCrypto.pbkdf2Sync(pw, salt, 100000, 32, 'sha256').toString('hex');
 }
@@ -1057,12 +1060,11 @@ io.on('connection', (socket) => {
   });
 
   // ════════════════════════════
-  //  ЛИЧНЫЕ ЗВОНКИ — ИСПРАВЛЕНО
+  //  ЛИЧНЫЕ ЗВОНКИ
   // ════════════════════════════
   socket.on('private-call-offer', ({ chatId, to, offer, isVideo }) => {
     const client = clients.get(socket.id);
     if (!client?.authed) return;
-    // Ищем получателя по nickLower
     let found = false;
     for (const [sid, cl] of clients) {
       if (cl.nickLower === to && cl.authed) {
@@ -1076,10 +1078,8 @@ io.on('connection', (socket) => {
           isVideo: !!isVideo
         });
         found = true;
-        // Не break — пользователь может быть онлайн с нескольких вкладок
       }
     }
-    // Если не нашли по nickLower — пробуем как socketId (обратная совместимость)
     if (!found && io.sockets.sockets.get(to)) {
       io.to(to).emit('private-call-offer', {
         chatId,
@@ -1094,14 +1094,12 @@ io.on('connection', (socket) => {
   });
 
   socket.on('private-call-answer', ({ to, answer }) => {
-    // to — это socketId звонящего
     if (io.sockets.sockets.get(to)) {
       io.to(to).emit('private-call-answer', { from: socket.id, answer });
     }
   });
 
   socket.on('private-call-ice', ({ to, candidate }) => {
-    // to может быть socketId или nickLower
     if (io.sockets.sockets.get(to)) {
       io.to(to).emit('private-call-ice', { from: socket.id, candidate });
     } else {
@@ -1242,7 +1240,6 @@ io.on('connection', (socket) => {
     io.to(to).emit('key-fingerprint', { from: socket.id, nickname: client.nickname, fingerprint });
   });
 
-  // ECDH для личных чатов
   socket.on('private-call-ecdh', ({ to, pubkey }) => {
     const client = clients.get(socket.id);
     if (!client?.authed) return;
