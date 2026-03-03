@@ -60,20 +60,15 @@ applyTheme(currentTheme);
 
 // ═══════════════════════════════════════════════
 //  МНОГОУРОВНЕВОЕ ШИФРОВАНИЕ
-//  Уровень 1: AES-256-GCM  (основное)
-//  Уровень 2: ECDH P-384 + HKDF-SHA-256 (сессионные ключи)
-//  Уровень 3: Ротация ключей каждые 100 сообщений (Forward Secrecy)
-//  Уровень 4: PBKDF2 310000 итераций для групповых ключей
 // ═══════════════════════════════════════════════
 const Crypto = (() => {
   let roomKey    = null;
   const sessionKeys  = {};
-  const messageKeys  = {}; // Ключи ротации для каждого пира
+  const messageKeys  = {};
   let myEcdhKeyPair  = null;
   let messageCounter = 0;
-  const KEY_ROTATION_INTERVAL = 100; // Ротация каждые 100 сообщений
+  const KEY_ROTATION_INTERVAL = 100;
 
-  // ─── AES-256-GCM: основное шифрование ───
   async function deriveKey(password, roomId, roomSalt) {
     const enc    = new TextEncoder();
     const secret = (password || 'open') + '|' + roomId;
@@ -91,7 +86,6 @@ const Crypto = (() => {
     return roomKey;
   }
 
-  // ─── ECDH P-384: обмен ключами ───
   async function generateEcdhKeyPair() {
     myEcdhKeyPair = await crypto.subtle.generateKey(
       { name: 'ECDH', namedCurve: 'P-384' },
@@ -107,7 +101,6 @@ const Crypto = (() => {
     return arrayBufferToBase64Safe(raw);
   }
 
-  // ─── HKDF-SHA-256: деривация сессионного ключа ───
   async function deriveSessionKey(theirPubKeyB64, peerId) {
     const raw = Uint8Array.from(atob(theirPubKeyB64), c => c.charCodeAt(0));
     let theirKey;
@@ -129,7 +122,6 @@ const Crypto = (() => {
     const hkdfKey = await crypto.subtle.importKey('raw', sharedBits, 'HKDF', false, ['deriveKey', 'deriveBits']);
     const enc     = new TextEncoder();
 
-    // Основной сессионный ключ AES-256-GCM
     sessionKeys[peerId] = await crypto.subtle.deriveKey(
       {
         name: 'HKDF', hash: 'SHA-256',
@@ -142,7 +134,6 @@ const Crypto = (() => {
       ['encrypt', 'decrypt']
     );
 
-    // Дополнительный ключ для ротации
     const rotationBits = await crypto.subtle.deriveBits(
       {
         name: 'HKDF', hash: 'SHA-256',
@@ -157,7 +148,6 @@ const Crypto = (() => {
     return sessionKeys[peerId];
   }
 
-  // ─── Ротация ключей (Forward Secrecy) ───
   async function getRotatedKey(peerId) {
     const base = messageKeys[peerId];
     if (!base) return sessionKeys[peerId];
@@ -177,12 +167,10 @@ const Crypto = (() => {
       ['encrypt', 'decrypt']
     );
 
-    // Обновляем счётчик ротации
     messageKeys[peerId].counter++;
     return rotated;
   }
 
-  // ─── Отпечаток ключа ───
   async function getKeyFingerprint() {
     if (!myEcdhKeyPair) await generateEcdhKeyPair();
     const raw  = await crypto.subtle.exportKey('raw', myEcdhKeyPair.publicKey);
@@ -197,7 +185,6 @@ const Crypto = (() => {
     delete messageKeys[peerId];
   }
 
-  // ─── Шифрование AES-256-GCM ───
   async function encrypt(data, key) {
     const useKey = key || roomKey;
     if (!useKey) throw new Error('No encryption key available');
@@ -212,7 +199,6 @@ const Crypto = (() => {
     } else {
       throw new TypeError('encrypt: unsupported data type');
     }
-    // Добавляем случайный padding для защиты от анализа размера
     const paddingSize = Math.floor(Math.random() * 16);
     const padding     = crypto.getRandomValues(new Uint8Array(paddingSize));
     const padded      = new Uint8Array(1 + paddingSize + encoded.length);
@@ -227,14 +213,12 @@ const Crypto = (() => {
     };
   }
 
-  // ─── Расшифровка ───
   async function decrypt(encB64, ivB64, key) {
     const useKey = key || roomKey;
     if (!useKey) throw new Error('No decryption key available');
     const iv     = Uint8Array.from(atob(ivB64),  c => c.charCodeAt(0));
     const cipher = Uint8Array.from(atob(encB64), c => c.charCodeAt(0));
     const plain  = await crypto.subtle.decrypt({ name: 'AES-GCM', iv, tagLength: 128 }, useKey, cipher);
-    // Убираем padding
     const view        = new Uint8Array(plain);
     const paddingSize = view[0];
     return plain.slice(1 + paddingSize);
@@ -256,7 +240,6 @@ const Crypto = (() => {
     messageCounter = 0;
   }
 
-  // ─── Генерация дополнительного одноразового ключа (OTK) ───
   async function generateOTK() {
     return crypto.subtle.generateKey(
       { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']
@@ -530,8 +513,8 @@ let voiceRecordSeconds = 0;
 let voiceRecordInterval= null;
 let isVoiceRecording   = false;
 
-let isSpeakerMode = false;
-let pcCallIsVideo = false;
+let isSpeakerMode    = false;
+let pcCallIsVideo    = false;
 let localVideoStream = null;
 
 // ═══════════════════════════════════════════════
@@ -724,6 +707,11 @@ function openPeerProfile(nickname, avatar) {
     if (confirm('Удалить переписку?')) { close(); showToast('🗑 Переписка удалена'); }
     toggleMenu();
   });
+
+  const toggleMenu2 = () => {
+    const menu = sheet.querySelector('#peer-actions-menu');
+    if (menu) menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+  };
 
   sheet.querySelector('#peer-call-btn')?.addEventListener('click', () => {
     close();
@@ -1507,14 +1495,14 @@ function openPrivacySettings() {
       </div>
       <div style="padding:16px;max-width:520px;width:100%;margin:0 auto">
         <div style="font-size:11px;color:var(--accent2);font-weight:700;text-transform:uppercase;letter-spacing:1px;padding:16px 4px 8px">🔐 Шифрование</div>
-        <div style="background:var(--surface);border-radius:var(--radius);padding:16px;border:1px solid rgba(124,92,191,0.2);margin-bottom:8px">
-          <div style="font-size:13px;color:var(--text2);line-height:1.7">
-            ✅ <strong>AES-256-GCM</strong> — основное шифрование сообщений<br>
-            ✅ <strong>ECDH P-384</strong> — обмен ключами (Perfect Forward Secrecy)<br>
+        <div style="background:var(--surface);border-radius:var(--radius);padding:20px;margin-bottom:8px;border:1px solid rgba(124,92,191,0.2)">
+          <div style="font-size:13px;color:var(--text2);line-height:1.8">
+            ✅ <strong>AES-256-GCM</strong> — шифрование всех сообщений<br>
+            ✅ <strong>ECDH P-384</strong> — обмен ключами (E2E)<br>
             ✅ <strong>HKDF-SHA-256</strong> — деривация сессионных ключей<br>
-            ✅ <strong>PBKDF2</strong> 310 000 итераций — защита паролей<br>
-            ✅ <strong>Ротация ключей</strong> — автоматическая каждые 100 сообщений<br>
-            ✅ <strong>Случайный padding</strong> — защита от анализа размера
+            ✅ <strong>PBKDF2-SHA256</strong> 310K итераций — пароли групп<br>
+            ✅ <strong>Forward Secrecy</strong> — ротация каждые 100 сообщений<br>
+            ✅ <strong>Random padding</strong> — защита метаданных
           </div>
         </div>
         <div style="font-size:11px;color:var(--accent2);font-weight:700;text-transform:uppercase;letter-spacing:1px;padding:16px 4px 8px">Безопасность</div>
@@ -1650,7 +1638,7 @@ $('settings-go-about')?.addEventListener('click',   ()=>{ modalSettings.classLis
 //  КОНТАКТЫ
 // ═══════════════════════════════════════════════
 function openContactsModal() { if(!modalContacts)return; modalContacts.classList.add('open'); loadContactsFriends(); }
-if (btnCloseContacts) btnCloseContacts.addEventListener('click',()=>{ if(window._closeModal)window._closeModal(modalContacts);else modalContacts.classList.remove('open'); });
+if (btnCloseContacts) btnCloseContacts.addEventListener('click',()=>{ if(window._closeModal)window._closeModal(modalContacts);else if(modalContacts)modalContacts.classList.remove('open'); });
 if (btnContactsSearch) btnContactsSearch.addEventListener('click',()=>searchUserForFriend(contactsSearchInput,contactsSearchResult));
 if (contactsSearchInput) contactsSearchInput.addEventListener('keydown',e=>{ if(e.key==='Enter')searchUserForFriend(contactsSearchInput,contactsSearchResult); });
 function loadContactsFriends() {
@@ -2583,8 +2571,9 @@ async function sendVoiceMessage(blob, duration, mimeType) {
     }
   } catch(e) { showToast('❌ Ошибка отправки голосового: ' + e.message); }
 }
+
 // ═══════════════════════════════════════════════
-//  ЗАПИСЬ ГОЛОСОВЫХ СООБЩЕНИЙ (кнопка удержания)
+//  ЗАПИСЬ ГОЛОСОВЫХ СООБЩЕНИЙ
 // ═══════════════════════════════════════════════
 if (btnVoiceRecord) {
   let isPointerDown = false;
@@ -3600,7 +3589,8 @@ function ensureVideoElements() {
   if (!vc) {
     vc = document.createElement('div');
     vc.id = 'call-video-container';
-    vc.style.cssText = 'position:absolute;inset:0;display:none;z-index:0;background:#000;overflow:hidden;';
+    // ─── ИСПРАВЛЕНИЕ: видео теперь на весь экран ───
+    vc.style.cssText = 'position:fixed;inset:0;display:none;z-index:998;background:#000;overflow:hidden;';
     const rv = document.createElement('video');
     rv.id = 'video-remote'; rv.autoplay = true; rv.playsInline = true;
     rv.style.cssText = 'width:100%;height:100%;object-fit:cover;';
@@ -3610,7 +3600,7 @@ function ensureVideoElements() {
     ns.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:rgba(255,255,255,0.4);font-size:14px;gap:12px;';
     ns.innerHTML = '<span style="font-size:48px">📷</span><span>Видео недоступно</span>';
     vc.appendChild(ns);
-    if (callScreen) { callScreen.style.position = 'relative'; callScreen.insertBefore(vc, callScreen.firstChild); }
+    document.body.appendChild(vc);
   }
   return vc;
 }
@@ -3620,7 +3610,8 @@ function ensureLocalVideo() {
   if (!lv) {
     lv = document.createElement('video');
     lv.id = 'video-local'; lv.autoplay = true; lv.playsInline = true; lv.muted = true;
-    if (callScreen) callScreen.appendChild(lv);
+    // Стиль уже задан в CSS index.html
+    document.body.appendChild(lv);
   }
   return lv;
 }
@@ -3649,18 +3640,6 @@ function showVideoUI(show) {
   if (vc) vc.style.display = show ? 'block' : 'none';
   const lv = document.getElementById('video-local');
   if (lv) lv.style.display = show ? 'block' : 'none';
-  const center = callScreen?.querySelector('.call-screen-center');
-  const bottom = callScreen?.querySelector('.call-screen-bottom');
-  const top    = callScreen?.querySelector('.call-screen-top');
-  if (show) {
-    if (center) Object.assign(center.style, { position:'relative',zIndex:'1',background:'rgba(0,0,0,0.3)',borderRadius:'20px',padding:'16px',margin:'0 16px' });
-    if (bottom) Object.assign(bottom.style, { position:'relative',zIndex:'1',background:'rgba(0,0,0,0.5)',borderRadius:'20px 20px 0 0' });
-    if (top)    Object.assign(top.style,    { position:'relative',zIndex:'1' });
-  } else {
-    [center,bottom,top].forEach(el => {
-      if (el) { el.style.position=''; el.style.zIndex=''; el.style.background=''; el.style.borderRadius=''; el.style.padding=''; el.style.margin=''; }
-    });
-  }
 }
 
 document.addEventListener('click', e => {
@@ -3734,6 +3713,42 @@ let pcIceCandidateBuffer = [];
 let callTimer            = null;
 let callSeconds          = 0;
 
+// ─── Таймер для скрытия панели управления ───
+let callControlsHideTimer = null;
+let callControlsVisible   = true;
+
+function showCallControls() {
+  callControlsVisible = true;
+  const bottom = callScreen?.querySelector('.call-screen-bottom');
+  const top    = callScreen?.querySelector('.call-screen-top');
+  if (bottom) Object.assign(bottom.style, { opacity:'1', pointerEvents:'all', transform:'translateY(0)', transition:'opacity 0.3s, transform 0.3s' });
+  if (top)    Object.assign(top.style,    { opacity:'1', pointerEvents:'all', transform:'translateY(0)', transition:'opacity 0.3s, transform 0.3s' });
+  clearTimeout(callControlsHideTimer);
+  if (pcCallIsVideo) {
+    callControlsHideTimer = setTimeout(hideCallControls, 4000);
+  }
+}
+
+function hideCallControls() {
+  if (!pcCallIsVideo) return;
+  callControlsVisible = false;
+  const bottom = callScreen?.querySelector('.call-screen-bottom');
+  const top    = callScreen?.querySelector('.call-screen-top');
+  if (bottom) Object.assign(bottom.style, { opacity:'0', pointerEvents:'none', transform:'translateY(80px)', transition:'opacity 0.3s, transform 0.3s' });
+  if (top)    Object.assign(top.style,    { opacity:'0', pointerEvents:'none', transform:'translateY(-60px)', transition:'opacity 0.3s, transform 0.3s' });
+}
+
+// Тап по экрану звонка — показать/скрыть управление
+if (callScreen) {
+  callScreen.addEventListener('click', e => {
+    if (e.target.closest('button')) return;
+    if (pcCallIsVideo) {
+      if (callControlsVisible) hideCallControls();
+      else showCallControls();
+    }
+  });
+}
+
 function showCallScreen(name, avatar, status, isVideo) {
   if (!callScreen) return;
   if (callScreenName)   callScreenName.textContent   = name || '—';
@@ -3742,21 +3757,39 @@ function showCallScreen(name, avatar, status, isVideo) {
     if (avatar) callScreenAvatar.innerHTML = `<img src="${avatar}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
     else        callScreenAvatar.textContent = '👤';
   }
+  // ─── ИСПРАВЛЕНИЕ 2: для видео скрываем центральный блок с именем/фото ───
+  const center = callScreen.querySelector('.call-screen-center');
+  if (center) {
+    center.style.display = isVideo ? 'none' : 'flex';
+    center.style.position = 'relative';
+    center.style.zIndex   = '1000';
+  }
   if (callBtnMute) { callBtnMute.classList.remove('active'); callBtnMute.textContent = '🎤'; }
   setSpeakerOutput(isVideo);
   callScreen.classList.add('active');
   callScreen.classList.remove('minimizing');
   hideCallMiniBar();
+  // Сбрасываем стили панелей
+  const bottom = callScreen.querySelector('.call-screen-bottom');
+  const top    = callScreen.querySelector('.call-screen-top');
+  if (bottom) Object.assign(bottom.style, { opacity:'1', pointerEvents:'all', transform:'translateY(0)', transition:'opacity 0.3s, transform 0.3s', position:'relative', zIndex:'1001' });
+  if (top)    Object.assign(top.style,    { opacity:'1', pointerEvents:'all', transform:'translateY(0)', transition:'opacity 0.3s, transform 0.3s', position:'relative', zIndex:'1001' });
+  callControlsVisible = true;
+  clearTimeout(callControlsHideTimer);
   if (isVideo) {
-    ensureVideoElements(); ensureLocalVideo(); showVideoUI(true);
+    ensureVideoElements();
+    ensureLocalVideo();
+    showVideoUI(true);
     startLocalVideo().then(s => {
       if (s && callBtnVideo) { callBtnVideo.classList.add('active'); pcCallIsVideo = true; }
+      callControlsHideTimer = setTimeout(hideCallControls, 4000);
     });
   }
 }
 
 function hideCallScreen() {
   if (!callScreen) return;
+  clearTimeout(callControlsHideTimer);
   callScreen.classList.add('minimizing');
   callScreen.addEventListener('animationend', () => {
     callScreen.classList.remove('active');
@@ -3796,9 +3829,10 @@ if (callBtnMute) callBtnMute.addEventListener('click', () => {
   if (pcCallStream) pcCallStream.getAudioTracks().forEach(t => { t.enabled = !pcCallMuted; });
   if (pcCallMuted) { callBtnMute.classList.add('active'); callBtnMute.textContent = '🔇'; }
   else             { callBtnMute.classList.remove('active'); callBtnMute.textContent = '🎤'; }
+  if (pcCallIsVideo) showCallControls();
 });
 
-if (callBtnHangup)   callBtnHangup.addEventListener('click',  () => endPrivateCall(true));
+if (callBtnHangup)   callBtnHangup.addEventListener('click',  () => { endPrivateCall(true); });
 if (btnCallMinimize) btnCallMinimize.addEventListener('click', () => hideCallScreen());
 $('call-mini-hangup')?.addEventListener('click', e => { e.stopPropagation(); endPrivateCall(true); });
 
@@ -3860,7 +3894,9 @@ async function startPrivateCall(isVideo) {
     const vs = await startLocalVideo();
     if (vs && pcCallPeer) {
       const vt = vs.getVideoTracks()[0];
-      if (vt) pcCallPeer.addTrack(vt, vs);
+      if (vt) {
+        try { pcCallPeer.addTrack(vt, vs); } catch(_) {}
+      }
     }
   }
   playDialTone();
@@ -3903,7 +3939,15 @@ if (btnCallAccept) btnCallAccept.addEventListener('click', async () => {
   pcCallRemoteNickLow = data.fromNickLower || data.fromNick?.toLowerCase();
   pcCallRemoteNick    = data.fromNick || '?';
 
+  // ─── ИСПРАВЛЕНИЕ 1: создаём peer ПЕРЕД setRemoteDescription ───
   pcCallPeer = createPrivateCallPeer(pcCallRemoteId, false, isVideo);
+
+  // Добавляем аудио треки сразу
+  if (pcCallStream) {
+    pcCallStream.getTracks().forEach(t => {
+      try { pcCallPeer.addTrack(t, pcCallStream); } catch(_) {}
+    });
+  }
 
   try {
     await pcCallPeer.setRemoteDescription(new RTCSessionDescription(data.offer));
@@ -3913,17 +3957,21 @@ if (btnCallAccept) btnCallAccept.addEventListener('click', async () => {
     endPrivateCall(false); return;
   }
 
+  // Добавляем буферизованные ICE кандидаты
   for (const c of pcIceCandidateBuffer) {
     try { await pcCallPeer.addIceCandidate(new RTCIceCandidate(c)); } catch (_) {}
   }
   pcIceCandidateBuffer = [];
 
+  // Если видео — добавляем видео трек
   if (isVideo) {
     ensureVideoElements();
     const vs = await startLocalVideo();
     if (vs && pcCallPeer) {
       const vt = vs.getVideoTracks()[0];
-      if (vt) pcCallPeer.addTrack(vt, vs);
+      if (vt) {
+        try { pcCallPeer.addTrack(vt, vs); } catch(_) {}
+      }
     }
   }
 
@@ -3931,7 +3979,7 @@ if (btnCallAccept) btnCallAccept.addEventListener('click', async () => {
   try {
     answer = await pcCallPeer.createAnswer({
       offerToReceiveAudio: true,
-      offerToReceiveVideo: true
+      offerToReceiveVideo: isVideo
     });
     await pcCallPeer.setLocalDescription(answer);
   } catch (e) {
@@ -3977,6 +4025,7 @@ socket.on('private-call-answer', async ({ from, answer }) => {
     endPrivateCall(false); return;
   }
   pcCallActive = true;
+  // Отправляем буферизованные ICE кандидаты
   for (const candidate of pcIceCandidateBuffer) {
     socket.emit('private-call-ice', { to: pcCallRemoteId, candidate });
   }
@@ -3999,6 +4048,7 @@ function endPrivateCall(notify = true) {
   if (notify && (pcCallRemoteId || pcCallRemoteNickLow)) {
     socket.emit('private-call-end', { to: pcCallRemoteId || pcCallRemoteNickLow });
   }
+  clearTimeout(callControlsHideTimer);
   stopDialTone(); stopIncomingRing();
   if (pcCallPeer)   { pcCallPeer.close();   pcCallPeer = null; }
   if (pcCallStream) { pcCallStream.getTracks().forEach(t => t.stop()); pcCallStream = null; }
@@ -4012,23 +4062,44 @@ function endPrivateCall(notify = true) {
   hideCallMiniBar();
   if (modalIncomingCall) modalIncomingCall.classList.remove('open');
   stopCallTimer();
+  // Восстанавливаем видимость центральной части
+  const center = callScreen?.querySelector('.call-screen-center');
+  if (center) center.style.display = 'flex';
+  const bottom = callScreen?.querySelector('.call-screen-bottom');
+  const top    = callScreen?.querySelector('.call-screen-top');
+  if (bottom) Object.assign(bottom.style, { opacity:'1', pointerEvents:'all', transform:'', transition:'' });
+  if (top)    Object.assign(top.style,    { opacity:'1', pointerEvents:'all', transform:'', transition:'' });
+  callControlsVisible = true;
   if (callBtnMute)    { callBtnMute.textContent = '🎤';    callBtnMute.classList.remove('active'); }
   if (callBtnSpeaker) { callBtnSpeaker.textContent = '🔈'; callBtnSpeaker.classList.remove('active'); }
   if (callBtnVideo)   { callBtnVideo.textContent = '📷';   callBtnVideo.classList.remove('active'); }
 }
 
+// ─── ГЛАВНАЯ ИСПРАВЛЕННАЯ ФУНКЦИЯ createPrivateCallPeer ───
 function createPrivateCallPeer(targetId, isInitiator, isVideo) {
   const peer = new RTCPeerConnection(iceServers);
 
-  // Добавляем аудио треки
-  if (pcCallStream) {
-    pcCallStream.getTracks().forEach(t => peer.addTrack(t, pcCallStream));
+  // ─── ИСПРАВЛЕНИЕ 1: добавляем transceiver'ы явно для правильного согласования ───
+  if (isInitiator) {
+    peer.addTransceiver('audio', { direction: 'sendrecv' });
+    if (isVideo) {
+      peer.addTransceiver('video', { direction: 'sendrecv' });
+    }
   }
 
-  // ─── ОБРАБОТКА ВХОДЯЩИХ ТРЕКОВ ───
+  // Добавляем аудио треки от микрофона (если не добавлены через transceiver)
+  if (pcCallStream && !isInitiator) {
+    pcCallStream.getAudioTracks().forEach(t => {
+      try { peer.addTrack(t, pcCallStream); } catch(_) {}
+    });
+  }
+
+  // ─── ИСПРАВЛЕНИЕ 2: правильная обработка входящих треков ───
   peer.ontrack = e => {
     const track  = e.track;
-    const stream = e.streams[0];
+    const stream = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([track]);
+
+    console.log('ontrack:', track.kind, 'streams:', e.streams.length);
 
     if (track.kind === 'audio') {
       let audio = document.getElementById('audio-pc-call');
@@ -4039,9 +4110,8 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
         audio.playsInline = true;
         document.body.appendChild(audio);
       }
-      if (!audio.srcObject || audio.srcObject !== stream) {
-        audio.srcObject = stream;
-      }
+      // ─── КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: всегда обновляем srcObject ───
+      audio.srcObject = stream;
       audio.volume = isSpeakerMode ? 1.0 : 0.7;
       audio.play().catch(() => {
         document.addEventListener('click', () => audio.play().catch(() => {}), { once: true });
@@ -4049,6 +4119,7 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
     }
 
     if (track.kind === 'video') {
+      console.log('Получен видео трек от собеседника');
       ensureVideoElements();
       showVideoUI(true);
       pcCallIsVideo = true;
@@ -4061,15 +4132,34 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
       const ns = document.getElementById('video-no-signal');
 
       if (rv) {
-        if (!rv.srcObject) {
-          rv.srcObject = stream || new MediaStream([track]);
-        } else {
-          const existingStream = rv.srcObject;
-          existingStream.getVideoTracks().forEach(t => existingStream.removeTrack(t));
-          existingStream.addTrack(track);
+        // ─── КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: создаём новый MediaStream только для видео ───
+        let remoteStream = rv.srcObject;
+        if (!remoteStream) {
+          remoteStream = new MediaStream();
+          rv.srcObject = remoteStream;
         }
+        // Убираем старые видео треки и добавляем новый
+        remoteStream.getVideoTracks().forEach(t => remoteStream.removeTrack(t));
+        remoteStream.addTrack(track);
+
+        // Если в event.streams[0] есть аудио — синхронизируем аудио элемент
+        if (e.streams[0]) {
+          const audioEl = document.getElementById('audio-pc-call');
+          if (audioEl && audioEl.srcObject !== e.streams[0]) {
+            audioEl.srcObject = e.streams[0];
+            audioEl.play().catch(() => {});
+          }
+        }
+
         rv.play()
-          .then(() => { if (ns) ns.style.display = 'none'; })
+          .then(() => {
+            if (ns) ns.style.display = 'none';
+            console.log('Видео собеседника воспроизводится');
+            // Скрываем центр (имя/аватар) когда видео пошло
+            const center = callScreen?.querySelector('.call-screen-center');
+            if (center) center.style.display = 'none';
+            showCallControls();
+          })
           .catch(err => {
             console.warn('Ошибка воспроизведения видео:', err);
             document.addEventListener('click', () => rv.play().catch(() => {}), { once: true });
@@ -4082,6 +4172,7 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
     if (!e.candidate) return;
     const target = pcCallRemoteId || targetId;
     if (isInitiator && !pcCallRemoteId) {
+      // Буферизуем пока не знаем remote id
       pcIceCandidateBuffer.push(e.candidate);
     } else {
       socket.emit('private-call-ice', { to: target, candidate: e.candidate });
@@ -4098,6 +4189,10 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
       showToast('🟢 Звонок установлен', 2000);
       setSpeakerOutput(pcCallIsVideo ? true : isSpeakerMode);
       setCallStatus('Соединён');
+      if (pcCallIsVideo) {
+        // Запускаем автоскрытие панели
+        showCallControls();
+      }
     }
     if (state === 'connecting')   setCallStatus('Соединение…');
     if (state === 'disconnected') {
@@ -4132,7 +4227,7 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
       try {
         const offer = await peer.createOffer({
           offerToReceiveAudio: true,
-          offerToReceiveVideo: true
+          offerToReceiveVideo: isVideo
         });
         await peer.setLocalDescription(offer);
         socket.emit('private-call-offer', {
@@ -4151,6 +4246,7 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
 
   return peer;
 }
+
 // ═══════════════════════════════════════════════
 //  СТИЛИ (инжектируем динамически)
 // ═══════════════════════════════════════════════
@@ -4168,6 +4264,67 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
     .group-photo-change-btn:active { background:rgba(124,92,191,0.12); }
 
     .msg-ticks { margin-left:2px; transition:color 0.3s; }
+
+    /* ─── ЭКРАН ЗВОНКА: полноэкранное видео ─── */
+    #call-video-container {
+      position: fixed !important;
+      inset: 0 !important;
+      z-index: 998 !important;
+      background: #000;
+      overflow: hidden;
+    }
+    #video-remote {
+      width: 100% !important;
+      height: 100% !important;
+      object-fit: cover !important;
+    }
+    #call-screen {
+      background: transparent !important;
+    }
+    #call-screen.active {
+      z-index: 999 !important;
+    }
+    #call-screen .call-screen-top {
+      position: fixed !important;
+      top: env(safe-area-inset-top, 0) !important;
+      left: 0; right: 0;
+      z-index: 1001 !important;
+      padding: max(env(safe-area-inset-top), 12px) 20px 12px !important;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent) !important;
+    }
+    #call-screen .call-screen-center {
+      position: fixed !important;
+      top: 50% !important;
+      left: 0; right: 0;
+      transform: translateY(-50%) !important;
+      z-index: 1001 !important;
+      background: none !important;
+      padding: 20px !important;
+    }
+    #call-screen .call-screen-bottom {
+      position: fixed !important;
+      bottom: 0 !important;
+      left: 0; right: 0;
+      z-index: 1001 !important;
+      padding: 20px 24px max(env(safe-area-inset-bottom), 24px) !important;
+      background: linear-gradient(to top, rgba(0,0,0,0.75), transparent) !important;
+      border-radius: 0 !important;
+    }
+    /* Маленькое превью своего видео */
+    #video-local {
+      position: fixed !important;
+      top: max(env(safe-area-inset-top, 0px) + 60px, 80px) !important;
+      right: 16px !important;
+      width: 90px !important;
+      height: 130px !important;
+      border-radius: 14px !important;
+      object-fit: cover !important;
+      border: 2px solid rgba(255,255,255,0.4) !important;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.6) !important;
+      z-index: 1002 !important;
+      cursor: pointer !important;
+      background: #222 !important;
+    }
   `;
   document.head.appendChild(style);
 })();
