@@ -2515,29 +2515,73 @@ async function sendTextMessage(){
   const text=chatInput.value.trim();if(!text)return;
   stopMyTyping();stopPrivateTyping();
   if(btnSend)btnSend.disabled=true;
+
+  // ← Сохраняем текущий reply ДО очистки
+  const currentReply = (typeof replyToMsg !== 'undefined' && replyToMsg)
+    ? { ...replyToMsg }
+    : null;
+
   try{
     if(currentChatType==='private'&&currentChatId){
       const{encrypted,iv}=await Crypto.encrypt(text);
       const seq=++outgoingSeq;
-      const domId=appendMessage({nickname:myNickname,text,type:'text',timestamp:Date.now(),mine:true,status:'ok',msgStatus:'sending'});
+
+      // ← Передаём replyTo в appendMessage
+      const domId=appendMessage({
+        nickname:myNickname, text, type:'text',
+        timestamp:Date.now(), mine:true, status:'ok',
+        msgStatus:'sending',
+        replyTo: currentReply   // ← НОВОЕ
+      });
       msgIdToDomId.set('pending-'+seq,domId);
       chatInput.value='';chatInput.style.height='auto';
-      socket.emit('private-message',{chatId:currentChatId,encrypted,iv,type:'text',seq},res=>{
-        if(res&&res.msgId){const d=msgIdToDomId.get('pending-'+seq);if(d){msgIdToDomId.delete('pending-'+seq);msgIdToDomId.set(res.msgId,d);updateMsgStatus(res.msgId,'sent');}}
+
+      // ← Очищаем reply-bar
+      if(typeof cancelReply==='function') cancelReply();
+
+      // ← Передаём replyTo на сервер
+      socket.emit('private-message',{
+        chatId:currentChatId, encrypted, iv,
+        type:'text', seq,
+        replyTo: currentReply   // ← НОВОЕ
+      },res=>{
+        if(res&&res.msgId){
+          const d=msgIdToDomId.get('pending-'+seq);
+          if(d){
+            msgIdToDomId.delete('pending-'+seq);
+            msgIdToDomId.set(res.msgId,d);
+            updateMsgStatus(res.msgId,'sent');
+          }
+        }
       });
+
     } else if(currentRoomId){
       const{encrypted,iv}=await Crypto.encrypt(text);
       const seq=++outgoingSeq;
-      const domId=appendMessage({from:socket.id,nickname:myNickname,text,type:'text',timestamp:Date.now(),mine:true,status:'ok',msgStatus:'sending'});
+
+      // ← Передаём replyTo в appendMessage
+      const domId=appendMessage({
+        from:socket.id, nickname:myNickname, text, type:'text',
+        timestamp:Date.now(), mine:true, status:'ok',
+        msgStatus:'sending',
+        replyTo: currentReply   // ← НОВОЕ
+      });
       seqToMsgId.set(seq,domId);
       chatInput.value='';chatInput.style.height='auto';
-      socket.emit('chat-message',{encrypted,iv,type:'text',seq});
+
+      // ← Очищаем reply-bar
+      if(typeof cancelReply==='function') cancelReply();
+
+      // ← Передаём replyTo на сервер
+      socket.emit('chat-message',{
+        encrypted, iv, type:'text', seq,
+        replyTo: currentReply   // ← НОВОЕ
+      });
     }
     if(btnVoiceRecord)btnVoiceRecord.style.display='flex';
   }catch(e){showToast('❌ Ошибка отправки: '+e.message);}
   finally{if(btnSend)btnSend.disabled=false;}
 }
-
 // ═══════════════════════════════════════════════
 //  ГОЛОСОВЫЕ СООБЩЕНИЯ — отправка
 // ═══════════════════════════════════════════════
@@ -4603,10 +4647,6 @@ function updateMsgReactions(msgId, reactions, msgEl) {
   }
 }
 
-// Обновляем обработчик контекстного меню — добавляем реакции
-const _origOpenMsgContextMenu = openMsgContextMenu;
-window.openMsgContextMenu = function(domId, msgEl) {
-  _origOpenMsgContextMenu(domId, msgEl);
   // Добавляем кнопку реакции в меню
   const sheet = document.querySelector('.msg-ctx-sheet');
   if (!sheet) return;
@@ -4670,17 +4710,19 @@ document.addEventListener('click', e => {
 // ═══════════════════════════════════════════════
 //  ОТВЕТЫ НА СООБЩЕНИЯ (REPLY)
 // ═══════════════════════════════════════════════
-let replyToMsg = null; // { id, nickname, text/type }
+let replyToMsg = null; // { id, nickname, text }
 
 function setReplyTo(msgId, msgEl) {
-  const content = msgEl?.querySelector('.msg-content');
-  const text = content ? (content.innerText || content.textContent || '').trim().slice(0, 60) : '';
+  const content  = msgEl?.querySelector('.msg-content');
+  const text     = content
+    ? (content.innerText || content.textContent || '').trim().slice(0, 60)
+    : '';
   const nickname = msgEl?.querySelector('.msg-sender')?.textContent?.replace('👤 ', '').trim()
     || (msgEl?.classList.contains('mine') ? myNickname : '?');
 
   replyToMsg = { id: msgId, nickname, text };
 
-  // Показываем плашку ответа
+  // Показываем плашку ответа над полем ввода
   let bar = document.getElementById('reply-bar');
   if (!bar) {
     bar = document.createElement('div');
@@ -4697,9 +4739,15 @@ function setReplyTo(msgId, msgEl) {
     if (tgBottom) tgBottom.insertBefore(bar, tgBottom.firstChild);
   }
   bar.innerHTML = `
-    <span style="color:var(--accent2);font-weight:600;flex-shrink:0">↩️ ${escapeHtml(nickname)}</span>
-    <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:0.7">${escapeHtml(text || '…')}</span>
-    <button id="cancel-reply-btn" style="background:none;border:none;color:var(--sub);font-size:18px;cursor:pointer;padding:4px;flex-shrink:0">✕</button>
+    <span style="color:var(--accent2);font-weight:600;flex-shrink:0">
+      ↩️ ${escapeHtml(nickname)}
+    </span>
+    <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:0.7">
+      ${escapeHtml(text || '…')}
+    </span>
+    <button id="cancel-reply-btn"
+      style="background:none;border:none;color:var(--sub);font-size:18px;
+             cursor:pointer;padding:4px;flex-shrink:0">✕</button>
   `;
   document.getElementById('cancel-reply-btn')?.addEventListener('click', cancelReply);
   if (window._updateChatLayout) window._updateChatLayout();
@@ -4713,77 +4761,119 @@ function cancelReply() {
   if (window._updateChatLayout) window._updateChatLayout();
 }
 
-// Добавляем "Ответить" в контекстное меню
-const _origMsgContextMenu2 = window.openMsgContextMenu;
+// HTML блока ответа внутри сообщения
+function buildReplyHTML(replyTo) {
+  if (!replyTo || !replyTo.id) return '';
+  return `
+    <div class="msg-reply-block" data-reply-id="${replyTo.id}"
+      style="background:rgba(255,255,255,0.05);border-left:3px solid var(--accent2);
+             border-radius:8px;padding:5px 10px;margin-bottom:6px;cursor:pointer;
+             font-size:12px;line-height:1.5;max-height:52px;overflow:hidden;">
+      <div style="color:var(--accent2);font-weight:600;font-size:11px">
+        ${escapeHtml(replyTo.nickname || '?')}
+      </div>
+      <div style="opacity:0.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        ${escapeHtml(replyTo.text || '…')}
+      </div>
+    </div>`;
+}
+
+// Клик по блоку ответа → прокрутка к оригинальному сообщению
+document.addEventListener('click', e => {
+  const block = e.target.closest('.msg-reply-block');
+  if (!block) return;
+  const replyId = block.dataset.replyId;
+  if (!replyId) return;
+
+  // Ищем сообщение по data-msg-id
+  let target = document.querySelector(`[data-msg-id="${replyId}"]`);
+
+  // Запасной вариант — по msgIdToDomId
+  if (!target) {
+    const domId = msgIdToDomId.get(replyId);
+    if (domId) target = document.getElementById(domId);
+  }
+
+  if (target) {
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.style.transition = 'outline 0.1s';
+    target.style.outline    = '2px solid var(--accent)';
+    setTimeout(() => { target.style.outline = ''; }, 1500);
+  }
+});
+
+// Патч buildMsgHTML — добавляем блок ответа перед контентом
+const _origBuildMsgHTML = buildMsgHTML;
+window.buildMsgHTML = function(msg) {
+  const replyBlock = (msg.replyTo && msg.replyTo.id) ? buildReplyHTML(msg.replyTo) : '';
+  const base       = _origBuildMsgHTML(msg);
+  if (!replyBlock) return base;
+  return base.replace('<div class="msg-content">', replyBlock + '<div class="msg-content">');
+};
+
+// ═══ ЕДИНЫЙ ПАТЧ КОНТЕКСТНОГО МЕНЮ (реакции + ответ) ═══
+const _origOpenMsgContextMenu = openMsgContextMenu;
 window.openMsgContextMenu = function(domId, msgEl) {
-  _origMsgContextMenu2(domId, msgEl);
+  // Сначала открываем оригинальное меню
+  _origOpenMsgContextMenu(domId, msgEl);
+
   const sheet = document.querySelector('.msg-ctx-sheet');
   if (!sheet) return;
   const msgId = msgEl?.dataset?.msgId || '';
   if (!msgId) return;
 
-  // Добавляем кнопку Reply после кнопки реакций
+  // ── 1. Строка быстрых реакций ──
+  const reactionRow = document.createElement('div');
+  reactionRow.style.cssText = `
+    display:flex;gap:6px;flex-wrap:wrap;
+    padding:8px 16px 4px;
+    border-bottom:1px solid var(--divider);
+  `;
+  reactionRow.innerHTML = REACTION_EMOJIS.slice(0, 6).map(emoji =>
+    `<button class="ctx-reaction-btn" data-emoji="${emoji}"
+       style="width:36px;height:36px;border:none;background:none;
+              font-size:22px;cursor:pointer;border-radius:10px;">
+       ${emoji}
+     </button>`
+  ).join('') + `
+    <button class="ctx-reaction-btn ctx-more-emoji" data-emoji=""
+      style="width:36px;height:36px;border:none;
+             background:rgba(255,255,255,0.06);
+             font-size:16px;cursor:pointer;
+             border-radius:10px;color:var(--sub)">+</button>`;
+
+  const handle = sheet.querySelector('.modal-handle') || sheet.firstChild;
+  if (handle) handle.insertAdjacentElement('afterend', reactionRow);
+  else        sheet.insertBefore(reactionRow, sheet.firstChild);
+
+  reactionRow.querySelectorAll('.ctx-reaction-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelector('.msg-context-menu')?.remove();
+      if (!btn.dataset.emoji) openReactionPicker(msgId, msgEl);
+      else                    toggleReaction(msgId, btn.dataset.emoji, msgEl);
+    });
+  });
+
+  // ── 2. Кнопка "Ответить" ──
   const replyBtn = document.createElement('button');
-  replyBtn.className = 'msg-ctx-item';
-  replyBtn.style.cssText = 'display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:12px;border:none;background:none;color:var(--text);font-size:15px;cursor:pointer;width:100%;text-align:left;';
+  replyBtn.className  = 'msg-ctx-item';
+  replyBtn.style.cssText = `
+    display:flex;align-items:center;gap:14px;padding:14px 16px;
+    border-radius:12px;border:none;background:none;
+    color:var(--text);font-size:15px;cursor:pointer;
+    width:100%;text-align:left;
+  `;
   replyBtn.innerHTML = '<span style="font-size:20px">↩️</span><span>Ответить</span>';
   replyBtn.addEventListener('click', () => {
     document.querySelector('.msg-context-menu')?.remove();
     setReplyTo(msgId, msgEl);
   });
 
-  // Вставляем первым среди action-кнопок
+  // Вставляем кнопку первой среди action-кнопок
   const firstItem = sheet.querySelector('.msg-ctx-item[data-action]');
   if (firstItem) firstItem.insertAdjacentElement('beforebegin', replyBtn);
-  else sheet.appendChild(replyBtn);
+  else           sheet.appendChild(replyBtn);
 };
-
-// HTML блока ответа в сообщении
-function buildReplyHTML(replyTo) {
-  if (!replyTo || !replyTo.id) return '';
-  return `
-    <div class="msg-reply-block" data-reply-id="${replyTo.id}"
-      style="background:rgba(255,255,255,0.05);border-left:3px solid var(--accent2);
-        border-radius:8px;padding:5px 10px;margin-bottom:6px;cursor:pointer;
-        font-size:12px;line-height:1.5;max-height:52px;overflow:hidden;">
-      <div style="color:var(--accent2);font-weight:600;font-size:11px">${escapeHtml(replyTo.nickname || '?')}</div>
-      <div style="opacity:0.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(replyTo.text || '…')}</div>
-    </div>`;
-}
-
-// Клик по блоку ответа — прокрутка к оригиналу
-document.addEventListener('click', e => {
-  const block = e.target.closest('.msg-reply-block');
-  if (!block) return;
-  const replyId = block.dataset.replyId;
-  if (!replyId) return;
-  // Ищем сообщение по data-msgid
-  const target = document.querySelector(`[data-msg-id="${replyId}"]`);
-  if (target) {
-    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    target.style.outline = '2px solid var(--accent)';
-    setTimeout(() => { target.style.outline = ''; }, 1500);
-  }
-});
-
-// Перехватываем отправку текста чтобы прикрепить replyTo
-const _origSendText = sendTextMessage;
-window.sendTextMessage = async function() {
-  // sendTextMessage уже определена выше и захватит replyToMsg через замыкание
-  // Нам нужно патчить на уровне socket.emit — делаем через временную переменную
-  await _origSendText();
-  cancelReply();
-};
-
-// Патчим buildMsgHTML для поддержки replyTo
-const _origBuildMsgHTML = buildMsgHTML;
-window.buildMsgHTML = function(msg) {
-  const replyBlock = msg.replyTo ? buildReplyHTML(msg.replyTo) : '';
-  const base = _origBuildMsgHTML(msg);
-  // Вставляем блок ответа после sender, перед content
-  return base.replace('<div class="msg-content">', replyBlock + '<div class="msg-content">');
-};
-
 // ═══════════════════════════════════════════════
 //  ПОИСК ПО ЧАТАМ
 // ═══════════════════════════════════════════════
