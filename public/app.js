@@ -2807,9 +2807,16 @@ if (btnCloseMembers) btnCloseMembers.addEventListener('click', () => {
 
 function openMembersModal() {
   if (!currentRoomId || !modalMembers) return;
+
+  // Показываем/скрываем секции только для владельца
   if (renameSection)        renameSection.style.display        = isRoomOwner ? '' : 'none';
   if (groupSettingsSection) groupSettingsSection.style.display = isRoomOwner ? '' : 'none';
   if (joinRequestsSection)  joinRequestsSection.style.display  = isRoomOwner ? '' : 'none';
+
+  // Секция смены фото — только для владельца
+  const groupPhotoSection = $('group-photo-section');
+  if (groupPhotoSection) groupPhotoSection.style.display = isRoomOwner ? '' : 'none';
+
   if (isRoomOwner && currentRoomData) {
     if (renameInput)         renameInput.value         = currentRoomData.name || '';
     if (groupAutodelSelect)  groupAutodelSelect.value  = currentRoomData.autoDelete ? String(currentRoomData.autoDelete) : 'never';
@@ -2817,8 +2824,10 @@ function openMembersModal() {
     const notifSel = $('group-notif-select');
     if (notifSel) notifSel.value = getNotifSetting(currentRoomId);
   }
+
   if (membersListContainer) membersListContainer.innerHTML = '<div class="empty-list">Загрузка…</div>';
   modalMembers.classList.add('open');
+
   socket.emit('room-members', { roomId: currentRoomId }, res => {
     if (!membersListContainer) return;
     if (!res.ok) { membersListContainer.innerHTML = '<div class="empty-list">Ошибка</div>'; return; }
@@ -2848,25 +2857,38 @@ if (btnRenameRoom) btnRenameRoom.addEventListener('click', () => {
 });
 if (renameInput) renameInput.addEventListener('keydown', e => { if (e.key === 'Enter' && btnRenameRoom) btnRenameRoom.click(); });
 
-// Смена фото группы в любое время
-const groupPhotoChangeBtn = $('btn-group-photo-change');
+// ─── Смена фото группы в любое время ───
+const groupPhotoChangeBtn   = $('btn-group-photo-change');
 const groupPhotoChangeInput = $('group-photo-input');
+
 if (groupPhotoChangeBtn) {
   groupPhotoChangeBtn.addEventListener('click', () => {
     if (groupPhotoChangeInput) groupPhotoChangeInput.click();
   });
 }
+
 if (groupPhotoChangeInput) {
   groupPhotoChangeInput.addEventListener('change', () => {
     const file = groupPhotoChangeInput.files[0];
     if (!file) return;
     groupPhotoChangeInput.value = '';
-    if (file.size > 5*1024*1024) { showToast('⚠️ Фото слишком большое'); return; }
+    if (file.size > 5 * 1024 * 1024) { showToast('⚠️ Фото слишком большое (макс. 5 МБ)'); return; }
     const r = new FileReader();
     r.onload = e => {
       socket.emit('room-set-photo', { roomId: currentRoomId, photo: e.target.result }, res => {
-        if (res.ok) showToast('✅ Фото группы обновлено');
-        else showToast('❌ Ошибка: ' + res.error);
+        if (res.ok) {
+          showToast('✅ Фото группы обновлено');
+          // Обновляем аватар в шапке чата
+          if (chatRoomAvatar) {
+            chatRoomAvatar.innerHTML = e.target.result
+              ? `<img src="${e.target.result}" alt="">`
+              : '💬';
+          }
+          // Обновляем в данных комнаты
+          if (currentRoomData) currentRoomData.photo = e.target.result;
+        } else {
+          showToast('❌ Ошибка: ' + (res.error || 'неизвестная'));
+        }
       });
     };
     r.readAsDataURL(file);
@@ -2884,23 +2906,30 @@ if (btnSaveGroupSettings) btnSaveGroupSettings.addEventListener('click', () => {
       if (notifSel && currentRoomId) setNotifSetting(currentRoomId, notifSel.value);
       showToast('✅ Настройки сохранены');
       if (currentRoomData) {
-        currentRoomData.autoDelete = groupAutodelSelect?.value === 'never' ? null : parseInt(groupAutodelSelect?.value);
-        currentRoomData.joinMode   = groupJoinmodeSelect?.value || 'open';
+        currentRoomData.autoDelete = groupAutodelSelect?.value === 'never'
+          ? null
+          : parseInt(groupAutodelSelect?.value);
+        currentRoomData.joinMode = groupJoinmodeSelect?.value || 'open';
       }
-    } else showToast('⚠️ Ошибка');
+    } else {
+      showToast('⚠️ Ошибка сохранения настроек');
+    }
   });
 });
 
 if (btnDeleteGroup) btnDeleteGroup.addEventListener('click', () => {
-  if (!confirm('🗑 Удалить группу?')) return;
+  if (!confirm('🗑 Удалить группу? Это действие необратимо.')) return;
   socket.emit('room-delete', { roomId: currentRoomId }, res => {
     if (res.ok) {
       if (modalMembers) modalMembers.classList.remove('open');
-      leaveCurrentRoom(); showScreen('lobby'); showToast('🗑 Удалено');
-    } else showToast('⚠️ Ошибка');
+      leaveCurrentRoom();
+      showScreen('lobby');
+      showToast('🗑 Группа удалена');
+    } else {
+      showToast('⚠️ Ошибка удаления: ' + (res.error || ''));
+    }
   });
 });
-
 // ═══════════════════════════════════════════════
 //  ПРИГЛАШЕНИЯ
 // ═══════════════════════════════════════════════
