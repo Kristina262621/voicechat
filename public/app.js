@@ -3929,7 +3929,10 @@ if (btnCallAccept) btnCallAccept.addEventListener('click', async () => {
 
   let answer;
   try {
-    answer = await pcCallPeer.createAnswer();
+    answer = await pcCallPeer.createAnswer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: true
+    });
     await pcCallPeer.setLocalDescription(answer);
   } catch (e) {
     console.error('createAnswer error:', e);
@@ -4016,31 +4019,61 @@ function endPrivateCall(notify = true) {
 
 function createPrivateCallPeer(targetId, isInitiator, isVideo) {
   const peer = new RTCPeerConnection(iceServers);
-  if (pcCallStream) pcCallStream.getTracks().forEach(t => peer.addTrack(t, pcCallStream));
 
+  // Добавляем аудио треки
+  if (pcCallStream) {
+    pcCallStream.getTracks().forEach(t => peer.addTrack(t, pcCallStream));
+  }
+
+  // ─── ОБРАБОТКА ВХОДЯЩИХ ТРЕКОВ ───
   peer.ontrack = e => {
-    const track = e.track;
+    const track  = e.track;
+    const stream = e.streams[0];
+
     if (track.kind === 'audio') {
       let audio = document.getElementById('audio-pc-call');
       if (!audio) {
         audio = document.createElement('audio');
-        audio.id = 'audio-pc-call'; audio.autoplay = true; audio.playsInline = true;
+        audio.id = 'audio-pc-call';
+        audio.autoplay = true;
+        audio.playsInline = true;
         document.body.appendChild(audio);
       }
-      audio.srcObject = e.streams[0];
-      audio.volume    = isSpeakerMode ? 1.0 : 0.7;
+      if (!audio.srcObject || audio.srcObject !== stream) {
+        audio.srcObject = stream;
+      }
+      audio.volume = isSpeakerMode ? 1.0 : 0.7;
       audio.play().catch(() => {
         document.addEventListener('click', () => audio.play().catch(() => {}), { once: true });
       });
     }
+
     if (track.kind === 'video') {
-      ensureVideoElements(); showVideoUI(true); pcCallIsVideo = true;
+      ensureVideoElements();
+      showVideoUI(true);
+      pcCallIsVideo = true;
       if (callBtnVideo) callBtnVideo.classList.add('active');
+
+      const vc = document.getElementById('call-video-container');
+      if (vc) vc.style.display = 'block';
+
       const rv = document.getElementById('video-remote');
       const ns = document.getElementById('video-no-signal');
+
       if (rv) {
-        rv.srcObject = e.streams[0];
-        rv.play().then(() => { if (ns) ns.style.display = 'none'; }).catch(() => {});
+        if (!rv.srcObject) {
+          rv.srcObject = stream || new MediaStream([track]);
+        } else {
+          const existingStream = rv.srcObject;
+          existingStream.getVideoTracks().forEach(t => existingStream.removeTrack(t));
+          existingStream.addTrack(track);
+        }
+        rv.play()
+          .then(() => { if (ns) ns.style.display = 'none'; })
+          .catch(err => {
+            console.warn('Ошибка воспроизведения видео:', err);
+            document.addEventListener('click', () => rv.play().catch(() => {}), { once: true });
+          });
       }
     }
   };
@@ -4048,7 +4081,6 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
   peer.onicecandidate = e => {
     if (!e.candidate) return;
     const target = pcCallRemoteId || targetId;
-    // Инициатор буферизирует кандидаты пока не получит answer с socketId собеседника
     if (isInitiator && !pcCallRemoteId) {
       pcIceCandidateBuffer.push(e.candidate);
     } else {
@@ -4058,6 +4090,7 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
 
   peer.onconnectionstatechange = () => {
     const state = peer.connectionState;
+    console.log('Call connection state:', state);
     if (state === 'connected') {
       stopDialTone();
       pcCallActive = true;
@@ -4066,7 +4099,7 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
       setSpeakerOutput(pcCallIsVideo ? true : isSpeakerMode);
       setCallStatus('Соединён');
     }
-    if (state === 'connecting')    setCallStatus('Соединение…');
+    if (state === 'connecting')   setCallStatus('Соединение…');
     if (state === 'disconnected') {
       setCallStatus('Переподключение…');
       setTimeout(() => {
@@ -4084,6 +4117,7 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
 
   peer.oniceconnectionstatechange = () => {
     const s = peer.iceConnectionState;
+    console.log('ICE state:', s);
     if (s === 'checking')     setCallStatus('Соединение…');
     if (s === 'connected')    { stopDialTone(); setCallStatus('Соединён'); }
     if (s === 'disconnected') setCallStatus('Переподключение…');
@@ -4096,7 +4130,10 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
       if (offerCreated) return;
       offerCreated = true;
       try {
-        const offer = await peer.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: isVideo });
+        const offer = await peer.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true
+        });
         await peer.setLocalDescription(offer);
         socket.emit('private-call-offer', {
           chatId:  currentChatId,
@@ -4111,9 +4148,9 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
       }
     };
   }
+
   return peer;
 }
-
 // ═══════════════════════════════════════════════
 //  СТИЛИ (инжектируем динамически)
 // ═══════════════════════════════════════════════
