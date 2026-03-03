@@ -3237,7 +3237,7 @@ async function buildAudioPipeline(rawStream) {
   comp.threshold.value = -28; comp.knee.value = 10;
   comp.ratio.value = 6; comp.attack.value = 0.002; comp.release.value = 0.12;
   noiseWorklet = new AudioWorkletNode(audioCtx, 'noise-gate-processor', {
-    processorOptions: { threshold: 0.035, attack: 0.005, release: 0.20, smoothing: 0.96 },
+    processorOptions: { threshold: 0.08, attack: 0.003, release: 0.25, smoothing: 0.97 },
     numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1]
   });
   const gain = audioCtx.createGain(); gain.gain.value = 1.2;
