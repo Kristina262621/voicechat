@@ -4468,3 +4468,570 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
   `;
   document.head.appendChild(style);
 })();
+// ═══════════════════════════════════════════════
+//  РЕАКЦИИ НА СООБЩЕНИЯ
+// ═══════════════════════════════════════════════
+
+// Хранилище реакций на клиенте: msgId → { emoji: [nickLower, ...] }
+const clientReactions = new Map();
+
+function getClientReactions(msgId) {
+  return clientReactions.get(msgId) || {};
+}
+function setClientReactions(msgId, reactions) {
+  if (reactions && Object.keys(reactions).length > 0) {
+    clientReactions.set(msgId, reactions);
+  } else {
+    clientReactions.delete(msgId);
+  }
+}
+
+// Список доступных эмодзи для реакций
+const REACTION_EMOJIS = ['👍','❤️','😂','😮','😢','😡','🔥','👏','🎉','💯'];
+
+function buildReactionsHTML(msgId, reactions) {
+  if (!reactions || Object.keys(reactions).length === 0) return '';
+  const myLower = myNickname.toLowerCase();
+  const html = Object.entries(reactions)
+    .filter(([, users]) => users.length > 0)
+    .map(([emoji, users]) => {
+      const iMine = users.includes(myLower);
+      return `<button class="reaction-btn${iMine ? ' mine' : ''}"
+        data-msgid="${msgId}" data-emoji="${emoji}"
+        title="${users.join(', ')}"
+        style="display:inline-flex;align-items:center;gap:3px;padding:3px 7px;
+          border-radius:12px;border:1px solid ${iMine ? 'rgba(124,92,191,0.5)' : 'rgba(255,255,255,0.1)'};
+          background:${iMine ? 'rgba(124,92,191,0.2)' : 'rgba(255,255,255,0.05)'};
+          font-size:13px;cursor:pointer;color:var(--text);">
+        ${emoji} <span style="font-size:11px;opacity:0.8">${users.length}</span>
+      </button>`;
+    }).join('');
+  return html ? `<div class="msg-reactions" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;">${html}</div>` : '';
+}
+
+// Открытие пикера реакций
+function openReactionPicker(msgId, msgEl) {
+  document.querySelector('.reaction-picker-popup')?.remove();
+
+  const popup = document.createElement('div');
+  popup.className = 'reaction-picker-popup';
+
+  const rect   = msgEl.getBoundingClientRect();
+  const isMine = msgEl.classList.contains('mine');
+  const left   = isMine
+    ? Math.max(8, rect.right - 320)
+    : Math.min(window.innerWidth - 328, rect.left);
+  const top    = rect.top > 120 ? rect.top - 60 : rect.bottom + 8;
+
+  popup.style.cssText = `
+    position:fixed;left:${left}px;top:${top}px;z-index:4000;
+    background:var(--surface2);border-radius:24px;
+    border:1px solid rgba(124,92,191,0.25);
+    box-shadow:0 8px 32px rgba(0,0,0,0.6);
+    padding:10px 12px;display:flex;gap:6px;flex-wrap:wrap;
+    max-width:316px;backdrop-filter:blur(16px);
+    animation:toastIn 0.2s cubic-bezier(0.34,1.2,0.64,1);
+  `;
+  popup.innerHTML = REACTION_EMOJIS.map(emoji =>
+    `<button class="rp-btn" data-emoji="${emoji}"
+      style="width:36px;height:36px;border:none;background:none;
+        font-size:22px;cursor:pointer;border-radius:10px;
+        transition:transform 0.1s,background 0.1s;"
+      onmouseover="this.style.background='rgba(124,92,191,0.15)';this.style.transform='scale(1.2)'"
+      onmouseout="this.style.background='none';this.style.transform='scale(1)'"
+      >${emoji}</button>`
+  ).join('');
+
+  document.body.appendChild(popup);
+
+  popup.querySelectorAll('.rp-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      popup.remove();
+      toggleReaction(msgId, btn.dataset.emoji, msgEl);
+    });
+  });
+
+  // Закрытие по клику вне
+  setTimeout(() => {
+    document.addEventListener('click', function handler(e) {
+      if (!popup.contains(e.target)) { popup.remove(); document.removeEventListener('click', handler); }
+    });
+  }, 50);
+}
+
+function toggleReaction(msgId, emoji, msgEl) {
+  const reactions = getClientReactions(msgId);
+  const myLower   = myNickname.toLowerCase();
+  const users     = reactions[emoji] || [];
+  const iMine     = users.includes(myLower);
+
+  const chatId  = currentChatType === 'private' ? currentChatId : null;
+  const roomId  = currentChatType === 'group'   ? currentRoomId : null;
+
+  if (iMine) {
+    socket.emit('remove-reaction', { msgId, emoji, chatId, roomId }, res => {
+      if (res.ok) updateMsgReactions(msgId, res.reactions, msgEl);
+    });
+  } else {
+    socket.emit('add-reaction', { msgId, emoji, chatId, roomId }, res => {
+      if (res.ok) updateMsgReactions(msgId, res.reactions, msgEl);
+    });
+  }
+}
+
+function updateMsgReactions(msgId, reactions, msgEl) {
+  setClientReactions(msgId, reactions);
+  if (!msgEl) {
+    // Ищем по data-msgid
+    msgEl = document.querySelector(`[data-msg-id="${msgId}"]`);
+    if (!msgEl) {
+      for (const [, domId] of msgIdToDomId) {
+        const el = document.getElementById(domId);
+        if (el && el.dataset.msgId === msgId) { msgEl = el; break; }
+      }
+    }
+  }
+  if (!msgEl) return;
+  let reactionsEl = msgEl.querySelector('.msg-reactions');
+  const newHTML = buildReactionsHTML(msgId, reactions);
+  if (reactionsEl) {
+    reactionsEl.outerHTML = newHTML || '';
+  } else if (newHTML) {
+    const meta = msgEl.querySelector('.msg-meta');
+    if (meta) meta.insertAdjacentHTML('beforebegin', newHTML);
+    else msgEl.insertAdjacentHTML('beforeend', newHTML);
+  }
+}
+
+// Обновляем обработчик контекстного меню — добавляем реакции
+const _origOpenMsgContextMenu = openMsgContextMenu;
+window.openMsgContextMenu = function(domId, msgEl) {
+  _origOpenMsgContextMenu(domId, msgEl);
+  // Добавляем кнопку реакции в меню
+  const sheet = document.querySelector('.msg-ctx-sheet');
+  if (!sheet) return;
+  const msgId = msgEl?.dataset?.msgId || '';
+  if (!msgId) return;
+  const reactionRow = document.createElement('div');
+  reactionRow.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;padding:8px 16px 4px;border-bottom:1px solid var(--divider);';
+  reactionRow.innerHTML = REACTION_EMOJIS.slice(0, 6).map(emoji =>
+    `<button class="ctx-reaction-btn" data-emoji="${emoji}"
+      style="width:36px;height:36px;border:none;background:none;
+        font-size:22px;cursor:pointer;border-radius:10px;"
+    >${emoji}</button>`
+  ).join('') + `<button class="ctx-reaction-btn ctx-more-emoji" data-emoji=""
+    style="width:36px;height:36px;border:none;background:rgba(255,255,255,0.06);
+      font-size:16px;cursor:pointer;border-radius:10px;color:var(--sub)">+</button>`;
+
+  const handle = sheet.querySelector('.modal-handle') || sheet.firstChild;
+  if (handle) handle.insertAdjacentElement('afterend', reactionRow);
+  else sheet.insertBefore(reactionRow, sheet.firstChild);
+
+  reactionRow.querySelectorAll('.ctx-reaction-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelector('.msg-context-menu')?.remove();
+      if (!btn.dataset.emoji) {
+        openReactionPicker(msgId, msgEl);
+      } else {
+        toggleReaction(msgId, btn.dataset.emoji, msgEl);
+      }
+    });
+  });
+};
+
+// Обработка реакций от сервера
+socket.on('reaction-updated', ({ msgId, reactions, chatId, roomId }) => {
+  setClientReactions(msgId, reactions);
+  let msgEl = null;
+  for (const [mId, domId] of msgIdToDomId) {
+    if (mId === msgId) { msgEl = document.getElementById(domId); break; }
+  }
+  // Также ищем по data-msgid напрямую
+  if (!msgEl) {
+    document.querySelectorAll('.msg').forEach(el => {
+      if (el.dataset.msgId === msgId) msgEl = el;
+    });
+  }
+  updateMsgReactions(msgId, reactions, msgEl);
+});
+
+// Клик по существующей реакции
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.reaction-btn');
+  if (!btn) return;
+  const msgId = btn.dataset.msgid;
+  const emoji = btn.dataset.emoji;
+  if (msgId && emoji) {
+    const msgEl = btn.closest('.msg');
+    toggleReaction(msgId, emoji, msgEl);
+  }
+});
+
+// ═══════════════════════════════════════════════
+//  ОТВЕТЫ НА СООБЩЕНИЯ (REPLY)
+// ═══════════════════════════════════════════════
+let replyToMsg = null; // { id, nickname, text/type }
+
+function setReplyTo(msgId, msgEl) {
+  const content = msgEl?.querySelector('.msg-content');
+  const text = content ? (content.innerText || content.textContent || '').trim().slice(0, 60) : '';
+  const nickname = msgEl?.querySelector('.msg-sender')?.textContent?.replace('👤 ', '').trim()
+    || (msgEl?.classList.contains('mine') ? myNickname : '?');
+
+  replyToMsg = { id: msgId, nickname, text };
+
+  // Показываем плашку ответа
+  let bar = document.getElementById('reply-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'reply-bar';
+    bar.style.cssText = `
+      display:flex;align-items:center;gap:10px;
+      padding:8px 14px;background:var(--surface2);
+      border-top:2px solid var(--accent);
+      border-bottom:1px solid var(--divider);
+      font-size:13px;color:var(--text);
+      animation:slideUp 0.2s ease;
+    `;
+    const tgBottom = document.getElementById('tg-bottom');
+    if (tgBottom) tgBottom.insertBefore(bar, tgBottom.firstChild);
+  }
+  bar.innerHTML = `
+    <span style="color:var(--accent2);font-weight:600;flex-shrink:0">↩️ ${escapeHtml(nickname)}</span>
+    <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:0.7">${escapeHtml(text || '…')}</span>
+    <button id="cancel-reply-btn" style="background:none;border:none;color:var(--sub);font-size:18px;cursor:pointer;padding:4px;flex-shrink:0">✕</button>
+  `;
+  document.getElementById('cancel-reply-btn')?.addEventListener('click', cancelReply);
+  if (window._updateChatLayout) window._updateChatLayout();
+  if (chatInput) chatInput.focus();
+}
+
+function cancelReply() {
+  replyToMsg = null;
+  const bar = document.getElementById('reply-bar');
+  if (bar) bar.remove();
+  if (window._updateChatLayout) window._updateChatLayout();
+}
+
+// Добавляем "Ответить" в контекстное меню
+const _origMsgContextMenu2 = window.openMsgContextMenu;
+window.openMsgContextMenu = function(domId, msgEl) {
+  _origMsgContextMenu2(domId, msgEl);
+  const sheet = document.querySelector('.msg-ctx-sheet');
+  if (!sheet) return;
+  const msgId = msgEl?.dataset?.msgId || '';
+  if (!msgId) return;
+
+  // Добавляем кнопку Reply после кнопки реакций
+  const replyBtn = document.createElement('button');
+  replyBtn.className = 'msg-ctx-item';
+  replyBtn.style.cssText = 'display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:12px;border:none;background:none;color:var(--text);font-size:15px;cursor:pointer;width:100%;text-align:left;';
+  replyBtn.innerHTML = '<span style="font-size:20px">↩️</span><span>Ответить</span>';
+  replyBtn.addEventListener('click', () => {
+    document.querySelector('.msg-context-menu')?.remove();
+    setReplyTo(msgId, msgEl);
+  });
+
+  // Вставляем первым среди action-кнопок
+  const firstItem = sheet.querySelector('.msg-ctx-item[data-action]');
+  if (firstItem) firstItem.insertAdjacentElement('beforebegin', replyBtn);
+  else sheet.appendChild(replyBtn);
+};
+
+// HTML блока ответа в сообщении
+function buildReplyHTML(replyTo) {
+  if (!replyTo || !replyTo.id) return '';
+  return `
+    <div class="msg-reply-block" data-reply-id="${replyTo.id}"
+      style="background:rgba(255,255,255,0.05);border-left:3px solid var(--accent2);
+        border-radius:8px;padding:5px 10px;margin-bottom:6px;cursor:pointer;
+        font-size:12px;line-height:1.5;max-height:52px;overflow:hidden;">
+      <div style="color:var(--accent2);font-weight:600;font-size:11px">${escapeHtml(replyTo.nickname || '?')}</div>
+      <div style="opacity:0.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(replyTo.text || '…')}</div>
+    </div>`;
+}
+
+// Клик по блоку ответа — прокрутка к оригиналу
+document.addEventListener('click', e => {
+  const block = e.target.closest('.msg-reply-block');
+  if (!block) return;
+  const replyId = block.dataset.replyId;
+  if (!replyId) return;
+  // Ищем сообщение по data-msgid
+  const target = document.querySelector(`[data-msg-id="${replyId}"]`);
+  if (target) {
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.style.outline = '2px solid var(--accent)';
+    setTimeout(() => { target.style.outline = ''; }, 1500);
+  }
+});
+
+// Перехватываем отправку текста чтобы прикрепить replyTo
+const _origSendText = sendTextMessage;
+window.sendTextMessage = async function() {
+  // sendTextMessage уже определена выше и захватит replyToMsg через замыкание
+  // Нам нужно патчить на уровне socket.emit — делаем через временную переменную
+  await _origSendText();
+  cancelReply();
+};
+
+// Патчим buildMsgHTML для поддержки replyTo
+const _origBuildMsgHTML = buildMsgHTML;
+window.buildMsgHTML = function(msg) {
+  const replyBlock = msg.replyTo ? buildReplyHTML(msg.replyTo) : '';
+  const base = _origBuildMsgHTML(msg);
+  // Вставляем блок ответа после sender, перед content
+  return base.replace('<div class="msg-content">', replyBlock + '<div class="msg-content">');
+};
+
+// ═══════════════════════════════════════════════
+//  ПОИСК ПО ЧАТАМ
+// ═══════════════════════════════════════════════
+function openSearchModal() {
+  const sheet = document.createElement('div');
+  sheet.style.cssText = 'position:fixed;inset:0;z-index:2000;background:var(--bg);display:flex;flex-direction:column;';
+  sheet.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;padding:max(env(safe-area-inset-top),14px) 16px 14px;background:var(--surface);border-bottom:1px solid var(--divider);">
+      <button id="search-back" style="background:none;border:none;color:var(--text);font-size:22px;cursor:pointer;width:38px;height:38px;display:flex;align-items:center;justify-content:center;border-radius:50%">←</button>
+      <input id="search-input" type="text" placeholder="🔍 Поиск чатов и пользователей…"
+        style="flex:1;padding:10px 16px;background:var(--bg2);border:1.5px solid rgba(255,255,255,0.07);
+          border-radius:24px;color:var(--text);font-size:15px;outline:none;font-family:inherit;"
+        autocorrect="off" autocapitalize="none" autocomplete="off"/>
+    </div>
+    <div id="search-results" style="flex:1;overflow-y:auto;padding:8px;">
+      <div style="text-align:center;color:var(--sub);font-size:14px;padding:40px 20px">Начни вводить для поиска</div>
+    </div>`;
+  document.body.appendChild(sheet);
+
+  const input   = sheet.querySelector('#search-input');
+  const results = sheet.querySelector('#search-results');
+  const close   = () => sheet.remove();
+
+  sheet.querySelector('#search-back').addEventListener('click', close);
+  setTimeout(() => input?.focus(), 100);
+
+  let timer = null;
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    const q = input.value.trim();
+    if (!q) { results.innerHTML = '<div style="text-align:center;color:var(--sub);font-size:14px;padding:40px 20px">Начни вводить для поиска</div>'; return; }
+    results.innerHTML = '<div style="text-align:center;color:var(--sub);font-size:14px;padding:20px">Поиск…</div>';
+    timer = setTimeout(() => {
+      socket.emit('search-chats', { query: q }, res => {
+        if (!res.ok) return;
+        let html = '';
+        if (res.rooms.length) {
+          html += '<div class="chat-list-section-title">👥 Группы</div>';
+          html += res.rooms.map(r => `
+            <div class="room-card search-result-room" data-id="${r.id}" style="cursor:pointer;">
+              <div class="room-avatar">${r.photo ? `<img src="${escapeHtml(r.photo)}" alt="">` : '🏠'}</div>
+              <div class="room-info">
+                <div class="room-name">${escapeHtml(r.name)}</div>
+                <div class="room-meta">👥 ${r.memberCount} участников</div>
+              </div>
+            </div>`).join('');
+        }
+        if (res.users.length) {
+          html += '<div class="chat-list-section-title">👤 Пользователи</div>';
+          html += res.users.map(u => `
+            <div class="pc-card search-result-user" data-nick="${escapeHtml(u.nickname)}" style="cursor:pointer;">
+              <div class="room-avatar">👤</div>
+              <div class="room-info">
+                <div class="room-name">${escapeHtml(u.nickname)}</div>
+                <div class="room-meta">@${escapeHtml(u.lower)}</div>
+              </div>
+            </div>`).join('');
+        }
+        if (!html) html = '<div style="text-align:center;color:var(--sub);font-size:14px;padding:40px 20px">Ничего не найдено</div>';
+        results.innerHTML = html;
+
+        results.querySelectorAll('.search-result-room').forEach(card => {
+          card.addEventListener('click', () => { close(); joinRoom(card.dataset.id, ''); });
+        });
+        results.querySelectorAll('.search-result-user').forEach(card => {
+          card.addEventListener('click', () => { close(); openPrivateChatWith(card.dataset.nick); });
+        });
+      });
+    }, 300);
+  });
+}
+
+// ═══════════════════════════════════════════════
+//  ONLINE/OFFLINE СТАТУСЫ
+// ═══════════════════════════════════════════════
+socket.on('user-online',  ({ nickLower }) => {
+  // Обновляем индикатор в заголовке если открыт чат с этим пользователем
+  if (currentChatType === 'private' && currentChatWith?.toLowerCase() === nickLower) {
+    const el = getHeaderSubEl();
+    if (el) el.innerHTML = `<span class="online">в сети</span>`;
+  }
+  // Обновляем списки
+  cachedPrivateList = cachedPrivateList.map(c => {
+    if (c.withLower === nickLower) return { ...c, online: true };
+    return c;
+  });
+  renderUnifiedList();
+});
+
+socket.on('user-offline', ({ nickLower, lastSeen }) => {
+  if (currentChatType === 'private' && currentChatWith?.toLowerCase() === nickLower) {
+    const el = getHeaderSubEl();
+    if (el) {
+      const ts = lastSeen ? new Date(lastSeen).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) : '';
+      el.innerHTML = `<span style="color:var(--sub)">был(а)${ts ? ' в ' + ts : ''}</span>`;
+    }
+  }
+  cachedPrivateList = cachedPrivateList.map(c => {
+    if (c.withLower === nickLower) return { ...c, online: false };
+    return c;
+  });
+  renderUnifiedList();
+});
+
+// Показываем онлайн-точку в карточке чата
+const _origBuildPrivateCardHTML = buildPrivateCardHTML;
+window.buildPrivateCardHTML = function(c) {
+  const html = _origBuildPrivateCardHTML(c);
+  if (c.online) {
+    return html.replace(
+      'class="room-avatar"',
+      'class="room-avatar" style="position:relative"'
+    ).replace(
+      '</div>\n      <div class="room-info">',
+      `<div style="position:absolute;bottom:2px;right:2px;width:10px;height:10px;border-radius:50%;background:var(--green);border:2px solid var(--surface)"></div>
+      </div>
+      <div class="room-info">`
+    );
+  }
+  return html;
+};
+
+// ═══════════════════════════════════════════════
+//  ПИКЕР ЭМОДЗИ для ввода текста
+// ═══════════════════════════════════════════════
+const EMOJI_LIST = [
+  '😀','😃','😄','😁','😆','😅','🤣','😂','🙂','😉','😊','😇',
+  '🥰','😍','🤩','😘','😗','😚','😙','🥲','😋','😛','😜','🤪',
+  '😝','🤑','🤗','🤭','🤫','🤔','🤐','🤨','😐','😑','😶','😏',
+  '😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕',
+  '🤢','🤮','🤧','🥵','🥶','🥴','😵','🤯','🤠','🥳','🥸','😎',
+  '🤓','🧐','😕','😟','🙁','😮','😯','😲','😳','🥺','😦','😧',
+  '😨','😰','😥','😢','😭','😱','😖','😣','😞','😓','😩','😫',
+  '🥱','😤','😡','😠','🤬','😈','👿','💀','💩','🤡','👹','👺',
+  '👻','👽','👾','🤖','😺','😸','😹','😻','😼','😽','🙀','😿',
+  '❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❣️','💕',
+  '💞','💓','💗','💖','💘','💝','💟','☮️','✝️','☯️','🕉️','☪️',
+  '👍','👎','👌','✌️','🤞','🤟','🤘','🤙','👋','🤚','🖐️','✋',
+  '🖖','👏','🙌','🤲','🤝','🙏','✍️','💅','🤳','💪','🦾','🦿',
+  '🔥','⭐','🌟','💫','✨','🎉','🎊','🎁','🎈','🏆','🥇','🎖️',
+  '💎','👑','🔮','🎯','🎲','🎸','🎵','🎶','🎤','🎧','📱','💻'
+];
+
+function openEmojiPicker() {
+  document.getElementById('emoji-picker-popup')?.remove();
+
+  const popup = document.createElement('div');
+  popup.id = 'emoji-picker-popup';
+
+  const tgBottom   = document.getElementById('tg-bottom');
+  const tbRect     = tgBottom?.getBoundingClientRect();
+  const bottomSpace = tbRect ? window.innerHeight - tbRect.top : 120;
+
+  popup.style.cssText = `
+    position:fixed;
+    bottom:${bottomSpace + 4}px;
+    left:8px;right:8px;
+    max-width:380px;
+    margin:0 auto;
+    background:var(--surface2);
+    border-radius:20px;
+    border:1px solid rgba(124,92,191,0.2);
+    box-shadow:0 8px 32px rgba(0,0,0,0.6);
+    padding:10px;
+    z-index:3500;
+    animation:slideUp 0.25s cubic-bezier(0.34,1.1,0.64,1);
+  `;
+  popup.innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;gap:4px;max-height:220px;overflow-y:auto;">
+      ${EMOJI_LIST.map(emoji =>
+        `<button class="ep-btn" style="width:36px;height:36px;border:none;background:none;
+          font-size:22px;cursor:pointer;border-radius:10px;transition:background 0.1s;"
+          onmouseover="this.style.background='rgba(124,92,191,0.15)'"
+          onmouseout="this.style.background='none'"
+        >${emoji}</button>`
+      ).join('')}
+    </div>`;
+  document.body.appendChild(popup);
+
+  popup.querySelectorAll('.ep-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const input = document.getElementById('chat-input');
+      if (input) {
+        const pos = input.selectionStart || 0;
+        const val = input.value;
+        input.value = val.slice(0, pos) + btn.textContent + val.slice(pos);
+        input.selectionStart = input.selectionEnd = pos + btn.textContent.length;
+        input.dispatchEvent(new Event('input'));
+        input.focus();
+      }
+      popup.remove();
+    });
+  });
+
+  // Закрытие по клику вне
+  setTimeout(() => {
+    document.addEventListener('click', function handler(e) {
+      if (!popup.contains(e.target) && e.target.id !== 'btn-emoji-picker') {
+        popup.remove();
+        document.removeEventListener('click', handler);
+      }
+    });
+  }, 50);
+}
+
+// Добавляем кнопку эмодзи в панель ввода (если ещё нет)
+(function addEmojiButton() {
+  const inputRow = document.querySelector('.tg-input-row');
+  const input    = document.getElementById('chat-input');
+  if (!inputRow || !input || document.getElementById('btn-emoji-picker')) return;
+
+  const btn = document.createElement('button');
+  btn.id = 'btn-emoji-picker';
+  btn.className = 'btn-attach-tg';
+  btn.style.cssText = 'font-size:20px;';
+  btn.textContent = '😊';
+  btn.title = 'Эмодзи';
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    if (document.getElementById('emoji-picker-popup')) {
+      document.getElementById('emoji-picker-popup').remove();
+    } else {
+      openEmojiPicker();
+    }
+  });
+
+  // Вставляем перед textarea
+  inputRow.insertBefore(btn, input);
+})();
+
+// ═══════════════════════════════════════════════
+//  КНОПКА ПОИСКА В ЛОББИ
+// ═══════════════════════════════════════════════
+(function addSearchButton() {
+  const lobbyHeader = document.querySelector('.lobby-header');
+  const btnCreate   = document.getElementById('btn-create-room');
+  if (!lobbyHeader || !btnCreate || document.getElementById('btn-search-chats')) return;
+
+  const btn = document.createElement('button');
+  btn.id    = 'btn-search-chats';
+  btn.style.cssText = `
+    width:38px;height:38px;flex-shrink:0;
+    border:none;background:none;color:var(--sub);
+    font-size:20px;border-radius:50%;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+  `;
+  btn.textContent = '🔍';
+  btn.title = 'Поиск';
+  btn.addEventListener('click', openSearchModal);
+  lobbyHeader.insertBefore(btn, btnCreate);
+})();
