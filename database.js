@@ -1,297 +1,329 @@
 // ═══════════════════════════════════════════════
-//  DATABASE.JS — SQLite через better-sqlite3
-//  Все данные сохраняются в файл ./data/chat.db
+//  DATABASE.JS — PostgreSQL (Railway) или SQLite (локально)
+//  Если есть DATABASE_URL — используем PostgreSQL
+//  Иначе — SQLite через better-sqlite3
 // ═══════════════════════════════════════════════
-const Database = require('better-sqlite3');
-const path     = require('path');
-const fs       = require('fs');
 
-// Создаём папку data если её нет
-const dataDir = path.join(__dirname, 'data');
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-
-const db = new Database(path.join(dataDir, 'chat.db'));
-
-// Включаем WAL режим — быстрее и надёжнее
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
-db.pragma('synchronous = NORMAL');
+const path = require('path');
+const fs   = require('fs');
 
 // ════════════════════════════════════════════
-//  СОЗДАНИЕ ТАБЛИЦ
+//  ОПРЕДЕЛЯЕМ РЕЖИМ РАБОТЫ
 // ════════════════════════════════════════════
-db.exec(`
-  -- Пользователи
-  CREATE TABLE IF NOT EXISTS users (
-    nick_lower     TEXT PRIMARY KEY,
-    nickname       TEXT NOT NULL,
-    username       TEXT NOT NULL,
-    password_hash  TEXT,
-    hint           TEXT DEFAULT '',
-    phone          TEXT DEFAULT '',
-    avatar         TEXT DEFAULT NULL,
-    bio            TEXT DEFAULT '',
-    privacy        TEXT DEFAULT '{}',
-    created_at     INTEGER NOT NULL
-  );
+const USE_PG = !!process.env.DATABASE_URL;
 
-  -- Друзья
-  CREATE TABLE IF NOT EXISTS friends (
-    user_lower   TEXT NOT NULL,
-    friend_lower TEXT NOT NULL,
-    PRIMARY KEY (user_lower, friend_lower),
-    FOREIGN KEY (user_lower)   REFERENCES users(nick_lower) ON DELETE CASCADE,
-    FOREIGN KEY (friend_lower) REFERENCES users(nick_lower) ON DELETE CASCADE
-  );
+let db, pgPool;
 
-  -- Заявки в друзья
-  CREATE TABLE IF NOT EXISTS friend_requests (
-    to_lower   TEXT NOT NULL,
-    from_lower TEXT NOT NULL,
-    created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
-    PRIMARY KEY (to_lower, from_lower),
-    FOREIGN KEY (to_lower)   REFERENCES users(nick_lower) ON DELETE CASCADE,
-    FOREIGN KEY (from_lower) REFERENCES users(nick_lower) ON DELETE CASCADE
-  );
+if (USE_PG) {
+  // ─── PostgreSQL ───
+  const { Pool } = require('pg');
+  pgPool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+  });
 
-  -- Заблокированные
-  CREATE TABLE IF NOT EXISTS blocked (
-    user_lower    TEXT NOT NULL,
-    blocked_lower TEXT NOT NULL,
-    PRIMARY KEY (user_lower, blocked_lower),
-    FOREIGN KEY (user_lower) REFERENCES users(nick_lower) ON DELETE CASCADE
-  );
+  // Синхронный интерфейс для совместимости — оборачиваем в синхронные вызовы через пул
+  // Все запросы через runQuery (async внутри, но мы делаем sync-обёртку через Atomics)
+  // Для простоты используем sync-postgres через execSync — НЕТ,
+  // лучше сделаем полноценный async API и перепишем только точки входа
 
-  -- Токены авторизации
-  CREATE TABLE IF NOT EXISTS auth_tokens (
-    token      TEXT PRIMARY KEY,
-    nick_lower TEXT NOT NULL,
-    created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
-    FOREIGN KEY (nick_lower) REFERENCES users(nick_lower) ON DELETE CASCADE
-  );
-
-  -- Группы (комнаты)
-  CREATE TABLE IF NOT EXISTS rooms (
-    room_id        TEXT PRIMARY KEY,
-    name           TEXT NOT NULL,
-    password_hash  TEXT DEFAULT NULL,
-    photo          TEXT DEFAULT NULL,
-    owner_nick     TEXT NOT NULL,
-    join_mode      TEXT DEFAULT 'open',
-    auto_delete    INTEGER DEFAULT NULL,
-    salt           TEXT NOT NULL,
-    created_at     INTEGER NOT NULL
-  );
-
-  -- Постоянные участники групп
-  CREATE TABLE IF NOT EXISTS room_members (
-    room_id    TEXT NOT NULL,
-    nick_lower TEXT NOT NULL,
-    joined_at  INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
-    PRIMARY KEY (room_id, nick_lower),
-    FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
-  );
-
-  -- Сообщения групп
-  CREATE TABLE IF NOT EXISTS room_messages (
-    msg_id     TEXT PRIMARY KEY,
-    room_id    TEXT NOT NULL,
-    from_id    TEXT NOT NULL,
-    nick_lower TEXT NOT NULL,
-    nickname   TEXT NOT NULL,
-    encrypted  TEXT,
-    iv         TEXT,
-    type       TEXT DEFAULT 'text',
-    file_name  TEXT DEFAULT NULL,
-    file_size  INTEGER DEFAULT NULL,
-    mime_type  TEXT DEFAULT NULL,
-    duration   INTEGER DEFAULT 0,
-    seq        INTEGER NOT NULL,
-    edited     INTEGER DEFAULT 0,
-    deleted    INTEGER DEFAULT 0,
-    timestamp  INTEGER NOT NULL,
-    FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
-  );
-
-  -- Удалённые для себя сообщения в группах
-  CREATE TABLE IF NOT EXISTS room_msg_deleted_for (
-    msg_id     TEXT NOT NULL,
-    nick_lower TEXT NOT NULL,
-    PRIMARY KEY (msg_id, nick_lower)
-  );
-
-  -- Личные чаты
-  CREATE TABLE IF NOT EXISTS private_chats (
-    chat_id    TEXT PRIMARY KEY,
-    member1    TEXT NOT NULL,
-    member2    TEXT NOT NULL,
-    created_at INTEGER NOT NULL
-  );
-
-  -- Сообщения личных чатов
-  CREATE TABLE IF NOT EXISTS private_messages (
-    msg_id      TEXT PRIMARY KEY,
-    chat_id     TEXT NOT NULL,
-    from_lower  TEXT NOT NULL,
-    from_nick   TEXT NOT NULL,
-    from_avatar TEXT DEFAULT NULL,
-    encrypted   TEXT,
-    iv          TEXT,
-    type        TEXT DEFAULT 'text',
-    file_name   TEXT DEFAULT NULL,
-    file_size   INTEGER DEFAULT NULL,
-    mime_type   TEXT DEFAULT NULL,
-    duration    INTEGER DEFAULT 0,
-    seq         INTEGER,
-    status      TEXT DEFAULT 'sent',
-    edited      INTEGER DEFAULT 0,
-    timestamp   INTEGER NOT NULL,
-    FOREIGN KEY (chat_id) REFERENCES private_chats(chat_id) ON DELETE CASCADE
-  );
-
-  -- Прочитанные личные сообщения
-  CREATE TABLE IF NOT EXISTS private_msg_read_by (
-    msg_id     TEXT NOT NULL,
-    nick_lower TEXT NOT NULL,
-    PRIMARY KEY (msg_id, nick_lower)
-  );
-
-  -- Удалённые для себя личные сообщения
-  CREATE TABLE IF NOT EXISTS private_msg_deleted_for (
-    msg_id     TEXT NOT NULL,
-    nick_lower TEXT NOT NULL,
-    PRIMARY KEY (msg_id, nick_lower)
-  );
-
-  -- Индексы для быстрого поиска
-  CREATE INDEX IF NOT EXISTS idx_room_messages_room    ON room_messages(room_id, timestamp);
-  CREATE INDEX IF NOT EXISTS idx_private_messages_chat ON private_messages(chat_id, timestamp);
-  CREATE INDEX IF NOT EXISTS idx_auth_tokens_nick      ON auth_tokens(nick_lower);
-  CREATE INDEX IF NOT EXISTS idx_room_members_nick     ON room_members(nick_lower);
-  CREATE INDEX IF NOT EXISTS idx_private_chats_m1      ON private_chats(member1);
-  CREATE INDEX IF NOT EXISTS idx_private_chats_m2      ON private_chats(member2);
-`);
+  console.log('Используем PostgreSQL (Railway)');
+} else {
+  // ─── SQLite ───
+  const Database = require('better-sqlite3');
+  const dataDir  = path.join(__dirname, 'data');
+  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+  db = new Database(path.join(dataDir, 'chat.db'));
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  db.pragma('synchronous = NORMAL');
+  console.log('Используем SQLite (локально)');
+}
 
 // ════════════════════════════════════════════
-//  ПОЛЬЗОВАТЕЛИ
+//  ИНИЦИАЛИЗАЦИЯ ТАБЛИЦ
 // ════════════════════════════════════════════
-const UserDB = {
-  get(nickLower) {
-    const row = db.prepare('SELECT * FROM users WHERE nick_lower = ?').get(nickLower);
-    if (!row) return null;
-    return _rowToUser(row);
-  },
+async function initDB() {
+  if (USE_PG) {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        nick_lower     TEXT PRIMARY KEY,
+        nickname       TEXT NOT NULL,
+        username       TEXT NOT NULL,
+        password_hash  TEXT,
+        hint           TEXT DEFAULT '',
+        phone          TEXT DEFAULT '',
+        avatar         TEXT DEFAULT NULL,
+        bio            TEXT DEFAULT '',
+        privacy        TEXT DEFAULT '{}',
+        created_at     BIGINT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS friends (
+        user_lower   TEXT NOT NULL,
+        friend_lower TEXT NOT NULL,
+        PRIMARY KEY (user_lower, friend_lower)
+      );
+      CREATE TABLE IF NOT EXISTS friend_requests (
+        to_lower   TEXT NOT NULL,
+        from_lower TEXT NOT NULL,
+        created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
+        PRIMARY KEY (to_lower, from_lower)
+      );
+      CREATE TABLE IF NOT EXISTS blocked (
+        user_lower    TEXT NOT NULL,
+        blocked_lower TEXT NOT NULL,
+        PRIMARY KEY (user_lower, blocked_lower)
+      );
+      CREATE TABLE IF NOT EXISTS auth_tokens (
+        token      TEXT PRIMARY KEY,
+        nick_lower TEXT NOT NULL,
+        created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
+      );
+      CREATE TABLE IF NOT EXISTS rooms (
+        room_id        TEXT PRIMARY KEY,
+        name           TEXT NOT NULL,
+        password_hash  TEXT DEFAULT NULL,
+        photo          TEXT DEFAULT NULL,
+        owner_nick     TEXT NOT NULL,
+        join_mode      TEXT DEFAULT 'open',
+        auto_delete    BIGINT DEFAULT NULL,
+        salt           TEXT NOT NULL,
+        created_at     BIGINT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS room_members (
+        room_id    TEXT NOT NULL,
+        nick_lower TEXT NOT NULL,
+        joined_at  BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
+        PRIMARY KEY (room_id, nick_lower)
+      );
+      CREATE TABLE IF NOT EXISTS room_messages (
+        msg_id     TEXT PRIMARY KEY,
+        room_id    TEXT NOT NULL,
+        from_id    TEXT NOT NULL,
+        nick_lower TEXT NOT NULL,
+        nickname   TEXT NOT NULL,
+        encrypted  TEXT,
+        iv         TEXT,
+        type       TEXT DEFAULT 'text',
+        file_name  TEXT DEFAULT NULL,
+        file_size  BIGINT DEFAULT NULL,
+        mime_type  TEXT DEFAULT NULL,
+        duration   INTEGER DEFAULT 0,
+        seq        INTEGER NOT NULL,
+        edited     INTEGER DEFAULT 0,
+        deleted    INTEGER DEFAULT 0,
+        timestamp  BIGINT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS room_msg_deleted_for (
+        msg_id     TEXT NOT NULL,
+        nick_lower TEXT NOT NULL,
+        PRIMARY KEY (msg_id, nick_lower)
+      );
+      CREATE TABLE IF NOT EXISTS private_chats (
+        chat_id    TEXT PRIMARY KEY,
+        member1    TEXT NOT NULL,
+        member2    TEXT NOT NULL,
+        created_at BIGINT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS private_messages (
+        msg_id      TEXT PRIMARY KEY,
+        chat_id     TEXT NOT NULL,
+        from_lower  TEXT NOT NULL,
+        from_nick   TEXT NOT NULL,
+        from_avatar TEXT DEFAULT NULL,
+        encrypted   TEXT,
+        iv          TEXT,
+        type        TEXT DEFAULT 'text',
+        file_name   TEXT DEFAULT NULL,
+        file_size   BIGINT DEFAULT NULL,
+        mime_type   TEXT DEFAULT NULL,
+        duration    INTEGER DEFAULT 0,
+        seq         INTEGER,
+        status      TEXT DEFAULT 'sent',
+        edited      INTEGER DEFAULT 0,
+        timestamp   BIGINT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS private_msg_read_by (
+        msg_id     TEXT NOT NULL,
+        nick_lower TEXT NOT NULL,
+        PRIMARY KEY (msg_id, nick_lower)
+      );
+      CREATE TABLE IF NOT EXISTS private_msg_deleted_for (
+        msg_id     TEXT NOT NULL,
+        nick_lower TEXT NOT NULL,
+        PRIMARY KEY (msg_id, nick_lower)
+      );
 
-  getByUsername(username) {
-    const row = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
-    if (!row) return null;
-    return _rowToUser(row);
-  },
-
-  has(nickLower) {
-    return !!db.prepare('SELECT 1 FROM users WHERE nick_lower = ?').get(nickLower);
-  },
-
-  hasUsername(username) {
-    return !!db.prepare('SELECT 1 FROM users WHERE username = ?').get(username);
-  },
-
-  create(nickLower, data) {
-    db.prepare(`
-      INSERT INTO users (nick_lower, nickname, username, password_hash, hint, phone, avatar, bio, privacy, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      nickLower,
-      data.nickname,
-      data.username || nickLower,
-      data.passwordHash || null,
-      data.hint    || '',
-      data.phone   || '',
-      data.avatar  || null,
-      data.bio     || '',
-      JSON.stringify(data.privacy || {}),
-      data.createdAt || Date.now()
-    );
-  },
-
-  update(nickLower, fields) {
-    const allowed = ['nickname', 'username', 'password_hash', 'hint', 'phone', 'avatar', 'bio', 'privacy'];
-    const sets    = [];
-    const vals    = [];
-    for (const [k, v] of Object.entries(fields)) {
-      const col = _camelToSnake(k);
-      if (!allowed.includes(col)) continue;
-      sets.push(`${col} = ?`);
-      vals.push(k === 'privacy' ? JSON.stringify(v) : v);
-    }
-    if (!sets.length) return;
-    vals.push(nickLower);
-    db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE nick_lower = ?`).run(...vals);
-  },
-
-  // Друзья
-  getFriends(nickLower) {
-    return db.prepare(`
-      SELECT u.nick_lower, u.nickname, u.avatar
-      FROM friends f
-      JOIN users u ON u.nick_lower = f.friend_lower
-      WHERE f.user_lower = ?
-    `).all(nickLower).map(r => ({ lower: r.nick_lower, nickname: r.nickname, avatar: r.avatar }));
-  },
-
-  addFriend(a, b) {
-    const ins = db.prepare('INSERT OR IGNORE INTO friends (user_lower, friend_lower) VALUES (?, ?)');
-    db.transaction(() => { ins.run(a, b); ins.run(b, a); })();
-  },
-
-  removeFriend(a, b) {
-    const del = db.prepare('DELETE FROM friends WHERE user_lower = ? AND friend_lower = ?');
-    db.transaction(() => { del.run(a, b); del.run(b, a); })();
-  },
-
-  areFriends(a, b) {
-    return !!db.prepare('SELECT 1 FROM friends WHERE user_lower = ? AND friend_lower = ?').get(a, b);
-  },
-
-  // Заявки
-  getFriendRequests(nickLower) {
-    return db.prepare(`
-      SELECT u.nick_lower, u.nickname, u.avatar
-      FROM friend_requests fr
-      JOIN users u ON u.nick_lower = fr.from_lower
-      WHERE fr.to_lower = ?
-      ORDER BY fr.created_at
-    `).all(nickLower).map(r => ({ lower: r.nick_lower, nickname: r.nickname, avatar: r.avatar }));
-  },
-
-  hasRequest(toLower, fromLower) {
-    return !!db.prepare('SELECT 1 FROM friend_requests WHERE to_lower = ? AND from_lower = ?').get(toLower, fromLower);
-  },
-
-  addRequest(toLower, fromLower) {
-    db.prepare('INSERT OR IGNORE INTO friend_requests (to_lower, from_lower) VALUES (?, ?)').run(toLower, fromLower);
-  },
-
-  removeRequest(toLower, fromLower) {
-    db.prepare('DELETE FROM friend_requests WHERE to_lower = ? AND from_lower = ?').run(toLower, fromLower);
-  },
-
-  // Блокировка
-  getBlocked(nickLower) {
-    return db.prepare('SELECT blocked_lower FROM blocked WHERE user_lower = ?')
-      .all(nickLower).map(r => r.blocked_lower);
-  },
-
-  block(userLower, blockedLower) {
-    db.prepare('INSERT OR IGNORE INTO blocked (user_lower, blocked_lower) VALUES (?, ?)').run(userLower, blockedLower);
-  },
-
-  unblock(userLower, blockedLower) {
-    db.prepare('DELETE FROM blocked WHERE user_lower = ? AND blocked_lower = ?').run(userLower, blockedLower);
+      CREATE INDEX IF NOT EXISTS idx_room_messages_room    ON room_messages(room_id, timestamp);
+      CREATE INDEX IF NOT EXISTS idx_private_messages_chat ON private_messages(chat_id, timestamp);
+      CREATE INDEX IF NOT EXISTS idx_auth_tokens_nick      ON auth_tokens(nick_lower);
+      CREATE INDEX IF NOT EXISTS idx_room_members_nick     ON room_members(nick_lower);
+      CREATE INDEX IF NOT EXISTS idx_private_chats_m1      ON private_chats(member1);
+      CREATE INDEX IF NOT EXISTS idx_private_chats_m2      ON private_chats(member2);
+    `);
+  } else {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS users (
+        nick_lower     TEXT PRIMARY KEY,
+        nickname       TEXT NOT NULL,
+        username       TEXT NOT NULL,
+        password_hash  TEXT,
+        hint           TEXT DEFAULT '',
+        phone          TEXT DEFAULT '',
+        avatar         TEXT DEFAULT NULL,
+        bio            TEXT DEFAULT '',
+        privacy        TEXT DEFAULT '{}',
+        created_at     INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS friends (
+        user_lower   TEXT NOT NULL,
+        friend_lower TEXT NOT NULL,
+        PRIMARY KEY (user_lower, friend_lower)
+      );
+      CREATE TABLE IF NOT EXISTS friend_requests (
+        to_lower   TEXT NOT NULL,
+        from_lower TEXT NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
+        PRIMARY KEY (to_lower, from_lower)
+      );
+      CREATE TABLE IF NOT EXISTS blocked (
+        user_lower    TEXT NOT NULL,
+        blocked_lower TEXT NOT NULL,
+        PRIMARY KEY (user_lower, blocked_lower)
+      );
+      CREATE TABLE IF NOT EXISTS auth_tokens (
+        token      TEXT PRIMARY KEY,
+        nick_lower TEXT NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+      );
+      CREATE TABLE IF NOT EXISTS rooms (
+        room_id        TEXT PRIMARY KEY,
+        name           TEXT NOT NULL,
+        password_hash  TEXT DEFAULT NULL,
+        photo          TEXT DEFAULT NULL,
+        owner_nick     TEXT NOT NULL,
+        join_mode      TEXT DEFAULT 'open',
+        auto_delete    INTEGER DEFAULT NULL,
+        salt           TEXT NOT NULL,
+        created_at     INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS room_members (
+        room_id    TEXT NOT NULL,
+        nick_lower TEXT NOT NULL,
+        joined_at  INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
+        PRIMARY KEY (room_id, nick_lower)
+      );
+      CREATE TABLE IF NOT EXISTS room_messages (
+        msg_id     TEXT PRIMARY KEY,
+        room_id    TEXT NOT NULL,
+        from_id    TEXT NOT NULL,
+        nick_lower TEXT NOT NULL,
+        nickname   TEXT NOT NULL,
+        encrypted  TEXT,
+        iv         TEXT,
+        type       TEXT DEFAULT 'text',
+        file_name  TEXT DEFAULT NULL,
+        file_size  INTEGER DEFAULT NULL,
+        mime_type  TEXT DEFAULT NULL,
+        duration   INTEGER DEFAULT 0,
+        seq        INTEGER NOT NULL,
+        edited     INTEGER DEFAULT 0,
+        deleted    INTEGER DEFAULT 0,
+        timestamp  INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS room_msg_deleted_for (
+        msg_id     TEXT NOT NULL,
+        nick_lower TEXT NOT NULL,
+        PRIMARY KEY (msg_id, nick_lower)
+      );
+      CREATE TABLE IF NOT EXISTS private_chats (
+        chat_id    TEXT PRIMARY KEY,
+        member1    TEXT NOT NULL,
+        member2    TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS private_messages (
+        msg_id      TEXT PRIMARY KEY,
+        chat_id     TEXT NOT NULL,
+        from_lower  TEXT NOT NULL,
+        from_nick   TEXT NOT NULL,
+        from_avatar TEXT DEFAULT NULL,
+        encrypted   TEXT,
+        iv          TEXT,
+        type        TEXT DEFAULT 'text',
+        file_name   TEXT DEFAULT NULL,
+        file_size   INTEGER DEFAULT NULL,
+        mime_type   TEXT DEFAULT NULL,
+        duration    INTEGER DEFAULT 0,
+        seq         INTEGER,
+        status      TEXT DEFAULT 'sent',
+        edited      INTEGER DEFAULT 0,
+        timestamp   INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS private_msg_read_by (
+        msg_id     TEXT NOT NULL,
+        nick_lower TEXT NOT NULL,
+        PRIMARY KEY (msg_id, nick_lower)
+      );
+      CREATE TABLE IF NOT EXISTS private_msg_deleted_for (
+        msg_id     TEXT NOT NULL,
+        nick_lower TEXT NOT NULL,
+        PRIMARY KEY (msg_id, nick_lower)
+      );
+      CREATE INDEX IF NOT EXISTS idx_room_messages_room    ON room_messages(room_id, timestamp);
+      CREATE INDEX IF NOT EXISTS idx_private_messages_chat ON private_messages(chat_id, timestamp);
+      CREATE INDEX IF NOT EXISTS idx_auth_tokens_nick      ON auth_tokens(nick_lower);
+      CREATE INDEX IF NOT EXISTS idx_room_members_nick     ON room_members(nick_lower);
+      CREATE INDEX IF NOT EXISTS idx_private_chats_m1      ON private_chats(member1);
+      CREATE INDEX IF NOT EXISTS idx_private_chats_m2      ON private_chats(member2);
+    `);
   }
-};
+}
+
+// ════════════════════════════════════════════
+//  УНИВЕРСАЛЬНЫЙ ЗАПРОС
+// ════════════════════════════════════════════
+
+// PG использует $1,$2... SQLite использует ?
+// Конвертируем ? → $1,$2... для PG
+function convertPlaceholders(sql) {
+  let i = 0;
+  return sql.replace(/\?/g, () => '$' + (++i));
+}
+
+// Для PG: возвращает { rows }
+// Для SQLite: эмулируем { rows }
+async function query(sql, params = []) {
+  if (USE_PG) {
+    const pgSql = convertPlaceholders(sql);
+    const res   = await pgPool.query(pgSql, params);
+    return res.rows;
+  } else {
+    // Определяем тип запроса
+    const trimmed = sql.trim().toUpperCase();
+    if (trimmed.startsWith('SELECT') || trimmed.startsWith('WITH')) {
+      return db.prepare(sql).all(...params);
+    } else {
+      db.prepare(sql).run(...params);
+      return [];
+    }
+  }
+}
+
+async function queryOne(sql, params = []) {
+  const rows = await query(sql, params);
+  return rows[0] || null;
+}
+
+// ════════════════════════════════════════════
+//  ВСПОМОГАТЕЛЬНЫЕ УТИЛИТЫ
+// ════════════════════════════════════════════
+function _safeJson(str, fallback) {
+  try { return str ? JSON.parse(str) : fallback; } catch { return fallback; }
+}
 
 function _rowToUser(row) {
+  if (!row) return null;
   return {
     nickname:     row.nickname,
     username:     row.username,
@@ -301,145 +333,12 @@ function _rowToUser(row) {
     avatar:       row.avatar      || null,
     bio:          row.bio         || '',
     privacy:      _safeJson(row.privacy, {}),
-    createdAt:    row.created_at
+    createdAt:    Number(row.created_at)
   };
 }
 
-// ════════════════════════════════════════════
-//  ТОКЕНЫ
-// ════════════════════════════════════════════
-const TokenDB = {
-  get(token) {
-    const row = db.prepare('SELECT nick_lower FROM auth_tokens WHERE token = ?').get(token);
-    return row ? row.nick_lower : null;
-  },
-
-  set(token, nickLower) {
-    db.prepare('INSERT OR REPLACE INTO auth_tokens (token, nick_lower) VALUES (?, ?)').run(token, nickLower);
-  },
-
-  delete(token) {
-    db.prepare('DELETE FROM auth_tokens WHERE token = ?').run(token);
-  },
-
-  // Удаляем старые токены (старше 30 дней)
-  cleanup() {
-    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
-    db.prepare('DELETE FROM auth_tokens WHERE created_at < ?').run(cutoff);
-  }
-};
-
-// ════════════════════════════════════════════
-//  ГРУППЫ (КОМНАТЫ)
-// ════════════════════════════════════════════
-const RoomDB = {
-  get(roomId) {
-    const row = db.prepare('SELECT * FROM rooms WHERE room_id = ?').get(roomId);
-    if (!row) return null;
-    return _rowToRoom(row);
-  },
-
-  getAll() {
-    return db.prepare('SELECT * FROM rooms ORDER BY created_at DESC').all().map(_rowToRoom);
-  },
-
-  create(roomId, data) {
-    db.prepare(`
-      INSERT INTO rooms (room_id, name, password_hash, photo, owner_nick, join_mode, auto_delete, salt, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      roomId, data.name, data.passwordHash || null, data.photo || null,
-      data.ownerNick, data.joinMode || 'open',
-      data.autoDelete || null, data.salt, data.createdAt || Date.now()
-    );
-  },
-
-  update(roomId, fields) {
-    const map = { name:'name', passwordHash:'password_hash', photo:'photo', joinMode:'join_mode', autoDelete:'auto_delete' };
-    const sets = []; const vals = [];
-    for (const [k, v] of Object.entries(fields)) {
-      if (map[k]) { sets.push(`${map[k]} = ?`); vals.push(v); }
-    }
-    if (!sets.length) return;
-    vals.push(roomId);
-    db.prepare(`UPDATE rooms SET ${sets.join(', ')} WHERE room_id = ?`).run(...vals);
-  },
-
-  delete(roomId) {
-    db.prepare('DELETE FROM rooms WHERE room_id = ?').run(roomId);
-  },
-
-  // Участники
-  getMembers(roomId) {
-    return db.prepare('SELECT nick_lower FROM room_members WHERE room_id = ?')
-      .all(roomId).map(r => r.nick_lower);
-  },
-
-  addMember(roomId, nickLower) {
-    db.prepare('INSERT OR IGNORE INTO room_members (room_id, nick_lower) VALUES (?, ?)').run(roomId, nickLower);
-  },
-
-  removeMember(roomId, nickLower) {
-    db.prepare('DELETE FROM room_members WHERE room_id = ? AND nick_lower = ?').run(roomId, nickLower);
-  },
-
-  isMember(roomId, nickLower) {
-    return !!db.prepare('SELECT 1 FROM room_members WHERE room_id = ? AND nick_lower = ?').get(roomId, nickLower);
-  },
-
-  getUserRooms(nickLower) {
-    return db.prepare('SELECT room_id FROM room_members WHERE nick_lower = ?')
-      .all(nickLower).map(r => r.room_id);
-  },
-
-  // Сообщения
-  getMessages(roomId, limit = 200) {
-    const rows = db.prepare(`
-      SELECT m.*, GROUP_CONCAT(d.nick_lower) as deleted_for_list
-      FROM room_messages m
-      LEFT JOIN room_msg_deleted_for d ON d.msg_id = m.msg_id
-      WHERE m.room_id = ? AND m.deleted = 0
-      GROUP BY m.msg_id
-      ORDER BY m.timestamp ASC
-      LIMIT ?
-    `).all(roomId, limit);
-    return rows.map(_rowToRoomMsg);
-  },
-
-  saveMessage(msg) {
-    db.prepare(`
-      INSERT OR REPLACE INTO room_messages
-      (msg_id, room_id, from_id, nick_lower, nickname, encrypted, iv, type,
-       file_name, file_size, mime_type, duration, seq, timestamp)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      msg.id, msg.roomId, msg.from, msg.nickLower || '', msg.nickname || '',
-      msg.encrypted || null, msg.iv || null, msg.type || 'text',
-      msg.fileName || null, msg.fileSize || null, msg.mimeType || null,
-      msg.duration || 0, msg.seq || 0, msg.timestamp || Date.now()
-    );
-  },
-
-  deleteMessage(msgId) {
-    db.prepare('UPDATE room_messages SET deleted = 1 WHERE msg_id = ?').run(msgId);
-  },
-
-  editMessage(msgId, encrypted, iv) {
-    db.prepare('UPDATE room_messages SET encrypted = ?, iv = ?, edited = 1 WHERE msg_id = ?')
-      .run(encrypted, iv, msgId);
-  },
-
-  addDeletedFor(msgId, nickLower) {
-    db.prepare('INSERT OR IGNORE INTO room_msg_deleted_for (msg_id, nick_lower) VALUES (?, ?)').run(msgId, nickLower);
-  },
-
-  getMessage(msgId) {
-    const row = db.prepare('SELECT * FROM room_messages WHERE msg_id = ?').get(msgId);
-    return row ? _rowToRoomMsg(row) : null;
-  }
-};
-
 function _rowToRoom(row) {
+  if (!row) return null;
   return {
     id:           row.room_id,
     name:         row.name,
@@ -447,13 +346,14 @@ function _rowToRoom(row) {
     photo:        row.photo         || null,
     ownerNick:    row.owner_nick,
     joinMode:     row.join_mode     || 'open',
-    autoDelete:   row.auto_delete   || null,
+    autoDelete:   row.auto_delete   ? Number(row.auto_delete) : null,
     salt:         row.salt,
-    createdAt:    row.created_at
+    createdAt:    Number(row.created_at)
   };
 }
 
 function _rowToRoomMsg(row) {
+  if (!row) return null;
   return {
     id:          row.msg_id,
     roomId:      row.room_id,
@@ -464,112 +364,20 @@ function _rowToRoomMsg(row) {
     iv:          row.iv         || null,
     type:        row.type       || 'text',
     fileName:    row.file_name  || null,
-    fileSize:    row.file_size  || null,
+    fileSize:    row.file_size  ? Number(row.file_size) : null,
     mimeType:    row.mime_type  || null,
-    duration:    row.duration   || 0,
-    seq:         row.seq        || 0,
-    edited:      !!row.edited,
-    timestamp:   row.timestamp,
-    deletedFor:  row.deleted_for_list ? row.deleted_for_list.split(',') : []
+    duration:    Number(row.duration)   || 0,
+    seq:         Number(row.seq)        || 0,
+    edited:      !!(Number(row.edited)),
+    timestamp:   Number(row.timestamp),
+    deletedFor:  row.deleted_for_list
+      ? (Array.isArray(row.deleted_for_list) ? row.deleted_for_list : row.deleted_for_list.split(','))
+      : []
   };
 }
 
-// ════════════════════════════════════════════
-//  ЛИЧНЫЕ ЧАТЫ
-// ════════════════════════════════════════════
-const PrivateChatDB = {
-  get(chatId) {
-    return db.prepare('SELECT * FROM private_chats WHERE chat_id = ?').get(chatId);
-  },
-
-  create(chatId, member1, member2) {
-    db.prepare('INSERT OR IGNORE INTO private_chats (chat_id, member1, member2, created_at) VALUES (?, ?, ?, ?)')
-      .run(chatId, member1, member2, Date.now());
-  },
-
-  getUserChats(nickLower) {
-    return db.prepare(`
-      SELECT pc.*,
-        pm.type as last_type, pm.timestamp as last_ts
-      FROM private_chats pc
-      LEFT JOIN private_messages pm ON pm.msg_id = (
-        SELECT msg_id FROM private_messages
-        WHERE chat_id = pc.chat_id
-        ORDER BY timestamp DESC LIMIT 1
-      )
-      WHERE pc.member1 = ? OR pc.member2 = ?
-      ORDER BY COALESCE(pm.timestamp, pc.created_at) DESC
-    `).all(nickLower, nickLower);
-  },
-
-  isMember(chatId, nickLower) {
-    const chat = db.prepare('SELECT * FROM private_chats WHERE chat_id = ?').get(chatId);
-    if (!chat) return false;
-    return chat.member1 === nickLower || chat.member2 === nickLower;
-  },
-
-  // Сообщения
-  getMessages(chatId, limit = 200) {
-    const rows = db.prepare(`
-      SELECT
-        m.*,
-        GROUP_CONCAT(DISTINCT r.nick_lower) as read_by_list,
-        GROUP_CONCAT(DISTINCT d.nick_lower) as deleted_for_list
-      FROM private_messages m
-      LEFT JOIN private_msg_read_by    r ON r.msg_id = m.msg_id
-      LEFT JOIN private_msg_deleted_for d ON d.msg_id = m.msg_id
-      WHERE m.chat_id = ?
-      GROUP BY m.msg_id
-      ORDER BY m.timestamp ASC
-      LIMIT ?
-    `).all(chatId, limit);
-    return rows.map(_rowToPrivateMsg);
-  },
-
-  saveMessage(msg) {
-    db.prepare(`
-      INSERT OR REPLACE INTO private_messages
-      (msg_id, chat_id, from_lower, from_nick, from_avatar, encrypted, iv, type,
-       file_name, file_size, mime_type, duration, seq, status, timestamp)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      msg.id, msg.chatId, msg.from, msg.fromNick || '', msg.fromAvatar || null,
-      msg.encrypted || null, msg.iv || null, msg.type || 'text',
-      msg.fileName || null, msg.fileSize || null, msg.mimeType || null,
-      msg.duration || 0, msg.seq || 0, msg.status || 'sent',
-      msg.timestamp || Date.now()
-    );
-  },
-
-  getMessage(msgId) {
-    const row = db.prepare('SELECT * FROM private_messages WHERE msg_id = ?').get(msgId);
-    return row ? _rowToPrivateMsg(row) : null;
-  },
-
-  deleteMessage(msgId) {
-    db.prepare('DELETE FROM private_messages WHERE msg_id = ?').run(msgId);
-  },
-
-  editMessage(msgId, encrypted, iv) {
-    db.prepare('UPDATE private_messages SET encrypted = ?, iv = ?, edited = 1 WHERE msg_id = ?')
-      .run(encrypted, iv, msgId);
-  },
-
-  markRead(msgId, nickLower) {
-    db.prepare('INSERT OR IGNORE INTO private_msg_read_by (msg_id, nick_lower) VALUES (?, ?)').run(msgId, nickLower);
-    db.prepare("UPDATE private_messages SET status = 'read' WHERE msg_id = ?").run(msgId);
-  },
-
-  isReadBy(msgId, nickLower) {
-    return !!db.prepare('SELECT 1 FROM private_msg_read_by WHERE msg_id = ? AND nick_lower = ?').get(msgId, nickLower);
-  },
-
-  addDeletedFor(msgId, nickLower) {
-    db.prepare('INSERT OR IGNORE INTO private_msg_deleted_for (msg_id, nick_lower) VALUES (?, ?)').run(msgId, nickLower);
-  }
-};
-
 function _rowToPrivateMsg(row) {
+  if (!row) return null;
   return {
     id:          row.msg_id,
     chatId:      row.chat_id,
@@ -580,30 +388,416 @@ function _rowToPrivateMsg(row) {
     iv:          row.iv           || null,
     type:        row.type         || 'text',
     fileName:    row.file_name    || null,
-    fileSize:    row.file_size    || null,
+    fileSize:    row.file_size    ? Number(row.file_size) : null,
     mimeType:    row.mime_type    || null,
-    duration:    row.duration     || 0,
-    seq:         row.seq          || 0,
+    duration:    Number(row.duration)   || 0,
+    seq:         Number(row.seq)        || 0,
     status:      row.status       || 'sent',
-    edited:      !!row.edited,
-    timestamp:   row.timestamp,
-    readBy:      row.read_by_list     ? row.read_by_list.split(',')     : [],
-    deletedFor:  row.deleted_for_list ? row.deleted_for_list.split(',') : []
+    edited:      !!(Number(row.edited)),
+    timestamp:   Number(row.timestamp),
+    readBy:      row.read_by_list
+      ? (Array.isArray(row.read_by_list) ? row.read_by_list : row.read_by_list.split(','))
+      : [],
+    deletedFor:  row.deleted_for_list
+      ? (Array.isArray(row.deleted_for_list) ? row.deleted_for_list : row.deleted_for_list.split(','))
+      : []
   };
 }
 
 // ════════════════════════════════════════════
-//  ВСПОМОГАТЕЛЬНЫЕ УТИЛИТЫ
+//  ПОЛЬЗОВАТЕЛИ
 // ════════════════════════════════════════════
-function _safeJson(str, fallback) {
-  try { return str ? JSON.parse(str) : fallback; } catch { return fallback; }
-}
+const UserDB = {
+  async get(nickLower) {
+    const row = await queryOne('SELECT * FROM users WHERE nick_lower = ?', [nickLower]);
+    return _rowToUser(row);
+  },
 
-function _camelToSnake(str) {
-  return str.replace(/[A-Z]/g, c => '_' + c.toLowerCase());
-}
+  async getByUsername(username) {
+    const row = await queryOne('SELECT * FROM users WHERE username = ?', [username]);
+    return _rowToUser(row);
+  },
+
+  async has(nickLower) {
+    const row = await queryOne('SELECT 1 FROM users WHERE nick_lower = ?', [nickLower]);
+    return !!row;
+  },
+
+  async hasUsername(username) {
+    const row = await queryOne('SELECT 1 FROM users WHERE username = ?', [username]);
+    return !!row;
+  },
+
+  async create(nickLower, data) {
+    await query(
+      `INSERT INTO users (nick_lower, nickname, username, password_hash, hint, phone, avatar, bio, privacy, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (nick_lower) DO NOTHING`,
+      [
+        nickLower, data.nickname, data.username || nickLower,
+        data.passwordHash || null, data.hint || '', data.phone || '',
+        data.avatar || null, data.bio || '',
+        JSON.stringify(data.privacy || {}), data.createdAt || Date.now()
+      ]
+    );
+  },
+
+  async update(nickLower, fields) {
+    const allowed = ['nickname', 'username', 'password_hash', 'hint', 'phone', 'avatar', 'bio', 'privacy'];
+    const sets = [], vals = [];
+    for (const [k, v] of Object.entries(fields)) {
+      const col = k.replace(/[A-Z]/g, c => '_' + c.toLowerCase());
+      if (!allowed.includes(col)) continue;
+      sets.push(`${col} = ?`);
+      vals.push(k === 'privacy' ? JSON.stringify(v) : v);
+    }
+    if (!sets.length) return;
+    vals.push(nickLower);
+    await query(`UPDATE users SET ${sets.join(', ')} WHERE nick_lower = ?`, vals);
+  },
+
+  async getFriends(nickLower) {
+    const rows = await query(
+      `SELECT u.nick_lower, u.nickname, u.avatar
+       FROM friends f
+       JOIN users u ON u.nick_lower = f.friend_lower
+       WHERE f.user_lower = ?`, [nickLower]
+    );
+    return rows.map(r => ({ lower: r.nick_lower, nickname: r.nickname, avatar: r.avatar || null }));
+  },
+
+  async addFriend(a, b) {
+    await query(`INSERT INTO friends (user_lower, friend_lower) VALUES (?, ?) ON CONFLICT DO NOTHING`, [a, b]);
+    await query(`INSERT INTO friends (user_lower, friend_lower) VALUES (?, ?) ON CONFLICT DO NOTHING`, [b, a]);
+  },
+
+  async removeFriend(a, b) {
+    await query(`DELETE FROM friends WHERE user_lower = ? AND friend_lower = ?`, [a, b]);
+    await query(`DELETE FROM friends WHERE user_lower = ? AND friend_lower = ?`, [b, a]);
+  },
+
+  async areFriends(a, b) {
+    const row = await queryOne(`SELECT 1 FROM friends WHERE user_lower = ? AND friend_lower = ?`, [a, b]);
+    return !!row;
+  },
+
+  async getFriendRequests(nickLower) {
+    const rows = await query(
+      `SELECT u.nick_lower, u.nickname, u.avatar
+       FROM friend_requests fr
+       JOIN users u ON u.nick_lower = fr.from_lower
+       WHERE fr.to_lower = ?
+       ORDER BY fr.created_at`, [nickLower]
+    );
+    return rows.map(r => ({ lower: r.nick_lower, nickname: r.nickname, avatar: r.avatar || null }));
+  },
+
+  async hasRequest(toLower, fromLower) {
+    const row = await queryOne(`SELECT 1 FROM friend_requests WHERE to_lower = ? AND from_lower = ?`, [toLower, fromLower]);
+    return !!row;
+  },
+
+  async addRequest(toLower, fromLower) {
+    await query(`INSERT INTO friend_requests (to_lower, from_lower) VALUES (?, ?) ON CONFLICT DO NOTHING`, [toLower, fromLower]);
+  },
+
+  async removeRequest(toLower, fromLower) {
+    await query(`DELETE FROM friend_requests WHERE to_lower = ? AND from_lower = ?`, [toLower, fromLower]);
+  },
+
+  async getBlocked(nickLower) {
+    const rows = await query(`SELECT blocked_lower FROM blocked WHERE user_lower = ?`, [nickLower]);
+    return rows.map(r => r.blocked_lower);
+  },
+
+  async block(userLower, blockedLower) {
+    await query(`INSERT INTO blocked (user_lower, blocked_lower) VALUES (?, ?) ON CONFLICT DO NOTHING`, [userLower, blockedLower]);
+  },
+
+  async unblock(userLower, blockedLower) {
+    await query(`DELETE FROM blocked WHERE user_lower = ? AND blocked_lower = ?`, [userLower, blockedLower]);
+  }
+};
+
+// ════════════════════════════════════════════
+//  ТОКЕНЫ
+// ════════════════════════════════════════════
+const TokenDB = {
+  async get(token) {
+    const row = await queryOne(`SELECT nick_lower FROM auth_tokens WHERE token = ?`, [token]);
+    return row ? row.nick_lower : null;
+  },
+
+  async set(token, nickLower) {
+    await query(
+      `INSERT INTO auth_tokens (token, nick_lower) VALUES (?, ?)
+       ON CONFLICT (token) DO UPDATE SET nick_lower = EXCLUDED.nick_lower`,
+      [token, nickLower]
+    );
+  },
+
+  async delete(token) {
+    await query(`DELETE FROM auth_tokens WHERE token = ?`, [token]);
+  },
+
+  async cleanup() {
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    await query(`DELETE FROM auth_tokens WHERE created_at < ?`, [cutoff]);
+  }
+};
+
+// ════════════════════════════════════════════
+//  ГРУППЫ (КОМНАТЫ)
+// ════════════════════════════════════════════
+const RoomDB = {
+  async get(roomId) {
+    const row = await queryOne(`SELECT * FROM rooms WHERE room_id = ?`, [roomId]);
+    return _rowToRoom(row);
+  },
+
+  async getAll() {
+    const rows = await query(`SELECT * FROM rooms ORDER BY created_at DESC`);
+    return rows.map(_rowToRoom);
+  },
+
+  async create(roomId, data) {
+    await query(
+      `INSERT INTO rooms (room_id, name, password_hash, photo, owner_nick, join_mode, auto_delete, salt, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (room_id) DO NOTHING`,
+      [
+        roomId, data.name, data.passwordHash || null, data.photo || null,
+        data.ownerNick, data.joinMode || 'open',
+        data.autoDelete || null, data.salt, data.createdAt || Date.now()
+      ]
+    );
+  },
+
+  async update(roomId, fields) {
+    const map = { name: 'name', passwordHash: 'password_hash', photo: 'photo', joinMode: 'join_mode', autoDelete: 'auto_delete' };
+    const sets = [], vals = [];
+    for (const [k, v] of Object.entries(fields)) {
+      if (map[k]) { sets.push(`${map[k]} = ?`); vals.push(v); }
+    }
+    if (!sets.length) return;
+    vals.push(roomId);
+    await query(`UPDATE rooms SET ${sets.join(', ')} WHERE room_id = ?`, vals);
+  },
+
+  async delete(roomId) {
+    // Удаляем связанные данные вручную (PG не имеет ON DELETE CASCADE без FK)
+    await query(`DELETE FROM room_members WHERE room_id = ?`, [roomId]);
+    await query(`DELETE FROM room_msg_deleted_for WHERE msg_id IN (SELECT msg_id FROM room_messages WHERE room_id = ?)`, [roomId]);
+    await query(`DELETE FROM room_messages WHERE room_id = ?`, [roomId]);
+    await query(`DELETE FROM rooms WHERE room_id = ?`, [roomId]);
+  },
+
+  async getMembers(roomId) {
+    const rows = await query(`SELECT nick_lower FROM room_members WHERE room_id = ?`, [roomId]);
+    return rows.map(r => r.nick_lower);
+  },
+
+  async addMember(roomId, nickLower) {
+    await query(`INSERT INTO room_members (room_id, nick_lower) VALUES (?, ?) ON CONFLICT DO NOTHING`, [roomId, nickLower]);
+  },
+
+  async removeMember(roomId, nickLower) {
+    await query(`DELETE FROM room_members WHERE room_id = ? AND nick_lower = ?`, [roomId, nickLower]);
+  },
+
+  async isMember(roomId, nickLower) {
+    const row = await queryOne(`SELECT 1 FROM room_members WHERE room_id = ? AND nick_lower = ?`, [roomId, nickLower]);
+    return !!row;
+  },
+
+  async getUserRooms(nickLower) {
+    const rows = await query(`SELECT room_id FROM room_members WHERE nick_lower = ?`, [nickLower]);
+    return rows.map(r => r.room_id);
+  },
+
+  async getMessages(roomId, limit = 200) {
+    let rows;
+    if (USE_PG) {
+      rows = await query(
+        `SELECT m.*,
+          STRING_AGG(DISTINCT d.nick_lower, ',') as deleted_for_list
+         FROM room_messages m
+         LEFT JOIN room_msg_deleted_for d ON d.msg_id = m.msg_id
+         WHERE m.room_id = ? AND m.deleted = 0
+         GROUP BY m.msg_id
+         ORDER BY m.timestamp ASC
+         LIMIT ?`,
+        [roomId, limit]
+      );
+    } else {
+      rows = await query(
+        `SELECT m.*, GROUP_CONCAT(d.nick_lower) as deleted_for_list
+         FROM room_messages m
+         LEFT JOIN room_msg_deleted_for d ON d.msg_id = m.msg_id
+         WHERE m.room_id = ? AND m.deleted = 0
+         GROUP BY m.msg_id
+         ORDER BY m.timestamp ASC
+         LIMIT ?`,
+        [roomId, limit]
+      );
+    }
+    return rows.map(_rowToRoomMsg);
+  },
+
+  async saveMessage(msg) {
+    await query(
+      `INSERT INTO room_messages
+       (msg_id, room_id, from_id, nick_lower, nickname, encrypted, iv, type,
+        file_name, file_size, mime_type, duration, seq, timestamp)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (msg_id) DO UPDATE SET
+         encrypted = EXCLUDED.encrypted, iv = EXCLUDED.iv`,
+      [
+        msg.id, msg.roomId, msg.from, msg.nickLower || '', msg.nickname || '',
+        msg.encrypted || null, msg.iv || null, msg.type || 'text',
+        msg.fileName || null, msg.fileSize || null, msg.mimeType || null,
+        msg.duration || 0, msg.seq || 0, msg.timestamp || Date.now()
+      ]
+    );
+  },
+
+  async deleteMessage(msgId) {
+    await query(`UPDATE room_messages SET deleted = 1 WHERE msg_id = ?`, [msgId]);
+  },
+
+  async editMessage(msgId, encrypted, iv) {
+    await query(`UPDATE room_messages SET encrypted = ?, iv = ?, edited = 1 WHERE msg_id = ?`, [encrypted, iv, msgId]);
+  },
+
+  async addDeletedFor(msgId, nickLower) {
+    await query(`INSERT INTO room_msg_deleted_for (msg_id, nick_lower) VALUES (?, ?) ON CONFLICT DO NOTHING`, [msgId, nickLower]);
+  },
+
+  async getMessage(msgId) {
+    const row = await queryOne(`SELECT * FROM room_messages WHERE msg_id = ?`, [msgId]);
+    return row ? _rowToRoomMsg(row) : null;
+  }
+};
+
+// ════════════════════════════════════════════
+//  ЛИЧНЫЕ ЧАТЫ
+// ════════════════════════════════════════════
+const PrivateChatDB = {
+  async get(chatId) {
+    return await queryOne(`SELECT * FROM private_chats WHERE chat_id = ?`, [chatId]);
+  },
+
+  async create(chatId, member1, member2) {
+    await query(
+      `INSERT INTO private_chats (chat_id, member1, member2, created_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT (chat_id) DO NOTHING`,
+      [chatId, member1, member2, Date.now()]
+    );
+  },
+
+  async getUserChats(nickLower) {
+    return await query(
+      `SELECT pc.*,
+        pm.type as last_type, pm.timestamp as last_ts
+       FROM private_chats pc
+       LEFT JOIN private_messages pm ON pm.msg_id = (
+         SELECT msg_id FROM private_messages
+         WHERE chat_id = pc.chat_id
+         ORDER BY timestamp DESC LIMIT 1
+       )
+       WHERE pc.member1 = ? OR pc.member2 = ?
+       ORDER BY COALESCE(pm.timestamp, pc.created_at) DESC`,
+      [nickLower, nickLower]
+    );
+  },
+
+  async isMember(chatId, nickLower) {
+    const chat = await queryOne(`SELECT * FROM private_chats WHERE chat_id = ?`, [chatId]);
+    if (!chat) return false;
+    return chat.member1 === nickLower || chat.member2 === nickLower;
+  },
+
+  async getMessages(chatId, limit = 200) {
+    let rows;
+    if (USE_PG) {
+      rows = await query(
+        `SELECT m.*,
+          STRING_AGG(DISTINCT r.nick_lower, ',') as read_by_list,
+          STRING_AGG(DISTINCT d.nick_lower, ',') as deleted_for_list
+         FROM private_messages m
+         LEFT JOIN private_msg_read_by     r ON r.msg_id = m.msg_id
+         LEFT JOIN private_msg_deleted_for d ON d.msg_id = m.msg_id
+         WHERE m.chat_id = ?
+         GROUP BY m.msg_id
+         ORDER BY m.timestamp ASC
+         LIMIT ?`,
+        [chatId, limit]
+      );
+    } else {
+      rows = await query(
+        `SELECT m.*,
+          GROUP_CONCAT(DISTINCT r.nick_lower) as read_by_list,
+          GROUP_CONCAT(DISTINCT d.nick_lower) as deleted_for_list
+         FROM private_messages m
+         LEFT JOIN private_msg_read_by     r ON r.msg_id = m.msg_id
+         LEFT JOIN private_msg_deleted_for d ON d.msg_id = m.msg_id
+         WHERE m.chat_id = ?
+         GROUP BY m.msg_id
+         ORDER BY m.timestamp ASC
+         LIMIT ?`,
+        [chatId, limit]
+      );
+    }
+    return rows.map(_rowToPrivateMsg);
+  },
+
+  async saveMessage(msg) {
+    await query(
+      `INSERT INTO private_messages
+       (msg_id, chat_id, from_lower, from_nick, from_avatar, encrypted, iv, type,
+        file_name, file_size, mime_type, duration, seq, status, timestamp)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (msg_id) DO UPDATE SET
+         encrypted = EXCLUDED.encrypted, iv = EXCLUDED.iv`,
+      [
+        msg.id, msg.chatId, msg.from, msg.fromNick || '', msg.fromAvatar || null,
+        msg.encrypted || null, msg.iv || null, msg.type || 'text',
+        msg.fileName || null, msg.fileSize || null, msg.mimeType || null,
+        msg.duration || 0, msg.seq || 0, msg.status || 'sent',
+        msg.timestamp || Date.now()
+      ]
+    );
+  },
+
+  async getMessage(msgId) {
+    const row = await queryOne(`SELECT * FROM private_messages WHERE msg_id = ?`, [msgId]);
+    return row ? _rowToPrivateMsg(row) : null;
+  },
+
+  async deleteMessage(msgId) {
+    await query(`DELETE FROM private_messages WHERE msg_id = ?`, [msgId]);
+  },
+
+  async editMessage(msgId, encrypted, iv) {
+    await query(`UPDATE private_messages SET encrypted = ?, iv = ?, edited = 1 WHERE msg_id = ?`, [encrypted, iv, msgId]);
+  },
+
+  async markRead(msgId, nickLower) {
+    await query(`INSERT INTO private_msg_read_by (msg_id, nick_lower) VALUES (?, ?) ON CONFLICT DO NOTHING`, [msgId, nickLower]);
+    await query(`UPDATE private_messages SET status = 'read' WHERE msg_id = ?`, [msgId]);
+  },
+
+  async isReadBy(msgId, nickLower) {
+    const row = await queryOne(`SELECT 1 FROM private_msg_read_by WHERE msg_id = ? AND nick_lower = ?`, [msgId, nickLower]);
+    return !!row;
+  },
+
+  async addDeletedFor(msgId, nickLower) {
+    await query(`INSERT INTO private_msg_deleted_for (msg_id, nick_lower) VALUES (?, ?) ON CONFLICT DO NOTHING`, [msgId, nickLower]);
+  }
+};
 
 // Автоочистка старых токенов раз в сутки
 setInterval(() => TokenDB.cleanup(), 24 * 60 * 60 * 1000);
 
-module.exports = { db, UserDB, TokenDB, RoomDB, PrivateChatDB };
+module.exports = { UserDB, TokenDB, RoomDB, PrivateChatDB, initDB, query, queryOne };
