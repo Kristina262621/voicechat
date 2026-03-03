@@ -2558,6 +2558,19 @@ async function sendTextMessage(){
 // ═══════════════════════════════════════════════
 //  ГОЛОСОВЫЕ СООБЩЕНИЯ — отправка
 // ═══════════════════════════════════════════════
+async function sendVoiceMessage(blob, duration, mimeType) {
+  try {
+    const ab = await blob.arrayBuffer();
+    const { encrypted, iv } = await Crypto.encrypt(ab);
+    const localUrl = URL.createObjectURL(new Blob([ab], { type: mimeType }));
+    const seq      = ++outgoingSeq;
+    const payload  = { encrypted, iv, type: 'voice', seq, duration, mimeType, fileName: 'voice.ogg', fileSize: blob.size };
+    const domId = appendMessage({
+      from: socket.id, nickname: myNickname, type: 'voice',
+      localUrl, duration, mimeType, timestamp: Date.now(),
+      mine: true, status: 'ok', msgStatus: 'sending'
+    });
+    msgIdToDomId.set('pending-' + seq, domId);
     if (currentChatType === 'private' && currentChatId) {
       socket.emit('private-message', { chatId: currentChatId, ...payload }, res => {
         if (res && res.msgId) {
@@ -2588,7 +2601,7 @@ if (fileInput) fileInput.addEventListener('change', async () => {
 });
 
 async function sendMediaBlob(blob, mimeType, fileName, type) {
-  const progressWrap = showUploadProgress(fileName);
+  showUploadProgress(fileName);
   showChatUploadStatus(type);
   try {
     const ab = await blob.arrayBuffer();
@@ -2729,7 +2742,6 @@ function buildMsgHTML(msg) {
   const st      = msg.mine ? '' : `<div class="msg-decrypt-status ${stClass}">${stText}</div>`;
   const ticks   = buildStatusTicks(msg.msgStatus || (msg.mine ? 'sent' : null), msg.mine);
   const edited  = msg.edited ? `<span style="font-size:10px;opacity:0.5"> (ред.)</span>` : '';
-
   return `
     ${sender}
     <div class="msg-content">${buildContentHTML(msg)}${edited}</div>
@@ -2758,7 +2770,7 @@ function buildContentHTML(msg) {
            </div>
            <a class="msg-file-dl" href="${msg.localUrl}" download="${escapeHtml(msg.fileName || 'file')}">⬇️</a>
          </div>`
-      : `<div style="display:flex;align-items:center;gap:8px;color:var(--sub);font-size:13px"><span>📎</span><span>${escapeHtml(msg.fileName||'файл')} · Загрузка…</span></div>`;
+      : `<div style="display:flex;align-items:center;gap:8px;color:var(--sub);font-size:13px"><span>📎</span><span>${escapeHtml(msg.fileName || 'файл')} · Загрузка…</span></div>`;
   }
   if (msg.type === 'voice') return buildVoiceMessageHTML(msg);
   return '';
@@ -2772,7 +2784,6 @@ function buildVoiceMessageHTML(msg) {
     const h = Math.floor(Math.random() * 16 + 4);
     return `<div class="voice-msg-bar" style="height:${h}px"></div>`;
   }).join('');
-
   if (msg.localUrl) {
     return `<div class="voice-msg" id="${vmId}" data-dur="${dur}">
       <button class="voice-msg-btn" data-url="${msg.localUrl}">▶️</button>
@@ -2803,9 +2814,9 @@ function playVoiceMsg(btn, url, wrap) {
   currentVoiceAudio = audio; currentVoiceBtn = btn;
   btn.textContent = '⏸️';
   audio.play().then(() => {
-    const bars   = wrap ? [...wrap.querySelectorAll('.voice-msg-bar')] : [];
-    const durEl  = wrap ? wrap.querySelector('.voice-msg-duration') : null;
-    const origDur= parseInt(wrap?.dataset.dur || '0');
+    const bars    = wrap ? [...wrap.querySelectorAll('.voice-msg-bar')] : [];
+    const durEl   = wrap ? wrap.querySelector('.voice-msg-duration') : null;
+    const origDur = parseInt(wrap?.dataset.dur || '0');
     audio.ontimeupdate = () => {
       const pct    = audio.duration ? audio.currentTime / audio.duration : 0;
       const active = Math.floor(pct * bars.length);
@@ -3106,7 +3117,7 @@ async function getMicStream() {
       video: false,
       audio: {
         echoCancellation: { ideal: true }, noiseSuppression: { ideal: true },
-        autoGainControl: { ideal: true }, sampleRate: { ideal: 48000 }, channelCount: { ideal: 1 }
+        autoGainControl:  { ideal: true }, sampleRate: { ideal: 48000 }, channelCount: { ideal: 1 }
       }
     });
   } catch (e) {
@@ -3132,7 +3143,7 @@ async function buildAudioPipeline(rawStream) {
   comp.ratio.value = 6; comp.attack.value = 0.002; comp.release.value = 0.12;
   noiseWorklet = new AudioWorkletNode(audioCtx, 'noise-gate-processor', {
     processorOptions: { threshold: 0.035, attack: 0.005, release: 0.20, smoothing: 0.96 },
-    numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [[1]](#annotation-154557-0)
+    numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1]
   });
   const gain = audioCtx.createGain(); gain.gain.value = 1.2;
   const dest = audioCtx.createMediaStreamDestination();
@@ -3144,14 +3155,14 @@ async function buildAudioPipeline(rawStream) {
 
 const iceServers = {
   iceServers: [
-    { urls: 'stun:stun.l.google.com:19302'  },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun.relay.metered.ca:80' },
-    { urls: 'turn:global.relay.metered.ca:80',                username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
-    { urls: 'turn:global.relay.metered.ca:80?transport=tcp',  username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
-    { urls: 'turn:global.relay.metered.ca:443',               username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
-    { urls: 'turns:global.relay.metered.ca:443?transport=tcp',username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' }
+    { urls: 'stun:stun.l.google.com:19302'   },
+    { urls: 'stun:stun1.l.google.com:19302'  },
+    { urls: 'stun:stun2.l.google.com:19302'  },
+    { urls: 'stun:stun.relay.metered.ca:80'  },
+    { urls: 'turn:global.relay.metered.ca:80',                 username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
+    { urls: 'turn:global.relay.metered.ca:80?transport=tcp',   username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
+    { urls: 'turn:global.relay.metered.ca:443',                username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
+    { urls: 'turns:global.relay.metered.ca:443?transport=tcp', username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' }
   ],
   iceCandidatePoolSize: 10, bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require'
 };
@@ -3162,7 +3173,7 @@ function forceOpusMaxQuality(sdp) {
     const line = lines[i];
     if (line.includes('a=rtpmap') && line.toLowerCase().includes('opus')) {
       result.push(line);
-      const pt = line.split(':')[[1]](#annotation-154557-0).split(' ')[0];
+      const pt = line.split(':')[1].split(' ')[0];
       if (i + 1 < lines.length && lines[i+1].startsWith('a=fmtp:' + pt)) i++;
       result.push('a=fmtp:' + pt + ' minptime=10;useinbandfec=1;stereo=0;sprop-stereo=0;maxaveragebitrate=40000;dtx=1;cbr=0');
       continue;
@@ -3189,7 +3200,7 @@ async function measureRemoteQuality(peer) {
   try {
     const stats = await peer.getStats(); let rtt=null,lost=0,received=0,jitter=0;
     stats.forEach(r => {
-      if (r.type==='inbound-rtp'&&r.kind==='audio') { lost=r.packetsLost||0; received=r.packetsReceived||0; jitter=r.jitter||0; }
+      if (r.type==='inbound-rtp'&&r.kind==='audio')  { lost=r.packetsLost||0; received=r.packetsReceived||0; jitter=r.jitter||0; }
       if (r.type==='candidate-pair'&&r.state==='succeeded'&&r.currentRoundTripTime!=null) rtt=r.currentRoundTripTime*1000;
     });
     return calcLevel(rtt,lost,received,jitter);
@@ -3199,7 +3210,7 @@ async function measureLocalQuality(peer) {
   try {
     const stats = await peer.getStats(); let rtt=null,lost=0,sent=0,jitter=0;
     stats.forEach(r => {
-      if (r.type==='remote-inbound-rtp'&&r.kind==='audio') { lost=r.packetsLost||0; jitter=r.jitter||0; if(r.roundTripTime!=null)rtt=r.roundTripTime*1000; }
+      if (r.type==='remote-inbound-rtp'&&r.kind==='audio') { lost=r.packetsLost||0; jitter=r.jitter||0; if(r.roundTripTime!=null) rtt=r.roundTripTime*1000; }
       if (r.type==='outbound-rtp'&&r.kind==='audio') sent=r.packetsSent||0;
     });
     return calcLevel(rtt,lost,sent,jitter);
@@ -3272,7 +3283,9 @@ function createPeer(userId, isInitiator) {
     if (s === 'disconnected') setTimeout(() => { if (peer.iceConnectionState === 'disconnected') tryRestart(); }, 3000);
   };
   if (isInitiator) {
+    let offerSent = false;
     peer.onnegotiationneeded = async () => {
+      if (offerSent) return; offerSent = true;
       try {
         const offer    = await peer.createOffer();
         const improved = { type: offer.type, sdp: forceOpusMaxQuality(offer.sdp) };
@@ -3290,9 +3303,9 @@ function hangUp() {
   Object.values(peers).forEach(p => p.close());
   peers = {};
   for (const k in voiceNicknames) delete voiceNicknames[k];
-  if (localStream)   { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
-  if (noiseWorklet)  { try { noiseWorklet.disconnect(); } catch (_) {} noiseWorklet = null; }
-  if (audioCtx)      { audioCtx.close().catch(() => {}); audioCtx = null; }
+  if (localStream)  { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  if (noiseWorklet) { try { noiseWorklet.disconnect(); } catch (_) {} noiseWorklet = null; }
+  if (audioCtx)     { audioCtx.close().catch(() => {}); audioCtx = null; }
   processedStream = null;
   if (noiseIndicator) noiseIndicator.classList.remove('visible');
   if (hiddenAudios)   hiddenAudios.innerHTML = '';
@@ -3304,30 +3317,30 @@ function hangUp() {
 function playBeep(type) {
   try {
     const ctx=new(window.AudioContext||window.webkitAudioContext)();
-    const osc=ctx.createOscillator(),gain=ctx.createGain();
-    osc.connect(gain);gain.connect(ctx.destination);
-    gain.gain.setValueAtTime(0.25,ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.35);
-    if(type==='join'){osc.frequency.setValueAtTime(600,ctx.currentTime);osc.frequency.setValueAtTime(900,ctx.currentTime+0.12);}
-    else{osc.frequency.setValueAtTime(900,ctx.currentTime);osc.frequency.setValueAtTime(500,ctx.currentTime+0.12);}
-    osc.start(ctx.currentTime);osc.stop(ctx.currentTime+0.35);
-    osc.onended=()=>ctx.close();
+    const osc=ctx.createOscillator(), gain=ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    gain.gain.setValueAtTime(0.25, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    if (type==='join') { osc.frequency.setValueAtTime(600, ctx.currentTime); osc.frequency.setValueAtTime(900, ctx.currentTime+0.12); }
+    else               { osc.frequency.setValueAtTime(900, ctx.currentTime); osc.frequency.setValueAtTime(500, ctx.currentTime+0.12); }
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.35);
+    osc.onended = () => ctx.close();
   } catch (_) {}
 }
 
 function playOkSound() {
   try {
-    const ctx=new(window.AudioContext||window.webkitAudioContext)();
-    const gain=ctx.createGain();gain.connect(ctx.destination);
-    [{freq:880,start:0},{freq:1100,start:0.22}].forEach(item=>{
-      const osc=ctx.createOscillator();osc.type='sine';osc.connect(gain);
-      osc.frequency.setValueAtTime(item.freq,ctx.currentTime+item.start);
-      gain.gain.setValueAtTime(0,ctx.currentTime+item.start);
-      gain.gain.linearRampToValueAtTime(0.35,ctx.currentTime+item.start+0.04);
-      gain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+item.start+0.20);
-      osc.start(ctx.currentTime+item.start);osc.stop(ctx.currentTime+item.start+0.22);
+    const ctx  = new (window.AudioContext || window.webkitAudioContext)();
+    const gain = ctx.createGain(); gain.connect(ctx.destination);
+    [{freq:880,start:0},{freq:1100,start:0.22}].forEach(item => {
+      const osc = ctx.createOscillator(); osc.type='sine'; osc.connect(gain);
+      osc.frequency.setValueAtTime(item.freq, ctx.currentTime+item.start);
+      gain.gain.setValueAtTime(0, ctx.currentTime+item.start);
+      gain.gain.linearRampToValueAtTime(0.35, ctx.currentTime+item.start+0.04);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+item.start+0.20);
+      osc.start(ctx.currentTime+item.start); osc.stop(ctx.currentTime+item.start+0.22);
     });
-    setTimeout(()=>ctx.close(),1500);
+    setTimeout(() => ctx.close(), 1500);
   } catch (_) {}
 }
 
@@ -3361,19 +3374,15 @@ document.addEventListener('visibilitychange', async () => {
 //  КНОПКА ЗВОНКА
 // ═══════════════════════════════════════════════
 function updateCallButton() {
-  if (btnPrivateCall) {
-    btnPrivateCall.style.display = currentChatType === 'private' ? 'flex' : 'none';
-  }
+  if (btnPrivateCall) btnPrivateCall.style.display = currentChatType === 'private' ? 'flex' : 'none';
 }
 
-// Кнопка настроек уведомлений
 $('btn-notif-settings')?.addEventListener('click', () => {
   const id   = currentChatType === 'private' ? currentChatId : currentRoomId;
   const name = document.getElementById('chat-room-name')?.textContent || '?';
   if (id) openChatNotifSettings(id, name);
 });
 
-// Кнопка участников/настроек группы
 $('btn-room-members')?.addEventListener('click', () => {
   if (currentChatType === 'group' && currentRoomId) openMembersModal();
 });
@@ -3391,7 +3400,7 @@ function showCallMiniBar(name, avatar) {
     else        avatarEl.textContent = '👤';
   }
   bar.classList.add('visible');
-  bar.onclick = (e) => {
+  bar.onclick = e => {
     if (e.target.id === 'call-mini-hangup') return;
     const withAvatar = $('call-screen-avatar')?.querySelector('img')?.src || null;
     showCallScreen(pcCallRemoteNick, withAvatar, null, pcCallIsVideo);
@@ -3432,7 +3441,8 @@ function playIncomingRing() {
         gain.gain.setValueAtTime(0, ctx.currentTime + note.time);
         gain.gain.linearRampToValueAtTime(0.35, ctx.currentTime + note.time + 0.02);
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + note.time + note.dur);
-        osc.start(ctx.currentTime + note.time); osc.stop(ctx.currentTime + note.time + note.dur + 0.05);
+        osc.start(ctx.currentTime + note.time);
+        osc.stop(ctx.currentTime + note.time + note.dur + 0.05);
       });
       setTimeout(() => { try { ctx.close(); } catch (_) {} }, 1500);
     } catch (_) {}
@@ -3441,8 +3451,8 @@ function playIncomingRing() {
   ringInterval = setInterval(playOnce, 2000);
 }
 function stopIncomingRing() {
-  if (ringInterval)  { clearInterval(ringInterval); ringInterval = null; }
-  if (ringToneCtx)   { try { ringToneCtx.close(); } catch (_) {} ringToneCtx = null; }
+  if (ringInterval) { clearInterval(ringInterval); ringInterval = null; }
+  if (ringToneCtx)  { try { ringToneCtx.close(); } catch (_) {} ringToneCtx = null; }
 }
 
 function playDialTone() {
@@ -3483,7 +3493,7 @@ function setSpeakerOutput(external) {
     else          { callBtnSpeaker.textContent = '🔈'; callBtnSpeaker.classList.remove('active'); }
   }
   const callAudio = document.getElementById('audio-pc-call');
-  if (callAudio) callAudio.volume = external ? 1.0 : 0.5;
+  if (callAudio) callAudio.volume = external ? 1.0 : 0.7;
 }
 if (callBtnSpeaker) callBtnSpeaker.addEventListener('click', () => setSpeakerOutput(!isSpeakerMode));
 
@@ -3552,30 +3562,29 @@ function showVideoUI(show) {
     if (bottom) Object.assign(bottom.style, { position:'relative',zIndex:'1',background:'rgba(0,0,0,0.5)',borderRadius:'20px 20px 0 0' });
     if (top)    Object.assign(top.style,    { position:'relative',zIndex:'1' });
   } else {
-    [center,bottom,top].forEach(el=>{
-      if(el){el.style.position='';el.style.zIndex='';el.style.background='';el.style.borderRadius='';el.style.padding='';el.style.margin='';}
+    [center,bottom,top].forEach(el => {
+      if (el) { el.style.position=''; el.style.zIndex=''; el.style.background=''; el.style.borderRadius=''; el.style.padding=''; el.style.margin=''; }
     });
   }
 }
 
-// Переключение камеры
 document.addEventListener('click', e => {
   if (e.target && e.target.id === 'video-local' && localVideoStream) {
-    const currentTrack = localVideoStream.getVideoTracks()[0]; if (!currentTrack) return;
-    const settings  = currentTrack.getSettings();
+    const ct = localVideoStream.getVideoTracks()[0]; if (!ct) return;
+    const settings  = ct.getSettings();
     const newFacing = settings.facingMode === 'user' ? 'environment' : 'user';
     navigator.mediaDevices.getUserMedia({
       video: { facingMode: newFacing, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false
-    }).then(async newStream => {
-      const newTrack = newStream.getVideoTracks()[0];
+    }).then(async ns => {
+      const nt = ns.getVideoTracks()[0];
       if (pcCallPeer) {
         const sender = pcCallPeer.getSenders().find(s => s.track?.kind === 'video');
-        if (sender) await sender.replaceTrack(newTrack);
+        if (sender) await sender.replaceTrack(nt);
       }
-      currentTrack.stop();
+      ct.stop();
       const lv = document.getElementById('video-local');
-      if (lv) lv.srcObject = newStream;
-      localVideoStream = newStream;
+      if (lv) lv.srcObject = ns;
+      localVideoStream = ns;
     }).catch(() => showToast('❌ Ошибка переключения камеры'));
   }
 });
@@ -3585,18 +3594,18 @@ if (callBtnVideo) {
     if (!pcCallActive) { showToast('Сначала установите звонок', 2000); return; }
     if (!pcCallIsVideo) {
       ensureVideoElements();
-      const videoStream = await startLocalVideo();
-      if (!videoStream) { showToast('❌ Нет доступа к камере', 3000); return; }
+      const vs = await startLocalVideo();
+      if (!vs) { showToast('❌ Нет доступа к камере', 3000); return; }
       pcCallIsVideo = true;
       callBtnVideo.classList.add('active');
       showVideoUI(true);
       if (pcCallPeer) {
-        const videoTrack = videoStream.getVideoTracks()[0];
-        if (videoTrack) {
+        const vt = vs.getVideoTracks()[0];
+        if (vt) {
           try {
             const existing = pcCallPeer.getSenders().find(s => s.track?.kind === 'video');
-            if (existing) await existing.replaceTrack(videoTrack);
-            else pcCallPeer.addTrack(videoTrack, localVideoStream);
+            if (existing) await existing.replaceTrack(vt);
+            else pcCallPeer.addTrack(vt, localVideoStream);
             showToast('📷 Видео включено', 2000);
           } catch (e) { showToast('⚠️ Не удалось добавить видео', 3000); }
         }
@@ -3616,21 +3625,20 @@ if (callBtnVideo) {
 }
 
 // ═══════════════════════════════════════════════
-//  ЛИЧНЫЕ ЗВОНКИ — ПОЛНОСТЬЮ ПЕРЕРАБОТАНО
+//  ЛИЧНЫЕ ЗВОНКИ
 // ═══════════════════════════════════════════════
 let pcCallPeer           = null;
 let pcCallStream         = null;
-let pcCallRemoteId       = null;   // socketId собеседника (узнаём после answer)
-let pcCallRemoteNickLow  = null;   // nickLower для отправки оффера
+let pcCallRemoteId       = null;
+let pcCallRemoteNickLow  = null;
 let pcCallRemoteNick     = '';
 let pcCallMuted          = false;
 let pcCallActive         = false;
 let incomingCallData     = null;
-let pcIceCandidateBuffer = [];     // буфер кандидатов до remoteDescription
+let pcIceCandidateBuffer = [];
 let callTimer            = null;
 let callSeconds          = 0;
 
-// ─── Экран звонка ───
 function showCallScreen(name, avatar, status, isVideo) {
   if (!callScreen) return;
   if (callScreenName)   callScreenName.textContent   = name || '—';
@@ -3640,13 +3648,15 @@ function showCallScreen(name, avatar, status, isVideo) {
     else        callScreenAvatar.textContent = '👤';
   }
   if (callBtnMute) { callBtnMute.classList.remove('active'); callBtnMute.textContent = '🎤'; }
-  setSpeakerOutput(isVideo ? true : false);
+  setSpeakerOutput(isVideo);
   callScreen.classList.add('active');
   callScreen.classList.remove('minimizing');
   hideCallMiniBar();
   if (isVideo) {
     ensureVideoElements(); ensureLocalVideo(); showVideoUI(true);
-    startLocalVideo().then(s => { if (s) { if(callBtnVideo)callBtnVideo.classList.add('active'); pcCallIsVideo = true; } });
+    startLocalVideo().then(s => {
+      if (s && callBtnVideo) { callBtnVideo.classList.add('active'); pcCallIsVideo = true; }
+    });
   }
 }
 
@@ -3659,8 +3669,8 @@ function hideCallScreen() {
   }, { once: true });
   stopCallTimer();
   if (pcCallActive) {
-    const avatarImg = callScreenAvatar?.querySelector('img');
-    showCallMiniBar(pcCallRemoteNick, avatarImg ? avatarImg.src : null);
+    const img = callScreenAvatar?.querySelector('img');
+    showCallMiniBar(pcCallRemoteNick, img ? img.src : null);
     updateCallMiniStatus(callScreenStatus?.textContent || 'Звонок…');
   }
 }
@@ -3678,7 +3688,7 @@ function startCallTimer() {
     const s = String(callSeconds % 60).padStart(2, '0');
     const ts = m + ':' + s;
     if (callScreenStatus) callScreenStatus.textContent = ts;
-    if (callStatusDot)    { callStatusDot.style.animation = 'none'; callStatusDot.style.background = '#4caf50'; }
+    if (callStatusDot) { callStatusDot.style.animation = 'none'; callStatusDot.style.background = '#4caf50'; }
     updateCallMiniStatus(ts);
   }, 1000);
 }
@@ -3693,13 +3703,11 @@ if (callBtnMute) callBtnMute.addEventListener('click', () => {
   else             { callBtnMute.classList.remove('active'); callBtnMute.textContent = '🎤'; }
 });
 
-if (callBtnHangup)   callBtnHangup.addEventListener('click',   () => endPrivateCall(true));
-if (btnCallMinimize) btnCallMinimize.addEventListener('click',  () => hideCallScreen());
+if (callBtnHangup)   callBtnHangup.addEventListener('click',  () => endPrivateCall(true));
+if (btnCallMinimize) btnCallMinimize.addEventListener('click', () => hideCallScreen());
 $('call-mini-hangup')?.addEventListener('click', e => { e.stopPropagation(); endPrivateCall(true); });
 
-// Кнопка звонка в шапке чата
 if (btnPrivateCall) btnPrivateCall.addEventListener('click', async () => {
-  // Если звонок уже активен — разворачиваем экран
   if (pcCallActive) {
     const withAvatar = chatRoomAvatar?.querySelector('img')?.src || null;
     showCallScreen(pcCallRemoteNick, withAvatar, callScreenStatus?.textContent || null, pcCallIsVideo);
@@ -3736,12 +3744,9 @@ function openCallTypeSelector() {
   sheet.querySelector('#call-video-btn-sel').addEventListener('click', () => { close(); startPrivateCall(true); });
 }
 
-// ─── Инициация звонка ───
 async function startPrivateCall(isVideo) {
   pcCallRemoteNick    = chatRoomName ? chatRoomName.textContent : '?';
   const withAvatar    = chatRoomAvatar?.querySelector('img')?.src || null;
-
-  // Получаем nickLower из chatId
   const parts         = currentChatId.split('::');
   const myLower       = myNickname.toLowerCase();
   pcCallRemoteNickLow = parts.find(p => p !== myLower) || parts[0];
@@ -3749,12 +3754,10 @@ async function startPrivateCall(isVideo) {
   pcIceCandidateBuffer = [];
   pcCallIsVideo       = isVideo;
 
-  // Получаем медиапоток
   try {
     pcCallStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
   } catch (e) { showToast('❌ Нет доступа к микрофону'); return; }
 
-  // Создаём peer и устанавливаем оффер
   pcCallPeer = createPrivateCallPeer(pcCallRemoteNickLow, true, isVideo);
 
   if (isVideo) {
@@ -3765,20 +3768,13 @@ async function startPrivateCall(isVideo) {
       if (vt) pcCallPeer.addTrack(vt, vs);
     }
   }
-
   playDialTone();
   showCallScreen(pcCallRemoteNick, withAvatar, isVideo ? '📹 Видеовызов…' : '📞 Вызов…', isVideo);
 }
 
-// ─── Входящий оффер ───
 socket.on('private-call-offer', async data => {
-  // Если уже в звонке — отклоняем
-  if (pcCallActive) {
-    socket.emit('private-call-reject', { to: data.from });
-    return;
-  }
+  if (pcCallActive) { socket.emit('private-call-reject', { to: data.from }); return; }
   incomingCallData = data;
-
   if (incomingCallAvatar) {
     if (data.fromAvatar) incomingCallAvatar.innerHTML = `<img src="${data.fromAvatar}" style="width:100%;height:100%;border-radius:50%;object-fit:cover">`;
     else incomingCallAvatar.textContent = '👤';
@@ -3786,16 +3782,11 @@ socket.on('private-call-offer', async data => {
   if (incomingCallName) incomingCallName.textContent = data.fromNick || '?';
   const subEl = $('incoming-call-sub');
   if (subEl) subEl.textContent = data.isVideo ? '📹 Видеозвонок…' : '📞 Голосовой вызов…';
-
   if (modalIncomingCall) modalIncomingCall.classList.add('open');
   playIncomingRing();
-  showBrowserNotif(
-    data.isVideo ? '📹 Входящий видеозвонок' : '📞 Входящий звонок',
-    (data.fromNick || '?') + ' звонит вам', 'call'
-  );
+  showBrowserNotif(data.isVideo ? '📹 Входящий видеозвонок' : '📞 Входящий звонок', (data.fromNick || '?') + ' звонит вам', 'call');
 });
 
-// ─── Принять звонок ───
 if (btnCallAccept) btnCallAccept.addEventListener('click', async () => {
   if (modalIncomingCall) modalIncomingCall.classList.remove('open');
   stopIncomingRing();
@@ -3813,24 +3804,20 @@ if (btnCallAccept) btnCallAccept.addEventListener('click', async () => {
     incomingCallData = null; return;
   }
 
-  // Запоминаем socketId звонящего
   pcCallRemoteId      = data.from;
   pcCallRemoteNickLow = data.fromNickLower || data.fromNick?.toLowerCase();
   pcCallRemoteNick    = data.fromNick || '?';
 
-  // Создаём peer (НЕ инициатор)
   pcCallPeer = createPrivateCallPeer(pcCallRemoteId, false, isVideo);
 
-  // Устанавливаем remoteDescription (offer)
   try {
     await pcCallPeer.setRemoteDescription(new RTCSessionDescription(data.offer));
   } catch (e) {
-    console.error('setRemoteDescription (offer) error:', e);
+    console.error('setRemoteDescription error:', e);
     showToast('❌ Ошибка установки соединения');
     endPrivateCall(false); return;
   }
 
-  // Добавляем накопленные ICE-кандидаты
   for (const c of pcIceCandidateBuffer) {
     try { await pcCallPeer.addIceCandidate(new RTCIceCandidate(c)); } catch (_) {}
   }
@@ -3845,7 +3832,6 @@ if (btnCallAccept) btnCallAccept.addEventListener('click', async () => {
     }
   }
 
-  // Создаём answer
   let answer;
   try {
     answer = await pcCallPeer.createAnswer();
@@ -3856,13 +3842,10 @@ if (btnCallAccept) btnCallAccept.addEventListener('click', async () => {
     endPrivateCall(false); return;
   }
 
-  // Отправляем answer звонящему по его socketId
   socket.emit('private-call-answer', { to: pcCallRemoteId, answer });
-
   pcCallActive = true;
   showCallScreen(pcCallRemoteNick, data.fromAvatar || null, 'Соединение…', isVideo);
 
-  // Открываем чат если нужно
   if (currentChatId !== data.chatId) {
     socket.emit('private-chat-open', { withNickname: data.fromNick }, res => {
       if (res.ok) enterPrivateChat(res.chatId, res.withNickname, res.withAvatar);
@@ -3871,7 +3854,6 @@ if (btnCallAccept) btnCallAccept.addEventListener('click', async () => {
   incomingCallData = null;
 });
 
-// ─── Отклонить звонок ───
 if (btnCallReject) btnCallReject.addEventListener('click', () => {
   if (modalIncomingCall) modalIncomingCall.classList.remove('open');
   stopIncomingRing();
@@ -3881,22 +3863,14 @@ if (btnCallReject) btnCallReject.addEventListener('click', () => {
   }
 });
 
-// ─── Получен answer (звонящий) ───
 socket.on('private-call-answer', async ({ from, answer }) => {
   if (!pcCallPeer) return;
-
-  // Запоминаем socketId собеседника
   pcCallRemoteId = from;
-
-  // Останавливаем гудки
   stopDialTone();
-
-  // Проверяем состояние перед setRemoteDescription
   if (pcCallPeer.signalingState !== 'have-local-offer') {
-    console.warn('Unexpected signalingState:', pcCallPeer.signalingState);
+    console.warn('Unexpected signalingState on answer:', pcCallPeer.signalingState);
     return;
   }
-
   try {
     await pcCallPeer.setRemoteDescription(new RTCSessionDescription(answer));
   } catch (e) {
@@ -3904,38 +3878,30 @@ socket.on('private-call-answer', async ({ from, answer }) => {
     showToast('❌ Ошибка установки соединения', 3000);
     endPrivateCall(false); return;
   }
-
   pcCallActive = true;
-
-  // Отправляем накопленные ICE-кандидаты
   for (const candidate of pcIceCandidateBuffer) {
     socket.emit('private-call-ice', { to: pcCallRemoteId, candidate });
   }
   pcIceCandidateBuffer = [];
 });
 
-// ─── ICE-кандидаты ───
 socket.on('private-call-ice', async ({ from, candidate }) => {
   if (!candidate) return;
   if (pcCallPeer && pcCallPeer.remoteDescription) {
     try { await pcCallPeer.addIceCandidate(new RTCIceCandidate(candidate)); } catch (_) {}
   } else {
-    // Буферизируем до установки remoteDescription
     pcIceCandidateBuffer.push(candidate);
   }
 });
 
-// ─── Собеседник завершил / отклонил ───
-socket.on('private-call-ended',    () => { stopDialTone(); showToast('📵 ' + (pcCallRemoteNick || '?') + ' завершил звонок', 3000); endPrivateCall(false); });
+socket.on('private-call-ended',    () => { stopDialTone(); showToast('📵 ' + (pcCallRemoteNick || '?') + ' завершил звонок', 3000);  endPrivateCall(false); });
 socket.on('private-call-rejected', () => { stopDialTone(); showToast('📵 ' + (pcCallRemoteNick || '?') + ' отклонил звонок', 3000); endPrivateCall(false); });
 
-// ─── Завершение звонка ───
 function endPrivateCall(notify = true) {
   if (notify && (pcCallRemoteId || pcCallRemoteNickLow)) {
     socket.emit('private-call-end', { to: pcCallRemoteId || pcCallRemoteNickLow });
   }
-  stopDialTone();
-  stopIncomingRing();
+  stopDialTone(); stopIncomingRing();
   if (pcCallPeer)   { pcCallPeer.close();   pcCallPeer = null; }
   if (pcCallStream) { pcCallStream.getTracks().forEach(t => t.stop()); pcCallStream = null; }
   stopLocalVideo(); showVideoUI(false); pcCallIsVideo = false;
@@ -3953,14 +3919,10 @@ function endPrivateCall(notify = true) {
   if (callBtnVideo)   { callBtnVideo.textContent = '📷';   callBtnVideo.classList.remove('active'); }
 }
 
-// ─── Создание WebRTC peer для личного звонка ───
 function createPrivateCallPeer(targetId, isInitiator, isVideo) {
   const peer = new RTCPeerConnection(iceServers);
-
-  // Добавляем аудио треки
   if (pcCallStream) pcCallStream.getTracks().forEach(t => peer.addTrack(t, pcCallStream));
 
-  // Обработка входящих треков
   peer.ontrack = e => {
     const track = e.track;
     if (track.kind === 'audio') {
@@ -3988,25 +3950,19 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
     }
   };
 
-  // ICE-кандидаты
   peer.onicecandidate = e => {
     if (!e.candidate) return;
-    // Если remoteDescription ещё не установлена (исходящий звонок ждёт answer)
-    // — буферизируем, иначе отправляем сразу
     const target = pcCallRemoteId || targetId;
+    // Инициатор буферизирует кандидаты пока не получит answer с socketId собеседника
     if (isInitiator && !pcCallRemoteId) {
-      // Буферизируем — отправим когда придёт answer и узнаем socketId
       pcIceCandidateBuffer.push(e.candidate);
     } else {
       socket.emit('private-call-ice', { to: target, candidate: e.candidate });
     }
   };
 
-  // Состояние соединения
   peer.onconnectionstatechange = () => {
     const state = peer.connectionState;
-    console.log('Call connectionState:', state);
-
     if (state === 'connected') {
       stopDialTone();
       pcCallActive = true;
@@ -4015,9 +3971,7 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
       setSpeakerOutput(pcCallIsVideo ? true : isSpeakerMode);
       setCallStatus('Соединён');
     }
-    if (state === 'connecting') {
-      setCallStatus('Соединение…');
-    }
+    if (state === 'connecting')    setCallStatus('Соединение…');
     if (state === 'disconnected') {
       setCallStatus('Переподключение…');
       setTimeout(() => {
@@ -4028,39 +3982,27 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
       }, 6000);
     }
     if (state === 'failed') {
-      console.error('Call connection FAILED');
       showToast('📵 Не удалось соединиться', 3000);
       endPrivateCall(false);
     }
   };
 
-  // ICE состояние
   peer.oniceconnectionstatechange = () => {
     const s = peer.iceConnectionState;
-    console.log('Call iceConnectionState:', s);
     if (s === 'checking')     setCallStatus('Соединение…');
     if (s === 'connected')    { stopDialTone(); setCallStatus('Соединён'); }
     if (s === 'disconnected') setCallStatus('Переподключение…');
-    if (s === 'failed')       {
-      console.warn('ICE failed, restarting...');
-      peer.restartIce();
-    }
+    if (s === 'failed')       peer.restartIce();
   };
 
-  // Только инициатор создаёт offer через onnegotiationneeded
   if (isInitiator) {
-    // Флаг чтобы не создавать offer дважды
     let offerCreated = false;
     peer.onnegotiationneeded = async () => {
       if (offerCreated) return;
       offerCreated = true;
       try {
-        const offer = await peer.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: isVideo
-        });
+        const offer = await peer.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: isVideo });
         await peer.setLocalDescription(offer);
-        // Отправляем offer по nickLower получателя
         socket.emit('private-call-offer', {
           chatId:  currentChatId,
           to:      pcCallRemoteNickLow,
@@ -4074,35 +4016,26 @@ function createPrivateCallPeer(targetId, isInitiator, isVideo) {
       }
     };
   }
-
   return peer;
 }
 
 // ═══════════════════════════════════════════════
-//  CSS для контекстного меню и прогресса
+//  СТИЛИ (инжектируем динамически)
 // ═══════════════════════════════════════════════
 (function injectStyles() {
   const style = document.createElement('style');
   style.textContent = `
-    /* Прогресс загрузки файлов */
-    @keyframes dlPulse {
-      0%,100%{opacity:1;} 50%{opacity:0.4;}
-    }
+    @keyframes dlPulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
 
-    /* Кнопка смены фото группы */
     .group-photo-change-btn {
-      display:flex;align-items:center;gap:10px;padding:12px 16px;
-      border-radius:14px;border:1px solid rgba(124,92,191,0.2);
-      background:var(--bg2);color:var(--accent2);font-size:14px;
-      cursor:pointer;width:100%;margin-bottom:12px;
+      display:flex; align-items:center; gap:10px; padding:12px 16px;
+      border-radius:14px; border:1px solid rgba(124,92,191,0.2);
+      background:var(--bg2); color:var(--accent2); font-size:14px;
+      cursor:pointer; width:100%; margin-bottom:12px;
     }
     .group-photo-change-btn:active { background:rgba(124,92,191,0.12); }
 
-    /* Статус тики */
-    .msg-ticks { margin-left:2px; }
-
-    /* Кнопка колокольчик активна */
-    #btn-notif-settings { transition:color 0.2s; }
+    .msg-ticks { margin-left:2px; transition:color 0.3s; }
   `;
   document.head.appendChild(style);
 })();
