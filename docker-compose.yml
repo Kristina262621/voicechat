@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      # Для PostgreSQL раскомментируй:
+      # - DATABASE_URL=postgresql://user:password@db:5432/privchat
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    depends_on:
+      - db
+
+  # PostgreSQL (опционально — для продакшена)
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: privchat
+      POSTGRES_PASSWORD: privchat_secret
+      POSTGRES_DB: privchat
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
