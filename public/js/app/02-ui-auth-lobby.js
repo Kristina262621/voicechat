@@ -1196,32 +1196,52 @@ async function loadPrivateChatHistory(chatId, { reset = false, loadMore = false 
   const limit = Math.max(PRIVATE_HISTORY_PAGE_SIZE, state.page * PRIVATE_HISTORY_PAGE_SIZE);
   state.loading = true;
 
+  let renderedFromCache = false;
+
   try {
-    // 1) Local-first (только при reset)
+    // 1) local-first (не очищаем чат, если кэш пустой)
     if (reset && window.PrivateCache?.getPrivateMessages) {
       try {
         const cachedRows = await window.PrivateCache.getPrivateMessages(chatId, PRIVATE_HISTORY_PAGE_SIZE);
         if (Array.isArray(cachedRows) && cachedRows.length) {
           const cachedMsgs = cachedRows.map(cacheRowToHistoryMsg);
           await renderPrivateHistoryMessages(chatId, cachedMsgs, { replace: true });
+          renderedFromCache = true;
         }
       } catch (e) {
         console.warn('[PrivateCache] read fail', e);
       }
     }
 
-    // 2) Сервер (с пагинацией по limit)
-    const res = await new Promise(resolve => {
+    // 2) новый запрос (с limit)
+    let res = await new Promise(resolve => {
       socket.emit('private-chat-history', { chatId, limit }, resolve);
     });
 
-    if (!res?.ok || !Array.isArray(res.messages)) return;
+    // 3) fallback на старый формат запроса (без limit)
+    if (!res?.ok) {
+      res = await new Promise(resolve => {
+        socket.emit('private-chat-history', { chatId }, resolve);
+      });
+    }
 
-    await renderPrivateHistoryMessages(chatId, res.messages, { replace: true });
-    state.hasMore = !!res.hasMore;
+    if (!res?.ok || !Array.isArray(res.messages)) {
+      console.warn('[private-chat-history] bad response', res);
+      if (!renderedFromCache) showToast('⚠️ Не удалось загрузить историю');
+      return;
+    }
 
-    // 3) Сохраняем в локальный кэш
-    if (window.PrivateCache?.putPrivateMessagesBulk) {
+    // ВАЖНО: если сервер вернул пусто, но кэш уже показан — не затираем экран
+    if (res.messages.length > 0 || !renderedFromCache) {
+      await renderPrivateHistoryMessages(chatId, res.messages, { replace: true });
+    }
+
+    state.hasMore = typeof res.hasMore === 'boolean'
+      ? res.hasMore
+      : (res.messages.length >= PRIVATE_HISTORY_PAGE_SIZE);
+
+    // 4) пишем в кэш
+    if (window.PrivateCache?.putPrivateMessagesBulk && res.messages.length) {
       try {
         await window.PrivateCache.putPrivateMessagesBulk(chatId, res.messages);
       } catch (e) {
