@@ -1,22 +1,37 @@
 // ═══════════════════════════════════════════════
 //  04-webrtc-calls.js — голосовой чат (группа) + личные звонки
+//  SECURITY PATCH: TURN credentials only from backend /api/turn-credentials
 // ═══════════════════════════════════════════════
 
-const iceServers = {
+let iceServers = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun.relay.metered.ca:80' },
-    { urls: 'turn:global.relay.metered.ca:80',                 username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
-    { urls: 'turn:global.relay.metered.ca:80?transport=tcp',   username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
-    { urls: 'turn:global.relay.metered.ca:443',                username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' },
-    { urls: 'turns:global.relay.metered.ca:443?transport=tcp', username: '4219a9030e911d3a21936639', credential: 'W9K/4EBqUUoxu9FC' }
+    { urls: 'stun:stun1.l.google.com:19302' }
   ],
   iceCandidatePoolSize: 10,
   bundlePolicy: 'max-bundle',
   rtcpMuxPolicy: 'require'
 };
+
+async function refreshIceServers() {
+  try {
+    if (!authToken) return false;
+    const r = await fetch('/api/turn-credentials', {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${authToken}` }
+    });
+    if (!r.ok) return false;
+    const j = await r.json();
+    if (j?.ok && Array.isArray(j.iceServers) && j.iceServers.length) {
+      iceServers = {
+        ...iceServers,
+        iceServers: j.iceServers
+      };
+      return true;
+    }
+  } catch (_) {}
+  return false;
+}
 
 function forceOpusMaxQuality(sdp) {
   const lines = sdp.split('\r\n');
@@ -928,6 +943,8 @@ function endPrivateCall(notify = true) {
 }
 
 async function startPrivateCall(isVideo) {
+  await refreshIceServers();
+
   pcCallRemoteNick = chatRoomName ? chatRoomName.textContent : '?';
   const withAvatar = chatRoomAvatar?.querySelector('img')?.src || null;
 
