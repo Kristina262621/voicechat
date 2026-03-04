@@ -292,6 +292,12 @@ function onAuthSuccess() {
   renderUnifiedList();
   loadPrivateChatsList();
   requestNotifPermission();
+
+  // SECURITY: получаем временные ICE/TURN credentials с backend
+  if (typeof refreshIceServers === 'function') {
+    refreshIceServers().catch(() => {});
+  }
+
   if (typeof applyTheme === 'function') applyTheme(currentTheme);
   if (typeof initUI === 'function') initUI();
   if (typeof checkInviteFromUrl === 'function') checkInviteFromUrl();
