@@ -24,7 +24,16 @@ function validateStrongPasswordClient(pw) {
   if (!/[^A-Za-z0-9]/.test(pw)) return 'need_special';
   return null;
 }
-
+async function ensureE2EEKeysSafe() {
+  try {
+    if (window.E2EEKeys?.ensurePreKeys) {
+      await window.E2EEKeys.ensurePreKeys(10, 20);
+      console.log('[E2EE] ensurePreKeys done');
+    }
+  } catch (e) {
+    console.error('[E2EE init error]', e);
+  }
+}
 // ───────────────────────────────────────────────
 //  CONNECT / DISCONNECT
 // ───────────────────────────────────────────────
