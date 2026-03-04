@@ -2070,13 +2070,23 @@
 <script src="js/ui.js"></script>
 <script src="js/status.js"></script>
 <script src="js/invitelink.js"></script>
+<script src="js/06-e2ee-keys.js"></script>
 <script src="app.js"></script>
 
 <script>
 // ─── Инициализация после загрузки ───
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   if (typeof applyTheme === 'function') applyTheme(currentTheme);
   if (typeof initUI === 'function') initUI();
+
+  try {
+    if (window.E2EEKeys?.ensurePreKeys) {
+      await window.E2EEKeys.ensurePreKeys(10, 20);
+      console.log('[E2EE] ensurePreKeys done');
+    }
+  } catch (e) {
+    console.error('[E2EE init error]', e);
+  }
 });
 
 // ─── Мобильный фикс клавиатуры ───
@@ -2235,3 +2245,4 @@ document.getElementById('btn-room-members')?.addEventListener('click', () => {
 </script>
 </body>
 </html>
+
