@@ -147,7 +147,13 @@ function openMsgEditDialog(domId, msgEl, msgId) {
     const newText = input.value.trim();
     if (!newText) return;
     try {
-      const { encrypted, iv } = await Crypto.encrypt(newText);
+      let encrypted, iv;
+      if (currentChatType === 'private' && currentChatWith) {
+        ({ encrypted, iv } = await encryptPrivateTextE2EE(currentChatWith, newText));
+      } else {
+        ({ encrypted, iv } = await Crypto.encrypt(newText));
+      }
+
       if (currentChatType === 'private' && currentChatId) {
         socket.emit('private-msg-edit', { chatId: currentChatId, msgId, newEncrypted: encrypted, newIv: iv }, res => {
           if (res.ok) {
@@ -266,6 +272,27 @@ function hideChatUploadStatus() {
 }
 
 // ───────────────────────────────────────────────
+//  E2EE helper для private text
+// ───────────────────────────────────────────────
+async function encryptPrivateTextE2EE(peerId, text) {
+  if (window.E2EESession?.encryptTextForPeer && peerId) {
+    return window.E2EESession.encryptTextForPeer(peerId, text);
+  }
+  return Crypto.encrypt(text);
+}
+
+async function decryptPrivateTextE2EE(peerId, encrypted, iv) {
+  if (window.E2EESession?.decryptTextFromPeer && peerId) {
+    try {
+      return await window.E2EESession.decryptTextFromPeer(peerId, encrypted, iv);
+    } catch (_) {
+      // fallback ниже
+    }
+  }
+  return Crypto.decryptText(encrypted, iv);
+}
+
+// ───────────────────────────────────────────────
 //  ОТПРАВКА ТЕКСТА
 // ───────────────────────────────────────────────
 async function sendTextMessage() {
@@ -281,7 +308,8 @@ async function sendTextMessage() {
 
   try {
     if (currentChatType === 'private' && currentChatId) {
-      const { encrypted, iv } = await Crypto.encrypt(text);
+      const peerId = currentChatWith || '';
+      const { encrypted, iv } = await encryptPrivateTextE2EE(peerId, text);
       const seq = ++outgoingSeq;
 
       const domId = appendMessage({
@@ -567,7 +595,8 @@ socket.on('private-message', async data => {
 
   try {
     if (data.type === 'text') {
-      const text = await Crypto.decryptText(data.encrypted, data.iv);
+      const peerId = data.from || data.fromNick || currentChatWith || '';
+      const text = await decryptPrivateTextE2EE(peerId, data.encrypted, data.iv);
       updateMessage(domId, { text, status: 'ok' });
       showBrowserNotif('💬 ' + (data.fromNick || '?'), text, data.chatId);
     } else {
@@ -607,7 +636,8 @@ socket.on('private-msg-edited', async ({ chatId, msgId, newEncrypted, newIv }) =
   const domId = msgIdToDomId.get(msgId);
   if (!domId) return;
   try {
-    const text = await Crypto.decryptText(newEncrypted, newIv);
+    const peerId = currentChatWith || '';
+    const text = await decryptPrivateTextE2EE(peerId, newEncrypted, newIv);
     const el = document.getElementById(domId);
     if (el) {
       const c = el.querySelector('.msg-content');
