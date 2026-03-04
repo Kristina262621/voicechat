@@ -1457,48 +1457,60 @@ function initLongPress() {
 }
 
 // ═══════════════════════════════════════════════
-//  ПРОГРЕСС ЗАГРУЗКИ
+//  ПРОГРЕСС ЗАГРУЗКИ ФАЙЛОВ (красивый, как на скрине 10)
 // ═══════════════════════════════════════════════
-function showUploadProgress(fileName) {
+function getFileIcon(fileName, mimeType) {
+  if (!mimeType && !fileName) return '📎';
+  const mime = (mimeType || '').toLowerCase();
+  const name = (fileName || '').toLowerCase();
+  if (mime.startsWith('image/'))  return '🖼';
+  if (mime.startsWith('video/'))  return '🎬';
+  if (mime.startsWith('audio/'))  return '🎤';
+  if (name.endsWith('.pdf'))      return '📄';
+  if (name.endsWith('.zip') || name.endsWith('.rar')) return '🗜';
+  if (name.endsWith('.doc') || name.endsWith('.docx')) return '📝';
+  return '📎';
+}
+
+function showUploadProgress(fileName, mimeType) {
   hideUploadProgress();
-  const el = document.createElement('div'); el.id = 'upload-progress-wrap';
-  el.style.cssText = 'padding:8px 12px 0;';
+  const el = document.createElement('div');
+  el.id = 'upload-progress-wrap';
+  const icon = getFileIcon(fileName, mimeType);
   el.innerHTML = `
-    <div style="font-size:12px;color:var(--sub);margin-bottom:4px">📤 ${escapeHtml(fileName||'файл')}…</div>
-    <div style="height:3px;background:rgba(255,255,255,0.08);border-radius:2px;overflow:hidden">
-      <div id="upload-progress-fill" style="height:100%;width:0%;background:var(--accent-g);border-radius:2px;transition:width 0.2s"></div>
+    <div class="upload-progress-header">
+      <div class="upload-progress-icon">${icon}</div>
+      <div class="upload-progress-info">
+        <div class="upload-progress-name">${escapeHtml(fileName || 'файл')}</div>
+        <div class="upload-progress-pct" id="upload-progress-pct">Подготовка…</div>
+      </div>
     </div>
-    <div id="upload-progress-pct" style="font-size:11px;color:var(--accent2);margin-top:2px;text-align:right">0%</div>`;
-  const tb = $('tg-bottom'); if (tb) tb.insertBefore(el, tb.firstChild);
+    <div class="upload-progress-track">
+      <div id="upload-progress-fill"></div>
+    </div>`;
+  const tb = document.getElementById('tg-bottom');
+  if (tb) tb.insertBefore(el, tb.firstChild);
   return el;
 }
 
 function updateUploadProgress(pct) {
-  const fill = $('upload-progress-fill');
-  const text = $('upload-progress-pct');
-  if (fill) fill.style.width = pct + '%';
-  if (text) text.textContent = Math.round(pct) + '%';
-}
-
-function hideUploadProgress() {
-  const el = $('upload-progress-wrap'); if (el) el.remove();
-}
-
-function showChatUploadStatus(type) {
-  const el = getHeaderSubEl(); if (!el) return;
-  const labels = {image:'📷 отправляет фото…',video:'🎬 отправляет видео…',file:'📎 отправляет файл…',voice:'🎤 записывает…'};
-  el.innerHTML = `<span class="typing-indicator"><span class="typing-dots"><span></span><span></span><span></span></span>${labels[type]||'отправляет…'}</span>`;
-}
-
-function hideChatUploadStatus() {
-  const el = getHeaderSubEl(); if (!el) return;
-  if (currentChatType === 'private' && typeof loadInitialStatus === 'function') {
-    loadInitialStatus(currentChatWith);
-  } else {
-    el.innerHTML = `<span class="online"><span id="user-count">${memberCount}</span> участников</span>`;
+  const fill = document.getElementById('upload-progress-fill');
+  const text = document.getElementById('upload-progress-pct');
+  if (fill) fill.style.width = Math.round(pct) + '%';
+  if (text) {
+    if (pct < 100) text.textContent = 'Загрузка ' + Math.round(pct) + '%…';
+    else text.textContent = '✅ Отправлено!';
   }
 }
 
+function hideUploadProgress() {
+  const el = document.getElementById('upload-progress-wrap');
+  if (!el) return;
+  el.style.transition = 'opacity 0.3s, transform 0.3s';
+  el.style.opacity = '0';
+  el.style.transform = 'translateY(-4px)';
+  setTimeout(() => el.remove(), 350);
+}
 // ═══════════════════════════════════════════════
 //  СПИСОК КОМНАТ
 // ═══════════════════════════════════════════════
