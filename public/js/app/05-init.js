@@ -24,6 +24,7 @@ function validateStrongPasswordClient(pw) {
   if (!/[^A-Za-z0-9]/.test(pw)) return 'need_special';
   return null;
 }
+
 async function ensureE2EEKeysSafe() {
   try {
     if (window.E2EEKeys?.ensurePreKeys) {
@@ -34,6 +35,7 @@ async function ensureE2EEKeysSafe() {
     console.error('[E2EE init error]', e);
   }
 }
+
 // ───────────────────────────────────────────────
 //  CONNECT / DISCONNECT
 // ───────────────────────────────────────────────
@@ -57,6 +59,9 @@ socket.on('connect', () => {
       myUsername = res.username || res.nickname.toLowerCase();
       myAvatar = res.avatar || null;
       updateLobbyAvatarBtn?.();
+
+      // E2EE: проверим/дозальём prekeys после успешной ре-авторизации
+      ensureE2EEKeysSafe();
 
       // восстановление текущего контекста
       if (currentRoomId && currentChatType === 'group') joinRoom(currentRoomId, currentPassword);
@@ -941,6 +946,10 @@ function doLogin() {
       myUsername = res.username || res.nickname.toLowerCase();
       myAvatar   = res.avatar || null;
       try { localStorage.setItem('chat_token', authToken); } catch (_) {}
+
+      // E2EE: инициализируем/пополняем prekeys сразу после логина
+      ensureE2EEKeysSafe();
+
       onAuthSuccess();
     } else {
       const msgs = {
@@ -987,6 +996,10 @@ function doRegister() {
       myUsername = res.username || res.nickname.toLowerCase();
       myAvatar   = null;
       try { localStorage.setItem('chat_token', authToken); } catch (_) {}
+
+      // E2EE: инициализируем/пополняем prekeys сразу после регистрации
+      ensureE2EEKeysSafe();
+
       onAuthSuccess();
     } else {
       const msgs = {
