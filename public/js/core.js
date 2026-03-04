@@ -16,89 +16,93 @@ function arrayBufferToBase64Safe(buffer) {
 const THEME_KEY = 'privchat_theme';
 let currentTheme = localStorage.getItem(THEME_KEY) || 'dark';
 
-const DARK_VARS = {
-  '--bg':        '#0a0a0f',
-  '--bg2':       '#111118',
-  '--surface':   '#16161f',
-  '--surface2':  '#1c1c28',
-  '--surface3':  '#222232',
-  '--text':      '#e8e8f0',
-  '--text2':     '#9090b0',
-  '--sub':       '#55556a',
-  '--divider':   'rgba(255,255,255,0.06)',
-  '--bubble-in': '#16161f',
-  '--bubble-me': '#2d1f5e',
-  '--glass':     'rgba(22,22,31,0.85)',
-  '--accent':    '#7c5cbf',
-  '--accent2':   '#a07de0',
-  '--accent-g':  'linear-gradient(135deg,#7c5cbf,#5b3fa0)',
-  '--gold':      '#c9a84c',
-  '--gold2':     '#e8c76a',
-  '--green':     '#3dba6e',
-  '--red':       '#e05252',
-  '--orange':    '#e08a3c',
-};
-
-const LIGHT_VARS = {
-  '--bg':        '#f0f2f5',
-  '--bg2':       '#ffffff',
-  '--surface':   '#ffffff',
-  '--surface2':  '#f7f8fa',
-  '--surface3':  '#eff1f3',
-  '--text':      '#111b21',
-  '--text2':     '#3b4a54',
-  '--sub':       '#8696a0',
-  '--divider':   'rgba(0,0,0,0.08)',
-  '--bubble-in': '#ffffff',
-  '--bubble-me': '#d9fdd3',
-  '--glass':     'rgba(255,255,255,0.92)',
-  '--accent':    '#00a884',
-  '--accent2':   '#00a884',
-  '--accent-g':  'linear-gradient(135deg,#00a884,#00856f)',
-  '--gold':      '#c9a84c',
-  '--gold2':     '#e8c76a',
-  '--green':     '#25d366',
-  '--red':       '#e05252',
-  '--orange':    '#e08a3c',
-};
-
 function applyTheme(theme) {
   currentTheme = theme;
   localStorage.setItem(THEME_KEY, theme);
+  document.documentElement.setAttribute('data-theme', theme);
 
-  const vars = theme === 'light' ? LIGHT_VARS : DARK_VARS;
   const root = document.documentElement;
 
-  // Устанавливаем все CSS-переменные
-  for (const [k, v] of Object.entries(vars)) {
-    root.style.setProperty(k, v);
+  if (theme === 'light') {
+    root.style.setProperty('--bg',        '#f0f2f5');
+    root.style.setProperty('--bg2',       '#ffffff');
+    root.style.setProperty('--surface',   '#ffffff');
+    root.style.setProperty('--surface2',  '#f7f8fa');
+    root.style.setProperty('--surface3',  '#eff1f3');
+    root.style.setProperty('--text',      '#111b21');
+    root.style.setProperty('--text2',     '#3b4a54');
+    root.style.setProperty('--sub',       '#8696a0');
+    root.style.setProperty('--divider',   'rgba(0,0,0,0.08)');
+    root.style.setProperty('--bubble-in', '#ffffff');
+    root.style.setProperty('--bubble-me', '#d9fdd3');
+    root.style.setProperty('--glass',     'rgba(255,255,255,0.92)');
+    root.style.setProperty('--accent',    '#00a884');
+    root.style.setProperty('--accent2',   '#00a884');
+    root.style.setProperty('--accent-g',  'linear-gradient(135deg,#00a884,#00856f)');
+    root.style.setProperty('--green',     '#25d366');
+    root.style.setProperty('--red',       '#e05252');
+    root.style.setProperty('--orange',    '#e08a3c');
+  } else {
+    root.style.setProperty('--bg',        '#0a0a0f');
+    root.style.setProperty('--bg2',       '#111118');
+    root.style.setProperty('--surface',   '#16161f');
+    root.style.setProperty('--surface2',  '#1c1c28');
+    root.style.setProperty('--surface3',  '#222232');
+    root.style.setProperty('--text',      '#e8e8f0');
+    root.style.setProperty('--text2',     '#9090b0');
+    root.style.setProperty('--sub',       '#55556a');
+    root.style.setProperty('--divider',   'rgba(255,255,255,0.06)');
+    root.style.setProperty('--bubble-in', '#16161f');
+    root.style.setProperty('--bubble-me', '#2d1f5e');
+    root.style.setProperty('--glass',     'rgba(22,22,31,0.85)');
+    root.style.setProperty('--accent',    '#7c5cbf');
+    root.style.setProperty('--accent2',   '#a07de0');
+    root.style.setProperty('--accent-g',  'linear-gradient(135deg,#7c5cbf,#5b3fa0)');
+    root.style.setProperty('--green',     '#3dba6e');
+    root.style.setProperty('--red',       '#e05252');
+    root.style.setProperty('--orange',    '#e08a3c');
   }
 
-  // Атрибут на html для CSS-селекторов в ui.js
-  root.setAttribute('data-theme', theme);
-
-  // Обновляем кнопки переключения темы
-  document.querySelectorAll('.theme-toggle-btn, #btn-drawer-theme').forEach(btn => {
+  // Обновляем ВСЕ кнопки переключения темы
+  document.querySelectorAll('#btn-drawer-theme, .theme-toggle-btn').forEach(btn => {
     btn.textContent = theme === 'dark' ? '☀️' : '🌙';
     btn.title = theme === 'dark' ? 'Светлая тема' : 'Тёмная тема';
   });
 
-  // theme-color мета-тег
+  // theme-color для браузера
   const metaTheme = document.querySelector('meta[name="theme-color"]');
-  if (metaTheme) metaTheme.setAttribute('content', theme === 'light' ? '#f0f2f5' : '#0a0a0f');
+  if (metaTheme) metaTheme.content = theme === 'light' ? '#f0f2f5' : '#0a0a0f';
 }
 
 function toggleTheme() {
   applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
 }
 
-// Применяем тему сразу при загрузке скрипта
+// Применяем сразу
 applyTheme(currentTheme);
 
-// ─── Кнопка темы в drawer ───
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('btn-drawer-theme')?.addEventListener('click', toggleTheme);
-});
+// ─── Кнопка темы — вешаем обработчик несколькими способами ───
+function initThemeBtn() {
+  const btn = document.getElementById('btn-drawer-theme');
+  if (btn) {
+    // Удаляем старые обработчики клонированием
+    const newBtn = btn.cloneNode(true);
+    btn.parentNode.replaceChild(newBtn, btn);
+    newBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      toggleTheme();
+    });
+    // Сразу обновляем иконку
+    newBtn.textContent = currentTheme === 'dark' ? '☀️' : '🌙';
+  }
+}
+
+// Вешаем при загрузке DOM
+document.addEventListener('DOMContentLoaded', initThemeBtn);
+
+// И через небольшую задержку (на случай если drawer рендерится позже)
+setTimeout(initThemeBtn, 500);
+setTimeout(initThemeBtn, 1500);
 
 // ─── УТИЛИТЫ ───
 function escapeHtml(str) {
