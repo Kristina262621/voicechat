@@ -1613,7 +1613,7 @@ io.on('connection', (socket) => {
         reactions: getReactions(msgId)
       };
 
-      io.to('pc:' + chatId).emit('private-message', out);
+      socket.to('pc:' + chatId).emit('private-message', out);
 
       if (isOnline(peerLower)) {
         socket.emit('msg-delivered', { chatId, msgId });
@@ -2441,3 +2441,4 @@ initDB()
     console.error('❌ DB init error:', err);
     process.exit(1);
   });
+
