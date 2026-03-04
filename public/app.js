@@ -2488,7 +2488,7 @@ function forceOpusMaxQuality(sdp) {
     const line = lines[i];
     if (line.includes('a=rtpmap') && line.toLowerCase().includes('opus')) {
       result.push(line);
-      const pt = line.split(':')[[1]](#annotation-160280-0).split(' ')[0];
+      const pt = line.split(':')[1].split(' ')[0];
       if (i+1 < lines.length && lines[i+1].startsWith('a=fmtp:'+pt)) i++;
       result.push('a=fmtp:'+pt+' minptime=10;useinbandfec=1;stereo=0;sprop-stereo=0;maxaveragebitrate=40000;dtx=1;cbr=0');
       continue;
@@ -2654,7 +2654,7 @@ async function buildAudioPipeline(rawStream) {
   const hpf    = audioCtx.createBiquadFilter(); hpf.type='highpass'; hpf.frequency.value=100; hpf.Q.value=0.9;
   const lpf    = audioCtx.createBiquadFilter(); lpf.type='lowpass';  lpf.frequency.value=8000; lpf.Q.value=0.7;
   const comp   = audioCtx.createDynamicsCompressor(); comp.threshold.value=-28; comp.knee.value=10; comp.ratio.value=6; comp.attack.value=0.002; comp.release.value=0.12;
-  noiseWorklet = new AudioWorkletNode(audioCtx, 'noise-gate-processor', {processorOptions:{threshold:0.08,attack:0.003,release:0.25,smoothing:0.97},numberOfInputs:1,numberOfOutputs:1,outputChannelCount:[[1]](#annotation-160280-0)});
+  noiseWorklet = new AudioWorkletNode(audioCtx, 'noise-gate-processor', {processorOptions:{threshold:0.08,attack:0.003,release:0.25,smoothing:0.97},numberOfInputs:1,numberOfOutputs:1,outputChannelCount:[1]});
   const gain   = audioCtx.createGain(); gain.gain.value = 1.2;
   const dest   = audioCtx.createMediaStreamDestination();
   source.connect(hpf); hpf.connect(lpf); lpf.connect(comp); comp.connect(noiseWorklet); noiseWorklet.connect(gain); gain.connect(dest);
