@@ -63,13 +63,12 @@ function applyTheme(theme) {
     root.style.setProperty('--orange',    '#e08a3c');
   }
 
-  // Обновляем ВСЕ кнопки переключения темы
+  // Обновляем иконку кнопки
   document.querySelectorAll('#btn-drawer-theme, .theme-toggle-btn').forEach(btn => {
     btn.textContent = theme === 'dark' ? '☀️' : '🌙';
     btn.title = theme === 'dark' ? 'Светлая тема' : 'Тёмная тема';
   });
 
-  // theme-color для браузера
   const metaTheme = document.querySelector('meta[name="theme-color"]');
   if (metaTheme) metaTheme.content = theme === 'light' ? '#f0f2f5' : '#0a0a0f';
 }
@@ -78,32 +77,17 @@ function toggleTheme() {
   applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
 }
 
-// Применяем сразу
+// Применяем сразу при загрузке скрипта
 applyTheme(currentTheme);
 
-// ─── Кнопка темы — вешаем обработчик несколькими способами ───
-function initThemeBtn() {
-  const btn = document.getElementById('btn-drawer-theme');
+// Делегирование на document — работает всегда, независимо от порядка рендера
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('#btn-drawer-theme, .theme-toggle-btn');
   if (btn) {
-    // Удаляем старые обработчики клонированием
-    const newBtn = btn.cloneNode(true);
-    btn.parentNode.replaceChild(newBtn, btn);
-    newBtn.addEventListener('click', function(e) {
-      e.stopPropagation();
-      toggleTheme();
-    });
-    // Сразу обновляем иконку
-    newBtn.textContent = currentTheme === 'dark' ? '☀️' : '🌙';
+    e.stopPropagation();
+    toggleTheme();
   }
-}
-
-// Вешаем при загрузке DOM
-document.addEventListener('DOMContentLoaded', initThemeBtn);
-
-// И через небольшую задержку (на случай если drawer рендерится позже)
-setTimeout(initThemeBtn, 500);
-setTimeout(initThemeBtn, 1500);
-
+});
 // ─── УТИЛИТЫ ───
 function escapeHtml(str) {
   return String(str)
