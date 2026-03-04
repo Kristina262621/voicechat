@@ -884,6 +884,50 @@ function loadContactsFriends() {
 // ───────────────────────────────────────────────
 //  ЛИЧНЫЕ ЧАТЫ
 // ───────────────────────────────────────────────
+const PRIVATE_HISTORY_PAGE_SIZE = 50;
+const privateHistoryStateByChat = new Map();
+
+function getPrivateHistoryState(chatId) {
+  if (!privateHistoryStateByChat.has(chatId)) {
+    privateHistoryStateByChat.set(chatId, {
+      page: 1,
+      loading: false,
+      hasMore: true
+    });
+  }
+  return privateHistoryStateByChat.get(chatId);
+}
+
+function resetPrivateHistoryState(chatId) {
+  privateHistoryStateByChat.set(chatId, {
+    page: 1,
+    loading: false,
+    hasMore: true
+  });
+}
+
+function cacheRowToHistoryMsg(row) {
+  return {
+    id: row.msgId,
+    chatId: row.chatId,
+    from: row.from,
+    fromNick: row.fromNick,
+    encrypted: row.encrypted,
+    iv: row.iv,
+    type: row.type,
+    fileName: row.fileName,
+    fileSize: row.fileSize,
+    mimeType: row.mimeType,
+    duration: row.duration || 0,
+    status: row.status || 'sent',
+    edited: !!row.edited,
+    timestamp: Number(row.timestamp || Date.now()),
+    replyTo: row.replyTo || null,
+    readBy: [],
+    deletedFor: []
+  };
+}
+
 function openPrivateChatWith(nickname) {
   closeAllModals();
   socket.emit('private-chat-open', { withNickname: nickname }, res => {
@@ -921,6 +965,7 @@ async function decryptPrivateHistoryBlob(peerId, encrypted, iv, mime) {
   }
   return Crypto.decryptBlob(encrypted, iv, mime || 'application/octet-stream');
 }
+
 // NEW: peer resolver (чтобы свои сообщения в истории дешифровать outbound-ключом)
 function resolvePrivateHistoryPeerId(chatId, myLower, mine, msg) {
   const parts = String(chatId || '').split('::');
@@ -953,6 +998,144 @@ async function decryptPrivateHistoryBlobByDirection(peerId, mine, encrypted, iv,
   return decryptPrivateHistoryBlob(peerId, encrypted, iv, mime);
 }
 
+function bindPrivateHistoryScroll(chatId) {
+  if (!chatMessages) return;
+
+  if (chatMessages._privateHistoryScrollHandler) {
+    chatMessages.removeEventListener('scroll', chatMessages._privateHistoryScrollHandler);
+  }
+
+  const handler = () => {
+    if (currentChatType !== 'private' || currentChatId !== chatId) return;
+    if (chatMessages.scrollTop < 60) {
+      loadPrivateChatHistory(chatId, { loadMore: true }).catch(() => {});
+    }
+  };
+
+  chatMessages.addEventListener('scroll', handler, { passive: true });
+  chatMessages._privateHistoryScrollHandler = handler;
+}
+
+async function renderPrivateHistoryMessages(chatId, messages, { replace = false } = {}) {
+  if (!Array.isArray(messages)) return;
+
+  const myLower = myNickname.toLowerCase();
+
+  if (replace) {
+    clearChat();
+  }
+
+  for (const msg of messages) {
+    const mine = msg.from === myLower;
+    if (msg.deletedFor && msg.deletedFor.includes(myLower)) continue;
+
+    const peerId = resolvePrivateHistoryPeerId(chatId, myLower, mine, msg);
+
+    if (msg.type === 'text') {
+      try {
+        const text = await decryptPrivateHistoryTextByDirection(peerId, mine, msg.encrypted, msg.iv);
+        const domId = appendMessage({
+          id: msg.id,
+          nickname: msg.fromNick,
+          text,
+          type: 'text',
+          timestamp: msg.timestamp,
+          mine,
+          status: 'ok',
+          msgStatus: mine ? (msg.status || 'sent') : null,
+          edited: msg.edited,
+          replyTo: msg.replyTo || null,
+          peerId
+        });
+        if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
+      } catch (_) {
+        appendMessage({
+          id: msg.id,
+          nickname: msg.fromNick,
+          text: '[зашифровано]',
+          type: 'text',
+          timestamp: msg.timestamp,
+          mine,
+          status: 'error',
+          peerId
+        });
+      }
+      continue;
+    }
+
+    if (msg.type === 'voice') {
+      try {
+        const blob = await decryptPrivateHistoryBlobByDirection(
+          peerId,
+          mine,
+          msg.encrypted,
+          msg.iv,
+          msg.mimeType || 'audio/webm'
+        );
+        const localUrl = URL.createObjectURL(blob);
+        const domId = appendMessage({
+          id: msg.id,
+          nickname: msg.fromNick,
+          type: 'voice',
+          duration: msg.duration || 0,
+          timestamp: msg.timestamp,
+          mine,
+          status: 'ok',
+          localUrl,
+          mimeType: msg.mimeType,
+          msgStatus: mine ? (msg.status || 'sent') : null,
+          peerId
+        });
+        if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
+      } catch (_) {
+        const domId = appendMessage({
+          id: msg.id,
+          nickname: msg.fromNick,
+          type: 'voice',
+          duration: msg.duration || 0,
+          timestamp: msg.timestamp,
+          mine,
+          status: 'error',
+          encrypted: msg.encrypted,
+          iv: msg.iv,
+          mimeType: msg.mimeType,
+          msgStatus: mine ? (msg.status || 'sent') : null,
+          peerId
+        });
+        if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
+      }
+      continue;
+    }
+
+    // image / video / file
+    const domId = appendMessage({
+      id: msg.id,
+      nickname: msg.fromNick,
+      type: msg.type,
+      fileName: msg.fileName,
+      fileSize: msg.fileSize,
+      mimeType: msg.mimeType,
+      timestamp: msg.timestamp,
+      mine,
+      status: 'decrypting',
+      msgStatus: mine ? (msg.status || 'sent') : null,
+      replyTo: msg.replyTo || null,
+      peerId
+    });
+    if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
+
+    try {
+      const mime = msg.mimeType || 'application/octet-stream';
+      const blob = await decryptPrivateHistoryBlobByDirection(peerId, mine, msg.encrypted, msg.iv, mime);
+      updateMessage(domId, { localUrl: URL.createObjectURL(blob), status: 'ok' });
+    } catch (_) {
+      updateMessage(domId, { status: 'error' });
+    }
+  }
+
+  markChatAsRead(chatId, messages);
+}
+
 async function enterPrivateChat(chatId, withNickname, withAvatar) {
   if (currentRoomId) {
     socket.emit('leave-room');
@@ -969,7 +1152,6 @@ async function enterPrivateChat(chatId, withNickname, withAvatar) {
   memberCount = 2;
   clearUnread(chatId);
 
-  // legacy derive оставляем для fallback старых сообщений
   try { await Crypto.deriveKey('', chatId, chatId + '-private-v2'); } catch (e) { console.error(e); }
 
   if (chatRoomName) chatRoomName.textContent = withNickname;
@@ -994,127 +1176,61 @@ async function enterPrivateChat(chatId, withNickname, withAvatar) {
   updateNotifButton();
   updateHeaderButtons();
 
-  await loadPrivateChatHistory(chatId);
+  resetPrivateHistoryState(chatId);
+  bindPrivateHistoryScroll(chatId);
+  await loadPrivateChatHistory(chatId, { reset: true });
 }
 
-async function loadPrivateChatHistory(chatId) {
-  return new Promise(resolve => {
-    socket.emit('private-chat-history', { chatId }, async res => {
-      if (!res.ok || !res.messages || !res.messages.length) { resolve(); return; }
-      const myLower = myNickname.toLowerCase();
+async function loadPrivateChatHistory(chatId, { reset = false, loadMore = false } = {}) {
+  const state = getPrivateHistoryState(chatId);
+  if (state.loading) return;
+  if (loadMore && !state.hasMore) return;
 
-      for (const msg of res.messages) {
-        const mine = msg.from === myLower;
-        if (msg.deletedFor && msg.deletedFor.includes(myLower)) continue;
+  if (reset) {
+    state.page = 1;
+    state.hasMore = true;
+  } else if (loadMore) {
+    state.page += 1;
+  }
 
-        const peerId = resolvePrivateHistoryPeerId(chatId, myLower, mine, msg);
+  const limit = Math.max(PRIVATE_HISTORY_PAGE_SIZE, state.page * PRIVATE_HISTORY_PAGE_SIZE);
+  state.loading = true;
 
-        if (msg.type === 'text') {
-          try {
-            const text = await decryptPrivateHistoryTextByDirection(peerId, mine, msg.encrypted, msg.iv);
-            const domId = appendMessage({
-              id: msg.id,
-              nickname: msg.fromNick,
-              text,
-              type: 'text',
-              timestamp: msg.timestamp,
-              mine,
-              status: 'ok',
-              msgStatus: mine ? (msg.status || 'sent') : null,
-              edited: msg.edited,
-              replyTo: msg.replyTo || null,
-              peerId
-            });
-            if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
-          } catch (_) {
-            appendMessage({
-              id: msg.id,
-              nickname: msg.fromNick,
-              text: '[зашифровано]',
-              type: 'text',
-              timestamp: msg.timestamp,
-              mine,
-              status: 'error',
-              peerId
-            });
-          }
-          continue;
+  try {
+    // 1) Local-first (только при reset)
+    if (reset && window.PrivateCache?.getPrivateMessages) {
+      try {
+        const cachedRows = await window.PrivateCache.getPrivateMessages(chatId, PRIVATE_HISTORY_PAGE_SIZE);
+        if (Array.isArray(cachedRows) && cachedRows.length) {
+          const cachedMsgs = cachedRows.map(cacheRowToHistoryMsg);
+          await renderPrivateHistoryMessages(chatId, cachedMsgs, { replace: true });
         }
-
-        if (msg.type === 'voice') {
-          try {
-            const blob = await decryptPrivateHistoryBlobByDirection(
-              peerId,
-              mine,
-              msg.encrypted,
-              msg.iv,
-              msg.mimeType || 'audio/webm'
-            );
-            const localUrl = URL.createObjectURL(blob);
-            const domId = appendMessage({
-              id: msg.id,
-              nickname: msg.fromNick,
-              type: 'voice',
-              duration: msg.duration || 0,
-              timestamp: msg.timestamp,
-              mine,
-              status: 'ok',
-              localUrl,
-              mimeType: msg.mimeType,
-              msgStatus: mine ? (msg.status || 'sent') : null,
-              peerId
-            });
-            if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
-          } catch (_) {
-            const domId = appendMessage({
-              id: msg.id,
-              nickname: msg.fromNick,
-              type: 'voice',
-              duration: msg.duration || 0,
-              timestamp: msg.timestamp,
-              mine,
-              status: 'error',
-              encrypted: msg.encrypted,
-              iv: msg.iv,
-              mimeType: msg.mimeType,
-              msgStatus: mine ? (msg.status || 'sent') : null,
-              peerId
-            });
-            if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
-          }
-          continue;
-        }
-
-        // image / video / file
-        const domId = appendMessage({
-          id: msg.id,
-          nickname: msg.fromNick,
-          type: msg.type,
-          fileName: msg.fileName,
-          fileSize: msg.fileSize,
-          mimeType: msg.mimeType,
-          timestamp: msg.timestamp,
-          mine,
-          status: 'decrypting',
-          msgStatus: mine ? (msg.status || 'sent') : null,
-          replyTo: msg.replyTo || null,
-          peerId
-        });
-        if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
-
-        try {
-          const mime = msg.mimeType || 'application/octet-stream';
-          const blob = await decryptPrivateHistoryBlobByDirection(peerId, mine, msg.encrypted, msg.iv, mime);
-          updateMessage(domId, { localUrl: URL.createObjectURL(blob), status: 'ok' });
-        } catch (_) {
-          updateMessage(domId, { status: 'error' });
-        }
+      } catch (e) {
+        console.warn('[PrivateCache] read fail', e);
       }
+    }
 
-      markChatAsRead(chatId, res.messages);
-      resolve();
+    // 2) Сервер (с пагинацией по limit)
+    const res = await new Promise(resolve => {
+      socket.emit('private-chat-history', { chatId, limit }, resolve);
     });
-  });
+
+    if (!res?.ok || !Array.isArray(res.messages)) return;
+
+    await renderPrivateHistoryMessages(chatId, res.messages, { replace: true });
+    state.hasMore = !!res.hasMore;
+
+    // 3) Сохраняем в локальный кэш
+    if (window.PrivateCache?.putPrivateMessagesBulk) {
+      try {
+        await window.PrivateCache.putPrivateMessagesBulk(chatId, res.messages);
+      } catch (e) {
+        console.warn('[PrivateCache] write fail', e);
+      }
+    }
+  } finally {
+    state.loading = false;
+  }
 }
 
 function markChatAsRead(chatId, messages) {
