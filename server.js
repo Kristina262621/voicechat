@@ -781,23 +781,91 @@ function validateMessagePayload(data) {
 // ════════════════════════════════════════════
 //  ONLINE STATUS
 // ════════════════════════════════════════════
-function setOnline(nickLower, socketId) {
-  if (!onlineUsers.has(nickLower)) onlineUsers.set(nickLower, new Set());
-  onlineUsers.get(nickLower).add(socketId);
-  io.emit('user-online', { nickLower });
-}
-function setOffline(nickLower, socketId) {
-  const set = onlineUsers.get(nickLower);
-  if (!set) return;
-  set.delete(socketId);
-  if (set.size === 0) {
-    onlineUsers.delete(nickLower);
-    io.emit('user-offline', { nickLower, lastSeen: Date.now() });
+safeOn('private-message', async (payload, cb) => {
+  const client = requireAuthed(cb);
+  if (!client) return;
+
+  try {
+    const {
+      chatId,
+      encrypted,
+      iv,
+      type = 'text',
+      fileName = null,
+      fileSize = null,
+      mimeType = null,
+      duration = 0,
+      seq = 0,
+      replyTo = null
+    } = payload || {};
+
+    if (!chatId || !encrypted || !iv) {
+      return cb?.({ ok: false, error: 'bad_payload' });
+    }
+
+    const isMember = await PrivateChatDB.isMember(chatId, client.nickLower);
+    if (!isMember) return cb?.({ ok: false, error: 'not_member' });
+
+    const chat = await PrivateChatDB.get(chatId);
+    if (!chat) return cb?.({ ok: false, error: 'chat_not_found' });
+
+    const fromUser = await UserDB.get(client.nickLower);
+    const peerLower = chat.member1 === client.nickLower ? chat.member2 : chat.member1;
+
+    const { randomUUID } = require('crypto');
+    const msgId = randomUUID();
+    const timestamp = Date.now();
+
+    const msg = {
+      id: msgId,
+      chatId,
+      from: client.nickLower,
+      fromNick: fromUser?.nickname || client.nickLower,
+      fromAvatar: fromUser?.avatar || null,
+      encrypted,
+      iv,
+      type,
+      fileName,
+      fileSize,
+      mimeType,
+      duration: Number(duration) || 0,
+      seq: Number(seq) || 0,
+      status: 'sent',
+      edited: false,
+      timestamp,
+      replyTo
+    };
+
+    await PrivateChatDB.saveMessage(msg);
+    await PrivateChatDB.markRead(msgId, client.nickLower); // у отправителя "прочитано"
+
+    // ACK в callback
+    cb?.({ ok: true, msgId, timestamp });
+
+    // ACK для клиентского seq -> msgId
+    io.to(client.id).emit('chat-msg-id', { chatId, seq: Number(seq) || 0, msgId });
+
+    const out = {
+      ...msg,
+      readBy: [client.nickLower],
+      deletedFor: [],
+      reactions: getReactions(msgId)
+    };
+
+    // себе (чтобы UI обновил статус)
+    io.to(client.id).emit('private-message', out);
+
+    // собеседнику
+    const peerSocketId = onlineUsers.get(peerLower); // <-- адаптируй имя мапы при необходимости
+    if (peerSocketId) {
+      io.to(peerSocketId).emit('private-message', out);
+      io.to(client.id).emit('msg-delivered', { chatId, msgId });
+    }
+  } catch (e) {
+    console.error('[private-message] error:', e);
+    cb?.({ ok: false, error: 'server_error' });
   }
-}
-function isOnline(nickLower) {
-  return onlineUsers.has(nickLower) && onlineUsers.get(nickLower).size > 0;
-}
+});
 
 // ════════════════════════════════════════════
 //  REACTIONS
@@ -2341,6 +2409,7 @@ initDB()
     console.error('❌ DB init error:', err);
     process.exit(1);
   });
+
 
 
 
