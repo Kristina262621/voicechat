@@ -696,20 +696,23 @@ const PrivateChatDB = {
   },
 
   async getUserChats(nickLower) {
-    return await query(
-      `SELECT pc.*,
-        pm.type as last_type, pm.timestamp as last_ts
-       FROM private_chats pc
-       LEFT JOIN private_messages pm ON pm.msg_id = (
-         SELECT msg_id FROM private_messages
-         WHERE chat_id = pc.chat_id
-         ORDER BY timestamp DESC LIMIT 1
-       )
-       WHERE pc.member1 = ? OR pc.member2 = ?
-       ORDER BY COALESCE(pm.timestamp, pc.created_at) DESC`,
-      [nickLower, nickLower]
-    );
-  },
+  return await query(
+    `SELECT pc.*,
+      pm.type as last_type,
+      pm.timestamp as last_ts,
+      pm.encrypted as last_encrypted
+     FROM private_chats pc
+     LEFT JOIN private_messages pm ON pm.msg_id = (
+       SELECT msg_id FROM private_messages
+       WHERE chat_id = pc.chat_id
+         AND seq IS NOT NULL
+       ORDER BY timestamp DESC LIMIT 1
+     )
+     WHERE (pc.member1 = ? OR pc.member2 = ?)
+     ORDER BY COALESCE(pm.timestamp, pc.created_at) DESC`,
+    [nickLower, nickLower]
+  );
+},
 
   async isMember(chatId, nickLower) {
     const chat = await queryOne(`SELECT * FROM private_chats WHERE chat_id = ?`, [chatId]);
