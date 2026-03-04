@@ -13,7 +13,6 @@ let pendingOffers   = [];
 let joined          = false;
 let audioCtx        = null;
 let wakeLock        = null;
-let msgCounter      = 0;
 
 const voiceNicknames    = {};
 const analysers         = {};
@@ -38,10 +37,6 @@ let localVideoStream = null;
 
 const SPEAKING_THRESHOLD  = 20;
 const MAX_STORED_MESSAGES = 200;
-
-// ─── Maps для сообщений ───
-const msgIdToDomId = new Map();
-const seqToMsgId   = new Map();
 
 // ─── Звонки ───
 let pcCallPeer           = null;
@@ -101,13 +96,6 @@ const EMOJI_LIST = [
 
 // ─── Таймеры удаления комнат ───
 const roomDeleteTimersMap = {};
-
-// ═══════════════════════════════════════════════
-//  SERVICE WORKER
-// ═══════════════════════════════════════════════
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js').catch(() => {});
-}
 
 // ═══════════════════════════════════════════════
 //  DOM — ждём загрузки
