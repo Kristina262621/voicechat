@@ -921,6 +921,37 @@ async function decryptPrivateHistoryBlob(peerId, encrypted, iv, mime) {
   }
   return Crypto.decryptBlob(encrypted, iv, mime || 'application/octet-stream');
 }
+// NEW: peer resolver (чтобы свои сообщения в истории дешифровать outbound-ключом)
+function resolvePrivateHistoryPeerId(chatId, myLower, mine, msg) {
+  const parts = String(chatId || '').split('::');
+  let peerFromChatId = '';
+  if (parts.length === 2) {
+    peerFromChatId = (parts[0] === myLower ? parts[1] : parts[0]);
+  } else {
+    peerFromChatId = String(currentChatWith || '').toLowerCase();
+  }
+
+  if (mine) return peerFromChatId;
+  return (msg?.from || msg?.fromNick || peerFromChatId || '').toLowerCase();
+}
+
+async function decryptPrivateHistoryTextByDirection(peerId, mine, encrypted, iv) {
+  if (mine && window.E2EESession?.decryptOwnTextForPeer && peerId) {
+    try {
+      return await window.E2EESession.decryptOwnTextForPeer(peerId, encrypted, iv);
+    } catch (_) {}
+  }
+  return decryptPrivateHistoryText(peerId, encrypted, iv);
+}
+
+async function decryptPrivateHistoryBlobByDirection(peerId, mine, encrypted, iv, mime) {
+  if (mine && window.E2EESession?.decryptOwnBlobForPeer && peerId) {
+    try {
+      return await window.E2EESession.decryptOwnBlobForPeer(peerId, encrypted, iv, mime);
+    } catch (_) {}
+  }
+  return decryptPrivateHistoryBlob(peerId, encrypted, iv, mime);
+}
 
 async function enterPrivateChat(chatId, withNickname, withAvatar) {
   if (currentRoomId) {
@@ -976,11 +1007,11 @@ async function loadPrivateChatHistory(chatId) {
         const mine = msg.from === myLower;
         if (msg.deletedFor && msg.deletedFor.includes(myLower)) continue;
 
-        const peerId = msg.from || msg.fromNick || '';
+        const peerId = resolvePrivateHistoryPeerId(chatId, myLower, mine, msg);
 
         if (msg.type === 'text') {
           try {
-            const text = await decryptPrivateHistoryText(peerId, msg.encrypted, msg.iv);
+            const text = await decryptPrivateHistoryTextByDirection(peerId, mine, msg.encrypted, msg.iv);
             const domId = appendMessage({
               id: msg.id,
               nickname: msg.fromNick,
@@ -1012,7 +1043,13 @@ async function loadPrivateChatHistory(chatId) {
 
         if (msg.type === 'voice') {
           try {
-            const blob = await decryptPrivateHistoryBlob(peerId, msg.encrypted, msg.iv, msg.mimeType || 'audio/webm');
+            const blob = await decryptPrivateHistoryBlobByDirection(
+              peerId,
+              mine,
+              msg.encrypted,
+              msg.iv,
+              msg.mimeType || 'audio/webm'
+            );
             const localUrl = URL.createObjectURL(blob);
             const domId = appendMessage({
               id: msg.id,
@@ -1067,7 +1104,7 @@ async function loadPrivateChatHistory(chatId) {
 
         try {
           const mime = msg.mimeType || 'application/octet-stream';
-          const blob = await decryptPrivateHistoryBlob(peerId, msg.encrypted, msg.iv, mime);
+          const blob = await decryptPrivateHistoryBlobByDirection(peerId, mine, msg.encrypted, msg.iv, mime);
           updateMessage(domId, { localUrl: URL.createObjectURL(blob), status: 'ok' });
         } catch (_) {
           updateMessage(domId, { status: 'error' });
