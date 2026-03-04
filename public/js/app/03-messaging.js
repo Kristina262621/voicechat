@@ -254,7 +254,6 @@ function hideUploadProgress() {
   setTimeout(() => el.remove(), 350);
 }
 
-// маленький индикатор статуса загрузки (безопасный fallback)
 function showChatUploadStatus(type) {
   let badge = document.getElementById('chat-upload-status');
   if (!badge) {
@@ -272,7 +271,7 @@ function hideChatUploadStatus() {
 }
 
 // ───────────────────────────────────────────────
-//  E2EE helper для private text
+//  E2EE helper для private (text+bytes)
 // ───────────────────────────────────────────────
 async function encryptPrivateTextE2EE(peerId, text) {
   if (window.E2EESession?.encryptTextForPeer && peerId) {
@@ -283,13 +282,25 @@ async function encryptPrivateTextE2EE(peerId, text) {
 
 async function decryptPrivateTextE2EE(peerId, encrypted, iv) {
   if (window.E2EESession?.decryptTextFromPeer && peerId) {
-    try {
-      return await window.E2EESession.decryptTextFromPeer(peerId, encrypted, iv);
-    } catch (_) {
-      // fallback ниже
-    }
+    try { return await window.E2EESession.decryptTextFromPeer(peerId, encrypted, iv); }
+    catch (_) {}
   }
   return Crypto.decryptText(encrypted, iv);
+}
+
+async function encryptPrivateBytesE2EE(peerId, bytesLike) {
+  if (window.E2EESession?.encryptBytesForPeer && peerId) {
+    return window.E2EESession.encryptBytesForPeer(peerId, bytesLike);
+  }
+  return Crypto.encrypt(bytesLike);
+}
+
+async function decryptPrivateBlobE2EE(peerId, encrypted, iv, mime) {
+  if (window.E2EESession?.decryptBlobFromPeer && peerId) {
+    try { return await window.E2EESession.decryptBlobFromPeer(peerId, encrypted, iv, mime); }
+    catch (_) {}
+  }
+  return Crypto.decryptBlob(encrypted, iv, mime);
 }
 
 // ───────────────────────────────────────────────
@@ -365,7 +376,14 @@ async function sendTextMessage() {
 async function sendVoiceMessage(blob, duration, mimeType) {
   try {
     const ab = await blob.arrayBuffer();
-    const { encrypted, iv } = await Crypto.encrypt(ab);
+
+    let encrypted, iv;
+    if (currentChatType === 'private' && currentChatWith) {
+      ({ encrypted, iv } = await encryptPrivateBytesE2EE(currentChatWith, ab));
+    } else {
+      ({ encrypted, iv } = await Crypto.encrypt(ab));
+    }
+
     const localUrl = URL.createObjectURL(new Blob([ab], { type: mimeType }));
     const seq = ++outgoingSeq;
 
@@ -501,7 +519,13 @@ async function sendMediaBlob(blob, mimeType, fileName, type) {
       updateUploadProgress(fakeProgress);
     }, 100);
 
-    const { encrypted, iv } = await Crypto.encrypt(ab);
+    let encrypted, iv;
+    if (currentChatType === 'private' && currentChatWith) {
+      ({ encrypted, iv } = await encryptPrivateBytesE2EE(currentChatWith, ab));
+    } else {
+      ({ encrypted, iv } = await Crypto.encrypt(ab));
+    }
+
     clearInterval(progressInterval);
     updateUploadProgress(95);
 
@@ -577,12 +601,26 @@ socket.on('private-message', async data => {
   if (getNotifSetting(data.chatId) !== 'none') playMsgSound(data.chatId);
   if (data.id) socket.emit('private-msg-read', { chatId: data.chatId, msgId: data.id });
 
+  const peerId = data.from || data.fromNick || currentChatWith || '';
+
   if (data.type === 'voice') {
-    appendMessage({
-      id: data.id, nickname: data.fromNick, type: 'voice',
-      duration: data.duration || 0, timestamp: data.timestamp,
-      mine: false, status: 'ok', encrypted: data.encrypted, iv: data.iv, mimeType: data.mimeType
-    });
+    try {
+      const blob = await decryptPrivateBlobE2EE(peerId, data.encrypted, data.iv, data.mimeType || 'audio/webm');
+      const localUrl = URL.createObjectURL(blob);
+      appendMessage({
+        id: data.id, nickname: data.fromNick, type: 'voice',
+        duration: data.duration || 0, timestamp: data.timestamp,
+        mine: false, status: 'ok', localUrl, mimeType: data.mimeType,
+        peerId
+      });
+    } catch (_) {
+      appendMessage({
+        id: data.id, nickname: data.fromNick, type: 'voice',
+        duration: data.duration || 0, timestamp: data.timestamp,
+        mine: false, status: 'error', encrypted: data.encrypted, iv: data.iv, mimeType: data.mimeType,
+        peerId
+      });
+    }
     return;
   }
 
@@ -590,18 +628,17 @@ socket.on('private-message', async data => {
     id: data.id, nickname: data.fromNick, type: data.type,
     fileName: data.fileName, fileSize: data.fileSize, mimeType: data.mimeType,
     timestamp: data.timestamp, mine: false, status: 'decrypting',
-    replyTo: data.replyTo || null
+    replyTo: data.replyTo || null, peerId
   });
 
   try {
     if (data.type === 'text') {
-      const peerId = data.from || data.fromNick || currentChatWith || '';
       const text = await decryptPrivateTextE2EE(peerId, data.encrypted, data.iv);
       updateMessage(domId, { text, status: 'ok' });
       showBrowserNotif('💬 ' + (data.fromNick || '?'), text, data.chatId);
     } else {
       const mime = data.mimeType || 'application/octet-stream';
-      const blob = await Crypto.decryptBlob(data.encrypted, data.iv, mime);
+      const blob = await decryptPrivateBlobE2EE(peerId, data.encrypted, data.iv, mime);
       updateMessage(domId, { localUrl: URL.createObjectURL(blob), status: 'ok' });
     }
   } catch (_) {
@@ -743,6 +780,7 @@ function appendMessage(msg) {
   div.dataset.encrypted = msg.encrypted || '';
   div.dataset.iv = msg.iv || '';
   div.dataset.msgId = msg.id || '';
+  div.dataset.peerId = msg.peerId || '';
   div.innerHTML = buildMsgHTML(msg);
   chatMessages.appendChild(div);
   scrollToBottom();
@@ -868,7 +906,7 @@ function buildVoiceMessageHTML(msg) {
     </div>`;
   }
 
-  return `<div class="voice-msg" id="${vmId}" data-encrypted="${msg.encrypted || ''}" data-iv="${msg.iv || ''}" data-mime="${msg.mimeType || 'audio/webm'}" data-dur="${dur}">
+  return `<div class="voice-msg" id="${vmId}" data-encrypted="${msg.encrypted || ''}" data-iv="${msg.iv || ''}" data-mime="${msg.mimeType || 'audio/webm'}" data-peer="${msg.peerId || ''}" data-dur="${dur}">
     <button class="voice-msg-btn voice-decrypt-btn">▶️</button>
     <div class="voice-msg-waveform">${bars}</div>
     <span class="voice-msg-duration">${durStr}</span>
@@ -941,10 +979,14 @@ function bindMediaEvents(container) {
       const enc = wrap.dataset.encrypted;
       const iv = wrap.dataset.iv;
       const mime = wrap.dataset.mime || 'audio/webm';
+      const peerId = wrap.dataset.peer || '';
       if (!enc || !iv) return;
       btn.textContent = '⏳';
       try {
-        const blob = await Crypto.decryptBlob(enc, iv, mime);
+        let blob;
+        if (peerId) blob = await decryptPrivateBlobE2EE(peerId, enc, iv, mime);
+        else blob = await Crypto.decryptBlob(enc, iv, mime);
+
         const url = URL.createObjectURL(blob);
         btn.classList.remove('voice-decrypt-btn');
         btn.dataset.url = url;
