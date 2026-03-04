@@ -1540,25 +1540,43 @@ io.on('connection', (socket) => {
 
   // ✅ PAGINATED PRIVATE HISTORY
   safeOn('private-chat-history', async ({ chatId, limit, beforeTs }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
+  const client = requireAuthed(cb);
+  if (!client) return;
 
-    if (!await PrivateChatDB.isMember(chatId, client.nickLower)) {
-      return cb({ ok: false, error: 'not_member' });
-    }
+  if (!await PrivateChatDB.isMember(chatId, client.nickLower)) {
+    return cb({ ok: false, error: 'not_member' });
+  }
 
-    const lim = Math.max(1, Math.min(100, Number(limit) || 50));
-    const before = Number.isFinite(Number(beforeTs)) ? Number(beforeTs) : null;
+  const lim = Math.max(1, Math.min(100, Number(limit) || 50));
+  const before = Number.isFinite(Number(beforeTs)) ? Number(beforeTs) : null;
 
-    const messages = await PrivateChatDB.getMessages(chatId, lim, before);
-    const filtered = messages.filter(m => !m.deletedFor.includes(client.nickLower));
+  const messages = await PrivateChatDB.getMessages(chatId, lim, before);
 
-    cb({
-      ok: true,
-      messages: filtered.map(m => ({ ...m, reactions: getReactions(m.id) })),
-      hasMore: filtered.length >= lim
-    });
+  // DEBUG
+  const rawCountRow = await queryOne(
+    'SELECT COUNT(*) AS c FROM private_messages WHERE chat_id = ?',
+    [chatId]
+  );
+  const rawCount = Number(rawCountRow?.c || 0);
+
+  const filtered = messages.filter(m => !m.deletedFor.includes(client.nickLower));
+
+  console.log('[private-chat-history]', {
+    chatId,
+    user: client.nickLower,
+    rawCount,
+    selected: messages.length,
+    visible: filtered.length,
+    sample: messages[0]?.id || null
   });
+
+  cb({
+    ok: true,
+    messages: filtered.map(m => ({ ...m, reactions: getReactions(m.id) })),
+    hasMore: filtered.length >= lim,
+    _debug: { rawCount, selected: messages.length, visible: filtered.length } // временно
+  });
+});
 
   safeOn('private-message', async ({ chatId, encrypted, iv, type, fileName, fileSize, mimeType, duration, seq, replyTo }, cb) => {
     const client = requireAuthed(cb);
@@ -2517,3 +2535,4 @@ initDB()
     console.error('❌ DB init error:', err);
     process.exit(1);
   });
+
