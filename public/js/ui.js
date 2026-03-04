@@ -6,48 +6,29 @@
 (function injectUIStyles() {
   const style = document.createElement('style');
   style.textContent = `
-  /* Гарантируем правильную структуру лобби на мобильном */
-@media (max-width: 767px) {
-  #screen-lobby {
-    flex-direction: column !important;
-  }
-  .lobby-sidebar {
-    width: 100% !important;
-    flex: 1 !important;
-    min-height: 0 !important;
-    overflow: hidden !important;
-    display: flex !important;
-    flex-direction: column !important;
-  }
-  .lobby-right {
-    display: none !important;
-  }
-  /* Нижняя навигация всегда снизу */
-  #bottom-nav {
-  display: flex;
-  flex-shrink: 0;
-  width: 100%;
-  background: rgba(22, 22, 31, 0.82);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border-top: 1px solid rgba(255,255,255,0.08);
-  padding-bottom: env(safe-area-inset-bottom);
-  box-shadow: 0 -1px 0 rgba(255,255,255,0.04),
-              0 -8px 32px rgba(0,0,0,0.3);
-}
-  /* Список чатов занимает всё пространство */
-  .unified-chat-list,
-  .rooms-list {
-    flex: 1 !important;
-    overflow-y: auto !important;
-    -webkit-overflow-scrolling: touch !important;
-  }
-}
-    /* ════════════════════════════════════════
-       СВЕТЛАЯ ТЕМА — полный набор стилей
-    ════════════════════════════════════════ */
-    [data-theme="light"] body { background: #f0f2f5; }
+    /* Мобильный лобби */
+    @media (max-width: 767px) {
+      #screen-lobby { flex-direction: column !important; }
+      .lobby-sidebar {
+        width: 100% !important;
+        flex: 1 !important;
+        min-height: 0 !important;
+        overflow: hidden !important;
+        display: flex !important;
+        flex-direction: column !important;
+      }
+      .lobby-right { display: none !important; }
+      #bottom-nav { flex-shrink: 0 !important; width: 100% !important; }
+      .unified-chat-list, .rooms-list {
+        flex: 1 !important;
+        min-height: 0 !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+      }
+    }
 
+    /* ════ СВЕТЛАЯ ТЕМА ════ */
+    [data-theme="light"] body { background: #f0f2f5; }
     [data-theme="light"] .room-card,
     [data-theme="light"] .pc-card {
       background: #ffffff;
@@ -56,7 +37,6 @@
     }
     [data-theme="light"] .room-card:active,
     [data-theme="light"] .pc-card:active { background: #f5f6f7; }
-
     [data-theme="light"] .msg.theirs {
       background: #ffffff !important;
       border-color: rgba(0,0,0,0.06) !important;
@@ -69,7 +49,6 @@
     }
     [data-theme="light"] .msg.mine::after  { border-bottom-color: #d9fdd3 !important; }
     [data-theme="light"] .msg.theirs::before { border-bottom-color: #ffffff !important; }
-
     [data-theme="light"] .tg-header {
       background: rgba(240,242,245,0.97) !important;
       border-bottom-color: rgba(0,0,0,0.1) !important;
@@ -93,7 +72,6 @@
     }
     [data-theme="light"] .attach-item { color: #111b21 !important; }
     [data-theme="light"] .attach-item:active { background: #f0f2f5 !important; }
-
     [data-theme="light"] .lobby-header {
       background: #f0f2f5 !important;
       border-bottom-color: rgba(0,0,0,0.1) !important;
@@ -104,10 +82,8 @@
     }
     [data-theme="light"] .lobby-tab { color: #8696a0; }
     [data-theme="light"] .lobby-tab.active { color: #00a884; border-bottom-color: #00a884; }
-
     [data-theme="light"] #lobby-search-bar { background: #f0f2f5 !important; }
     [data-theme="light"] #lobby-search-bar input { background: #ffffff !important; color: #111b21 !important; }
-
     [data-theme="light"] .auth-card {
       background: #ffffff !important;
       border-color: rgba(0,0,0,0.08) !important;
@@ -132,7 +108,6 @@
     }
     [data-theme="light"] .auth-tab { color: #8696a0; }
     [data-theme="light"] .auth-tab.active { color: #00a884; border-bottom-color: #00a884; }
-
     [data-theme="light"] .btn-primary {
       background: linear-gradient(135deg,#00a884,#00856f) !important;
       box-shadow: 0 4px 20px rgba(0,168,132,0.3) !important;
@@ -140,10 +115,7 @@
     [data-theme="light"] #btn-send { background: linear-gradient(135deg,#00a884,#00856f) !important; }
     [data-theme="light"] #btn-create-room { background: linear-gradient(135deg,#00a884,#00856f) !important; }
     [data-theme="light"] .user-search-row button { background: linear-gradient(135deg,#00a884,#00856f) !important; }
-
-    [data-theme="light"] .modal-sheet {
-      background: #ffffff !important;
-    }
+    [data-theme="light"] .modal-sheet { background: #ffffff !important; }
     [data-theme="light"] .drawer-header {
       background: linear-gradient(160deg,#00a884 0%,#00856f 100%) !important;
     }
@@ -152,70 +124,57 @@
     [data-theme="light"] #drawer { background: #ffffff !important; }
     [data-theme="light"] .drawer-item { color: #111b21 !important; }
     [data-theme="light"] .drawer-item:hover { background: rgba(0,168,132,0.08) !important; }
-    [data-theme="light"] .drawer-theme-btn { background: rgba(0,0,0,0.08) !important; border-color: rgba(0,0,0,0.1) !important; color: #3b4a54 !important; }
-
+    [data-theme="light"] .drawer-theme-btn {
+      background: rgba(0,0,0,0.08) !important;
+      border-color: rgba(0,0,0,0.1) !important;
+      color: #3b4a54 !important;
+    }
     [data-theme="light"] .settings-item { color: #111b21 !important; border-bottom-color: rgba(0,0,0,0.08) !important; }
     [data-theme="light"] .settings-item-icon { background: rgba(0,0,0,0.04) !important; }
-
     [data-theme="light"] .date-divider {
       background: rgba(225,221,216,0.9) !important;
       color: #667781 !important;
       border-color: transparent !important;
     }
-
     [data-theme="light"] #participants {
       background: #ffffff !important;
       border-color: rgba(0,0,0,0.06) !important;
     }
-
     [data-theme="light"] .toast {
       background: rgba(255,255,255,0.98) !important;
       color: #111b21 !important;
       box-shadow: 0 8px 32px rgba(0,0,0,0.15) !important;
     }
-
     [data-theme="light"] #bottom-nav {
-      background: #ffffff !important;
-      border-top-color: rgba(0,0,0,0.08) !important;
+      background: rgba(255,255,255,0.85) !important;
+      backdrop-filter: blur(20px) saturate(180%) !important;
+      -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+      border-top: 1px solid rgba(0,0,0,0.08) !important;
       box-shadow: 0 -2px 20px rgba(0,0,0,0.06) !important;
     }
     [data-theme="light"] .bn-item { color: #8696a0; }
     [data-theme="light"] .bn-item.active { color: #00a884; }
     [data-theme="light"] .bn-badge { background: #00a884; }
-
     [data-theme="light"] .chat-list-section-title { color: #667781; }
-
     [data-theme="light"] .room-name { color: #111b21; }
     [data-theme="light"] .room-meta { color: #8696a0; }
-    [data-theme="light"] .room-avatar { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-
     [data-theme="light"] .msg-meta { color: rgba(0,0,0,0.45) !important; }
     [data-theme="light"] .msg-sender { color: #00a884 !important; }
-
     [data-theme="light"] .unified-chat-list,
     [data-theme="light"] .rooms-list { background: #f0f2f5; }
-
     [data-theme="light"] .rooms-empty { color: #8696a0; }
-    [data-theme="light"] .lobby-right { background: #f0f2f5 !important; }
-
     [data-theme="light"] #reconnect-banner { background: rgba(255,59,48,0.1); color: #e05252; }
-
-    [data-theme="light"] .voice-bar { background: transparent; }
     [data-theme="light"] #btn-join { background: linear-gradient(135deg,#00a884,#00856f); }
-    [data-theme="light"] #btn-mic  { background: rgba(0,0,0,0.07); color: #111b21; border-color: rgba(0,0,0,0.1); }
-
+    [data-theme="light"] #btn-mic { background: rgba(0,0,0,0.07); color: #111b21; border-color: rgba(0,0,0,0.1); }
     [data-theme="light"] .friend-item { border-bottom-color: rgba(0,0,0,0.06); }
     [data-theme="light"] .friend-name { color: #111b21; }
     [data-theme="light"] .member-name { color: #111b21; }
     [data-theme="light"] .profile-name { color: #111b21; }
     [data-theme="light"] .modal-title  { color: #111b21; }
-
     [data-theme="light"] .peer-profile-sheet { background: #f0f2f5 !important; }
     [data-theme="light"] .empty-list { color: #8696a0; }
 
-    /* ════════════════════════════════════════
-       СТРОКА ПОИСКА
-    ════════════════════════════════════════ */
+    /* ════ СТРОКА ПОИСКА ════ */
     #lobby-search-bar {
       display: flex; align-items: center;
       padding: 8px 12px 6px;
@@ -232,32 +191,18 @@
     }
     #lobby-search-bar input::placeholder { color: var(--sub); }
 
-    /* ════════════════════════════════════════
-       НИЖНЯЯ НАВИГАЦИЯ — красивая полоска
-       как на скрине 1 (полупрозрачная, размытая)
-    ════════════════════════════════════════ */
+    /* ════ НИЖНЯЯ НАВИГАЦИЯ ════ */
     #bottom-nav {
-      position: sticky;
-      bottom: 0; left: 0; right: 0;
       display: flex;
-      /* Размытый полупрозрачный фон — эффект "стекла" */
-      background: rgba(22, 22, 31, 0.82);
+      flex-shrink: 0;
+      width: 100%;
+      background: rgba(22,22,31,0.85);
       backdrop-filter: blur(20px) saturate(180%);
       -webkit-backdrop-filter: blur(20px) saturate(180%);
       border-top: 1px solid rgba(255,255,255,0.08);
-      z-index: 100;
       padding-bottom: env(safe-area-inset-bottom);
-      /* Мягкая тень сверху */
       box-shadow: 0 -1px 0 rgba(255,255,255,0.04),
                   0 -8px 32px rgba(0,0,0,0.3);
-    }
-    [data-theme="light"] #bottom-nav {
-      background: rgba(255,255,255,0.85) !important;
-      backdrop-filter: blur(20px) saturate(180%) !important;
-      -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
-      border-top: 1px solid rgba(0,0,0,0.08) !important;
-      box-shadow: 0 -1px 0 rgba(0,0,0,0.06),
-                  0 -8px 32px rgba(0,0,0,0.06) !important;
     }
     .bn-item {
       flex: 1; display: flex; flex-direction: column;
@@ -281,13 +226,9 @@
       padding: 1px 5px; min-width: 16px; text-align: center;
     }
 
-    /* ════════════════════════════════════════
-       ПРОГРЕСС ЗАГРУЗКИ ФАЙЛОВ (скрин 10)
-       Красивый, аккуратный
-    ════════════════════════════════════════ */
+    /* ════ ПРОГРЕСС ЗАГРУЗКИ ════ */
     #upload-progress-wrap {
-      margin: 6px 10px;
-      padding: 10px 14px;
+      margin: 6px 10px; padding: 10px 14px;
       background: var(--surface2);
       border-radius: 14px;
       border: 1px solid rgba(124,92,191,0.2);
@@ -297,7 +238,6 @@
     [data-theme="light"] #upload-progress-wrap {
       background: #ffffff;
       border-color: rgba(0,168,132,0.2);
-      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
     }
     @keyframes uploadFadeIn {
       from { opacity: 0; transform: translateY(6px); }
@@ -311,7 +251,6 @@
       background: var(--accent-g);
       display: flex; align-items: center; justify-content: center;
       font-size: 16px; flex-shrink: 0;
-      box-shadow: 0 2px 8px rgba(124,92,191,0.3);
     }
     .upload-progress-info { flex: 1; min-width: 0; }
     .upload-progress-name {
@@ -331,21 +270,12 @@
       background: var(--accent-g);
       border-radius: 4px;
       transition: width 0.2s ease;
-      box-shadow: 0 0 8px rgba(124,92,191,0.5);
     }
     [data-theme="light"] #upload-progress-fill {
       background: linear-gradient(135deg,#00a884,#00856f);
-      box-shadow: 0 0 8px rgba(0,168,132,0.4);
     }
 
-    /* ════════════════════════════════════════
-       LOBBY HEADER — скрываем старый заголовок
-    ════════════════════════════════════════ */
-    .lobby-header .lobby-header-title { display: none !important; }
-
-    /* ════════════════════════════════════════
-       МОБИЛЬНЫЕ УЛУЧШЕНИЯ
-    ════════════════════════════════════════ */
+    /* ════ МОБИЛЬНЫЕ УЛУЧШЕНИЯ ════ */
     @media (max-width: 767px) {
       .tg-header { padding-left: 8px; padding-right: 8px; }
       .tg-input-row { padding: 6px 8px 8px; gap: 6px; }
@@ -356,18 +286,15 @@
       .msg { max-width: 88%; font-size: 14px; }
       .room-card, .pc-card { padding: 10px 12px; }
       .room-avatar { width: 48px; height: 48px; font-size: 20px; }
-      .lobby-header { padding: 10px 12px; }
-      .lobby-header { padding-top: max(10px, env(safe-area-inset-top)); }
+      .lobby-header {
+        padding: 10px 12px;
+        padding-top: max(10px, env(safe-area-inset-top));
+      }
     }
 
-    /* ════════════════════════════════════════
-       ДОПОЛНИТЕЛЬНЫЕ ИСПРАВЛЕНИЯ
-    ════════════════════════════════════════ */
-    /* Скрываем старую вкладочную полосу в лобби-сайдбаре,
-       если нижняя навигация уже есть */
+    .lobby-header .lobby-header-title { display: none !important; }
     .lobby-sidebar { display: flex; flex-direction: column; }
 
-    /* Плавные переходы при смене темы */
     body, .tg-header, .tg-bottom, #bottom-nav,
     .room-card, .pc-card, .msg, .modal-sheet,
     #drawer, .lobby-header, .lobby-tabs,
@@ -608,7 +535,7 @@ function openPrivacySettings() {
           ${privacySelect('📞','Звонки','callsVisibility',p.callsVisibility||'nobody')}
         </div>
         <div style="font-size:11px;color:var(--sub);padding:8px 4px;line-height:1.6">
-          💡 Если «Время захода» = Никто — другие увидят «был(а) недавно» вместо точного времени.
+          💡 Если «Время захода» = Никто — другие увидят «был(а) недавно».
         </div>
         <div style="height:16px"></div>
         <button id="priv-save" style="width:100%;padding:15px;background:var(--accent-g);color:white;border:none;border-radius:var(--radius-sm);font-size:15px;font-weight:700;cursor:pointer">💾 Сохранить</button>
@@ -647,48 +574,104 @@ function privacySelect(icon, label, key, value) {
 
 // ─── ИНИЦИАЛИЗАЦИЯ UI ───
 function initUI() {
-  // Drawer
+  // ── Drawer ──
   document.getElementById('btn-open-drawer')?.addEventListener('click', openDrawer);
   document.getElementById('btn-open-drawer-chat')?.addEventListener('click', openDrawer);
-  document.getElementById('drawer-overlay')?.addEventListener('click', closeDrawer);
-  document.getElementById('drawer-avatar')?.addEventListener('click', () => { closeDrawer(); if (typeof openProfileModal === 'function') openProfileModal(); });
-  document.getElementById('dm-profile')?.addEventListener('click',      () => { closeDrawer(); if (typeof openProfileModal === 'function') openProfileModal(); });
-  document.getElementById('dm-contacts')?.addEventListener('click',     () => { closeDrawer(); if (typeof openContactsModal === 'function') openContactsModal(); });
-  document.getElementById('dm-create-group')?.addEventListener('click', () => { closeDrawer(); if (typeof openCreateRoomModal === 'function') openCreateRoomModal(); });
-  document.getElementById('dm-settings')?.addEventListener('click',     () => { closeDrawer(); document.getElementById('modal-settings')?.classList.add('open'); });
-  document.getElementById('dm-invite')?.addEventListener('click',       () => { closeDrawer(); showToast('🔗 Поделись ссылкой на сайт!', 4000); });
-  document.getElementById('dm-about')?.addEventListener('click',        () => { closeDrawer(); if (typeof openAboutPage === 'function') openAboutPage(); });
-  document.getElementById('btn-open-profile')?.addEventListener('click', () => { if (typeof openProfileModal === 'function') openProfileModal(); });
 
-  // Настройки
+  // Overlay закрывает drawer — но НЕ перехватывает клики по кнопке темы
+  document.getElementById('drawer-overlay')?.addEventListener('click', closeDrawer);
+
+  document.getElementById('drawer-avatar')?.addEventListener('click', () => {
+    closeDrawer();
+    if (typeof openProfileModal === 'function') openProfileModal();
+  });
+  document.getElementById('dm-profile')?.addEventListener('click', () => {
+    closeDrawer();
+    if (typeof openProfileModal === 'function') openProfileModal();
+  });
+  document.getElementById('dm-contacts')?.addEventListener('click', () => {
+    closeDrawer();
+    if (typeof openContactsModal === 'function') openContactsModal();
+  });
+  document.getElementById('dm-create-group')?.addEventListener('click', () => {
+    closeDrawer();
+    if (typeof openCreateRoomModal === 'function') openCreateRoomModal();
+  });
+  document.getElementById('dm-settings')?.addEventListener('click', () => {
+    closeDrawer();
+    document.getElementById('modal-settings')?.classList.add('open');
+  });
+  document.getElementById('dm-invite')?.addEventListener('click', () => {
+    closeDrawer();
+    showToast('🔗 Поделись ссылкой на сайт!', 4000);
+  });
+  document.getElementById('dm-about')?.addEventListener('click', () => {
+    closeDrawer();
+    if (typeof openAboutPage === 'function') openAboutPage();
+  });
+  document.getElementById('btn-open-profile')?.addEventListener('click', () => {
+    if (typeof openProfileModal === 'function') openProfileModal();
+  });
+
+  // ── КНОПКА ТЕМЫ — вешаем ЗДЕСЬ через прямой обработчик ──
+  // Используем mousedown вместо click чтобы сработало ДО того как overlay закроет drawer
+  const themeBtn = document.getElementById('btn-drawer-theme');
+  if (themeBtn) {
+    themeBtn.addEventListener('mousedown', function(e) {
+      e.stopPropagation();
+      e.preventDefault();
+      toggleTheme();
+    });
+    themeBtn.addEventListener('touchstart', function(e) {
+      e.stopPropagation();
+      e.preventDefault();
+      toggleTheme();
+    }, { passive: false });
+  }
+
+  // ── Настройки ──
   document.getElementById('btn-close-settings')?.addEventListener('click', () => {
     if (window._closeModal) window._closeModal(document.getElementById('modal-settings'));
     else document.getElementById('modal-settings')?.classList.remove('open');
   });
-  document.getElementById('settings-go-profile')?.addEventListener('click', () => { document.getElementById('modal-settings')?.classList.remove('open'); if (typeof openProfileModal === 'function') openProfileModal(); });
-  document.getElementById('settings-go-privacy')?.addEventListener('click', () => { document.getElementById('modal-settings')?.classList.remove('open'); openPrivacySettings(); });
-  document.getElementById('settings-go-notifs')?.addEventListener('click',  () => { requestNotifPermission(); showToast('🔔 Уведомления: ' + (Notification.permission === 'granted' ? 'включены' : 'требуется разрешение')); });
+  document.getElementById('settings-go-profile')?.addEventListener('click', () => {
+    document.getElementById('modal-settings')?.classList.remove('open');
+    if (typeof openProfileModal === 'function') openProfileModal();
+  });
+  document.getElementById('settings-go-privacy')?.addEventListener('click', () => {
+    document.getElementById('modal-settings')?.classList.remove('open');
+    openPrivacySettings();
+  });
+  document.getElementById('settings-go-notifs')?.addEventListener('click', () => {
+    requestNotifPermission();
+    showToast('🔔 Уведомления: ' + (Notification.permission === 'granted' ? 'включены' : 'требуется разрешение'));
+  });
   document.getElementById('settings-go-data')?.addEventListener('click',    () => showToast('💾 Кэш очищен'));
   document.getElementById('settings-go-lang')?.addEventListener('click',    () => showToast('🌐 Язык: Русский'));
   document.getElementById('settings-go-chats')?.addEventListener('click',   () => showToast('💬 Раздел в разработке'));
-  document.getElementById('settings-go-about')?.addEventListener('click',   () => { document.getElementById('modal-settings')?.classList.remove('open'); if (typeof openAboutPage === 'function') openAboutPage(); });
-  document.getElementById('settings-go-logout')?.addEventListener('click',  () => { if (typeof doLogout === 'function') doLogout(); });
+  document.getElementById('settings-go-about')?.addEventListener('click',   () => {
+    document.getElementById('modal-settings')?.classList.remove('open');
+    if (typeof openAboutPage === 'function') openAboutPage();
+  });
+  document.getElementById('settings-go-logout')?.addEventListener('click',  () => {
+    if (typeof doLogout === 'function') doLogout();
+  });
 
-  // Уведомления чата
+  // ── Уведомления чата ──
   document.getElementById('btn-notif-settings')?.addEventListener('click', () => {
     const id   = currentChatType === 'private' ? currentChatId : currentRoomId;
     const name = document.getElementById('chat-room-name')?.textContent || '?';
     if (id) openChatNotifSettings(id, name);
   });
 
-  // Кнопка участников
+  // ── Кнопка участников ──
   document.getElementById('btn-room-members')?.addEventListener('click', () => {
     if (currentChatType === 'group' && currentRoomId && typeof openMembersModal === 'function') openMembersModal();
   });
 
-  // Нижняя навигация
+  // ── Нижняя навигация ──
   initBottomNav();
 
-  // Поисковая строка
+  // ── Поисковая строка ──
   initLobbySearchBar();
 }
