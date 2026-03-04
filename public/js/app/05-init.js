@@ -59,26 +59,63 @@ function initEventListeners() {
     if (s) s.style.display = s.style.display === 'none' ? '' : 'none';
   });
 
-  $('btn-reset-password')?.addEventListener('click', () => {
-    const phone = $('reset-phone')?.value.trim() || '';
-    const newPw = $('reset-newpw')?.value || '';
-    if (!phone) { showToast('❌ Введи номер телефона'); return; }
-    if (!newPw || newPw.length < 4) { showToast('❌ Пароль минимум 4 символа'); return; }
+  // OTP reset flow
+$('btn-show-reset')?.addEventListener('click', () => {
+  const s = $('reset-password-section');
+  if (s) s.style.display = s.style.display === 'none' ? '' : 'none';
+});
 
-    socket.emit('auth-reset-password', { phone, newPassword: newPw }, res => {
-      if (res.ok) {
-        showToast('✅ Пароль изменён! Войди с новым паролем', 5000);
-        const s = $('reset-password-section');
-        if (s) s.style.display = 'none';
-      } else {
-        const msgs = {
-          not_found: '❌ Номер не найден',
-          rate_limited: `⛔ Подождите ${res.secsLeft} сек.`
-        };
-        showToast(msgs[res.error] || '⚠️ Ошибка');
-      }
-    });
+$('btn-reset-send-otp')?.addEventListener('click', () => {
+  const phone = $('reset-phone')?.value.trim() || '';
+  if (!phone) { showToast('❌ Введи номер телефона'); return; }
+
+  const btn = $('btn-reset-send-otp');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Отправка…'; }
+
+  socket.emit('auth-reset-start', { phone }, res => {
+    if (btn) { btn.disabled = false; btn.textContent = '📨 Отправить код'; }
+
+    // Анти-энумерация: сервер обычно возвращает ok даже если номер не найден
+    if (res?.ok) showToast('📨 Если номер найден, код отправлен', 4000);
+    else showToast('⚠️ Ошибка отправки кода');
   });
+});
+
+$('btn-reset-confirm')?.addEventListener('click', () => {
+  const phone = $('reset-phone')?.value.trim() || '';
+  const code  = $('reset-otp')?.value.trim() || '';
+  const newPw = $('reset-newpw')?.value || '';
+
+  if (!phone) { showToast('❌ Введи номер телефона'); return; }
+  if (!code)  { showToast('❌ Введи код'); return; }
+  if (!newPw) { showToast('❌ Введи новый пароль'); return; }
+
+  const btn = $('btn-reset-confirm');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Проверка…'; }
+
+  socket.emit('auth-reset-confirm', { phone, code, newPassword: newPw }, res => {
+    if (btn) { btn.disabled = false; btn.textContent = '🔑 Подтвердить сброс'; }
+
+    if (res?.ok) {
+      showToast('✅ Пароль изменён. Войди заново', 5000);
+      const s = $('reset-password-section');
+      if (s) s.style.display = 'none';
+      if ($('reset-otp')) $('reset-otp').value = '';
+      if ($('reset-newpw')) $('reset-newpw').value = '';
+      return;
+    }
+
+    const msgs = {
+      otp_invalid: '❌ Неверный или просроченный код',
+      too_short: '❌ Пароль слишком короткий',
+      need_lower: '❌ Нужна строчная буква',
+      need_upper: '❌ Нужна заглавная буква',
+      need_digit: '❌ Нужна цифра',
+      need_special: '❌ Нужен спецсимвол'
+    };
+    showToast(msgs[res?.error] || '⚠️ Ошибка сброса');
+  });
+});
 
   $('btn-logout')?.addEventListener('click', doLogout);
   $('settings-go-logout')?.addEventListener('click', doLogout);
