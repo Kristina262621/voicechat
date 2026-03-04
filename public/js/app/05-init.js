@@ -13,15 +13,48 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ───────────────────────────────────────────────
+//  HELPERS
+// ───────────────────────────────────────────────
+function validateStrongPasswordClient(pw) {
+  if (typeof pw !== 'string') return 'invalid';
+  if (pw.length < 12) return 'too_short';
+  if (!/[a-z]/.test(pw)) return 'need_lower';
+  if (!/[A-Z]/.test(pw)) return 'need_upper';
+  if (!/[0-9]/.test(pw)) return 'need_digit';
+  if (!/[^A-Za-z0-9]/.test(pw)) return 'need_special';
+  return null;
+}
+
+// ───────────────────────────────────────────────
 //  CONNECT / DISCONNECT
 // ───────────────────────────────────────────────
 socket.on('connect', () => {
   if (reconnectBanner) reconnectBanner.classList.remove('visible');
 
-  if (myNickname) {
-    socket.emit('set-nickname', myNickname, () => {
+  // Важно: при ALLOW_GUEST=false после reconnect нужно заново auth-token.
+  if (authToken) {
+    socket.emit('auth-token', { token: authToken }, res => {
+      if (!res?.ok) {
+        try { localStorage.removeItem('chat_token'); } catch (_) {}
+        authToken = null;
+        myNickname = '';
+        myUsername = '';
+        myAvatar = null;
+        showScreen('auth');
+        return;
+      }
+
+      myNickname = res.nickname;
+      myUsername = res.username || res.nickname.toLowerCase();
+      myAvatar = res.avatar || null;
+      updateLobbyAvatarBtn?.();
+
+      // восстановление текущего контекста
       if (currentRoomId && currentChatType === 'group') joinRoom(currentRoomId, currentPassword);
       if (currentChatId && currentChatType === 'private') socket.emit('private-chat-join', { chatId: currentChatId });
+
+      // обновим TURN
+      if (typeof refreshIceServers === 'function') refreshIceServers().catch(() => {});
     });
   }
 });
@@ -54,68 +87,61 @@ function initEventListeners() {
     });
   });
 
+  // OTP reset flow (без дублей)
   $('btn-show-reset')?.addEventListener('click', () => {
     const s = $('reset-password-section');
     if (s) s.style.display = s.style.display === 'none' ? '' : 'none';
   });
 
-  // OTP reset flow
-$('btn-show-reset')?.addEventListener('click', () => {
-  const s = $('reset-password-section');
-  if (s) s.style.display = s.style.display === 'none' ? '' : 'none';
-});
+  $('btn-reset-send-otp')?.addEventListener('click', () => {
+    const phone = $('reset-phone')?.value.trim() || '';
+    if (!phone) { showToast('❌ Введи номер телефона'); return; }
 
-$('btn-reset-send-otp')?.addEventListener('click', () => {
-  const phone = $('reset-phone')?.value.trim() || '';
-  if (!phone) { showToast('❌ Введи номер телефона'); return; }
+    const btn = $('btn-reset-send-otp');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Отправка…'; }
 
-  const btn = $('btn-reset-send-otp');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Отправка…'; }
-
-  socket.emit('auth-reset-start', { phone }, res => {
-    if (btn) { btn.disabled = false; btn.textContent = '📨 Отправить код'; }
-
-    // Анти-энумерация: сервер обычно возвращает ok даже если номер не найден
-    if (res?.ok) showToast('📨 Если номер найден, код отправлен', 4000);
-    else showToast('⚠️ Ошибка отправки кода');
+    socket.emit('auth-reset-start', { phone }, res => {
+      if (btn) { btn.disabled = false; btn.textContent = '📨 Отправить код'; }
+      if (res?.ok) showToast('📨 Если номер найден, код отправлен', 4000);
+      else showToast('⚠️ Ошибка отправки кода');
+    });
   });
-});
 
-$('btn-reset-confirm')?.addEventListener('click', () => {
-  const phone = $('reset-phone')?.value.trim() || '';
-  const code  = $('reset-otp')?.value.trim() || '';
-  const newPw = $('reset-newpw')?.value || '';
+  $('btn-reset-confirm')?.addEventListener('click', () => {
+    const phone = $('reset-phone')?.value.trim() || '';
+    const code  = $('reset-otp')?.value.trim() || '';
+    const newPw = $('reset-newpw')?.value || '';
 
-  if (!phone) { showToast('❌ Введи номер телефона'); return; }
-  if (!code)  { showToast('❌ Введи код'); return; }
-  if (!newPw) { showToast('❌ Введи новый пароль'); return; }
+    if (!phone) { showToast('❌ Введи номер телефона'); return; }
+    if (!code || code.length < 4) { showToast('❌ Введи корректный код'); return; }
+    if (!newPw) { showToast('❌ Введи новый пароль'); return; }
 
-  const btn = $('btn-reset-confirm');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Проверка…'; }
+    const btn = $('btn-reset-confirm');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Проверка…'; }
 
-  socket.emit('auth-reset-confirm', { phone, code, newPassword: newPw }, res => {
-    if (btn) { btn.disabled = false; btn.textContent = '🔑 Подтвердить сброс'; }
+    socket.emit('auth-reset-confirm', { phone, code, newPassword: newPw }, res => {
+      if (btn) { btn.disabled = false; btn.textContent = '🔑 Подтвердить сброс'; }
 
-    if (res?.ok) {
-      showToast('✅ Пароль изменён. Войди заново', 5000);
-      const s = $('reset-password-section');
-      if (s) s.style.display = 'none';
-      if ($('reset-otp')) $('reset-otp').value = '';
-      if ($('reset-newpw')) $('reset-newpw').value = '';
-      return;
-    }
+      if (res?.ok) {
+        showToast('✅ Пароль изменён. Войди заново', 5000);
+        const s = $('reset-password-section');
+        if (s) s.style.display = 'none';
+        if ($('reset-otp')) $('reset-otp').value = '';
+        if ($('reset-newpw')) $('reset-newpw').value = '';
+        return;
+      }
 
-    const msgs = {
-      otp_invalid: '❌ Неверный или просроченный код',
-      too_short: '❌ Пароль слишком короткий',
-      need_lower: '❌ Нужна строчная буква',
-      need_upper: '❌ Нужна заглавная буква',
-      need_digit: '❌ Нужна цифра',
-      need_special: '❌ Нужен спецсимвол'
-    };
-    showToast(msgs[res?.error] || '⚠️ Ошибка сброса');
+      const msgs = {
+        otp_invalid: '❌ Неверный или просроченный код',
+        too_short: '❌ Пароль слишком короткий',
+        need_lower: '❌ Нужна строчная буква',
+        need_upper: '❌ Нужна заглавная буква',
+        need_digit: '❌ Нужна цифра',
+        need_special: '❌ Нужен спецсимвол'
+      };
+      showToast(msgs[res?.error] || '⚠️ Ошибка сброса');
+    });
   });
-});
 
   $('btn-logout')?.addEventListener('click', doLogout);
   $('settings-go-logout')?.addEventListener('click', doLogout);
@@ -325,7 +351,7 @@ $('btn-reset-confirm')?.addEventListener('click', () => {
         if (ns && currentRoomId) setNotifSetting(currentRoomId, ns.value);
         showToast('✅ Настройки сохранены');
         if (currentRoomData) {
-          currentRoomData.autoDelete = gad?.value === 'never' ? null : parseInt(gad?.value);
+          currentRoomData.autoDelete = gad?.value === 'never' ? null : parseInt(gad?.value, 10);
           currentRoomData.joinMode = gjm?.value || 'open';
         }
       } else showToast('⚠️ Ошибка сохранения');
@@ -503,8 +529,8 @@ $('btn-reset-confirm')?.addEventListener('click', () => {
     if (!file) return;
     if (fi) fi.value = '';
 
-    if (file.size > 100 * 1024 * 1024) {
-      showToast('⚠️ Файл слишком большой. Максимум 100 МБ.');
+    if (file.size > 25 * 1024 * 1024) {
+      showToast('⚠️ Файл слишком большой. Максимум 25 МБ.');
       return;
     }
 
@@ -886,4 +912,85 @@ $('btn-reset-confirm')?.addEventListener('click', () => {
     window.checkUsernameInput = () => checkUsername(input.value);
     input.addEventListener('input', () => checkUsername(input.value));
   })();
+}
+
+// ───────────────────────────────────────────────
+//  AUTH ACTIONS
+// ───────────────────────────────────────────────
+function doLogin() {
+  const nick = loginNick?.value.trim();
+  const pw   = loginPw?.value;
+  if (!nick) { if (loginError) loginError.textContent = 'Введи ник или логин'; return; }
+  if (!pw)   { if (loginError) loginError.textContent = 'Введи пароль'; return; }
+
+  if (btnLogin) { btnLogin.disabled = true; btnLogin.textContent = '⏳'; }
+  socket.emit('auth-login', { nickname: nick, password: pw }, res => {
+    if (btnLogin) { btnLogin.disabled = false; btnLogin.textContent = 'Войти'; }
+    if (res.ok) {
+      authToken  = res.token;
+      myNickname = res.nickname;
+      myUsername = res.username || res.nickname.toLowerCase();
+      myAvatar   = res.avatar || null;
+      try { localStorage.setItem('chat_token', authToken); } catch (_) {}
+      onAuthSuccess();
+    } else {
+      const msgs = {
+        wrong_creds: '❌ Неверный ник/логин или пароль',
+        rate_limited: `⛔ Подождите ${res.secsLeft} сек.`
+      };
+      if (loginError) loginError.textContent = msgs[res.error] || '⚠️ Ошибка входа';
+      if (loginPw) {
+        loginPw.style.animation = 'shake 0.35s';
+        setTimeout(() => { loginPw.style.animation = ''; }, 400);
+      }
+    }
+  });
+}
+
+function doRegister() {
+  const nick     = regNick?.value.trim();
+  const pw       = regPw?.value;
+  const hint     = $('reg-hint')     ? $('reg-hint').value.trim()     : '';
+  const phone    = $('reg-phone')    ? $('reg-phone').value.trim()    : '';
+  const username = $('reg-username') ? $('reg-username').value.trim() : '';
+
+  if (!nick || nick.length < 2) { if (regError) regError.textContent = 'Ник минимум 2 символа'; return; }
+
+  const pErr = validateStrongPasswordClient(pw || '');
+  if (pErr) {
+    const msgs = {
+      too_short: '❌ Пароль: минимум 12 символов',
+      need_lower: '❌ Нужна строчная буква',
+      need_upper: '❌ Нужна заглавная буква',
+      need_digit: '❌ Нужна цифра',
+      need_special: '❌ Нужен спецсимвол'
+    };
+    if (regError) regError.textContent = msgs[pErr] || '❌ Слабый пароль';
+    return;
+  }
+
+  if (btnRegister) { btnRegister.disabled = true; btnRegister.textContent = '⏳'; }
+  socket.emit('auth-register', { nickname: nick, password: pw, hint, phone, username }, res => {
+    if (btnRegister) { btnRegister.disabled = false; btnRegister.textContent = 'Создать аккаунт'; }
+    if (res.ok) {
+      authToken  = res.token;
+      myNickname = res.nickname;
+      myUsername = res.username || res.nickname.toLowerCase();
+      myAvatar   = null;
+      try { localStorage.setItem('chat_token', authToken); } catch (_) {}
+      onAuthSuccess();
+    } else {
+      const msgs = {
+        nick_taken: '❌ Ник занят',
+        username_taken: '❌ Логин занят',
+        nick_short: '❌ Ник слишком короткий',
+        too_short: '❌ Пароль слишком короткий',
+        need_lower: '❌ Нужна строчная буква',
+        need_upper: '❌ Нужна заглавная буква',
+        need_digit: '❌ Нужна цифра',
+        need_special: '❌ Нужен спецсимвол'
+      };
+      if (regError) regError.textContent = msgs[res.error] || '⚠️ Ошибка';
+    }
+  });
 }
