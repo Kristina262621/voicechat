@@ -908,11 +908,18 @@ async function decryptPrivateHistoryText(peerId, encrypted, iv) {
   if (window.E2EESession?.decryptTextFromPeer && peerId) {
     try {
       return await window.E2EESession.decryptTextFromPeer(peerId, encrypted, iv);
-    } catch (_) {
-      // fallback below
-    }
+    } catch (_) {}
   }
   return Crypto.decryptText(encrypted, iv);
+}
+
+async function decryptPrivateHistoryBlob(peerId, encrypted, iv, mime) {
+  if (window.E2EESession?.decryptBlobFromPeer && peerId) {
+    try {
+      return await window.E2EESession.decryptBlobFromPeer(peerId, encrypted, iv, mime);
+    } catch (_) {}
+  }
+  return Crypto.decryptBlob(encrypted, iv, mime || 'application/octet-stream');
 }
 
 async function enterPrivateChat(chatId, withNickname, withAvatar) {
@@ -931,6 +938,7 @@ async function enterPrivateChat(chatId, withNickname, withAvatar) {
   memberCount = 2;
   clearUnread(chatId);
 
+  // legacy derive оставляем для fallback старых сообщений
   try { await Crypto.deriveKey('', chatId, chatId + '-private-v2'); } catch (e) { console.error(e); }
 
   if (chatRoomName) chatRoomName.textContent = withNickname;
@@ -968,39 +976,101 @@ async function loadPrivateChatHistory(chatId) {
         const mine = msg.from === myLower;
         if (msg.deletedFor && msg.deletedFor.includes(myLower)) continue;
 
-        if (msg.type === 'voice') {
-          const domId = appendMessage({
-            id: msg.id, nickname: msg.fromNick, type: 'voice',
-            duration: msg.duration || 0, timestamp: msg.timestamp, mine,
-            status: 'ok', encrypted: msg.encrypted, iv: msg.iv, mimeType: msg.mimeType,
-            msgStatus: mine ? (msg.status || 'sent') : null
-          });
-          if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
-        } else if (msg.type === 'text') {
+        const peerId = msg.from || msg.fromNick || '';
+
+        if (msg.type === 'text') {
           try {
-            const peerId = msg.from || msg.fromNick || '';
             const text = await decryptPrivateHistoryText(peerId, msg.encrypted, msg.iv);
             const domId = appendMessage({
-              id: msg.id, nickname: msg.fromNick, text, type: 'text',
-              timestamp: msg.timestamp, mine, status: 'ok',
+              id: msg.id,
+              nickname: msg.fromNick,
+              text,
+              type: 'text',
+              timestamp: msg.timestamp,
+              mine,
+              status: 'ok',
               msgStatus: mine ? (msg.status || 'sent') : null,
-              edited: msg.edited, replyTo: msg.replyTo || null
+              edited: msg.edited,
+              replyTo: msg.replyTo || null,
+              peerId
             });
             if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
           } catch (_) {
             appendMessage({
-              id: msg.id, nickname: msg.fromNick, text: '[зашифровано]',
-              type: 'text', timestamp: msg.timestamp, mine, status: 'error'
+              id: msg.id,
+              nickname: msg.fromNick,
+              text: '[зашифровано]',
+              type: 'text',
+              timestamp: msg.timestamp,
+              mine,
+              status: 'error',
+              peerId
             });
           }
-        } else {
-          const domId = appendMessage({
-            id: msg.id, nickname: msg.fromNick, type: msg.type,
-            fileName: msg.fileName, fileSize: msg.fileSize, mimeType: msg.mimeType,
-            timestamp: msg.timestamp, mine, status: 'ok',
-            msgStatus: mine ? (msg.status || 'sent') : null
-          });
-          if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
+          continue;
+        }
+
+        if (msg.type === 'voice') {
+          try {
+            const blob = await decryptPrivateHistoryBlob(peerId, msg.encrypted, msg.iv, msg.mimeType || 'audio/webm');
+            const localUrl = URL.createObjectURL(blob);
+            const domId = appendMessage({
+              id: msg.id,
+              nickname: msg.fromNick,
+              type: 'voice',
+              duration: msg.duration || 0,
+              timestamp: msg.timestamp,
+              mine,
+              status: 'ok',
+              localUrl,
+              mimeType: msg.mimeType,
+              msgStatus: mine ? (msg.status || 'sent') : null,
+              peerId
+            });
+            if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
+          } catch (_) {
+            const domId = appendMessage({
+              id: msg.id,
+              nickname: msg.fromNick,
+              type: 'voice',
+              duration: msg.duration || 0,
+              timestamp: msg.timestamp,
+              mine,
+              status: 'error',
+              encrypted: msg.encrypted,
+              iv: msg.iv,
+              mimeType: msg.mimeType,
+              msgStatus: mine ? (msg.status || 'sent') : null,
+              peerId
+            });
+            if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
+          }
+          continue;
+        }
+
+        // image / video / file
+        const domId = appendMessage({
+          id: msg.id,
+          nickname: msg.fromNick,
+          type: msg.type,
+          fileName: msg.fileName,
+          fileSize: msg.fileSize,
+          mimeType: msg.mimeType,
+          timestamp: msg.timestamp,
+          mine,
+          status: 'decrypting',
+          msgStatus: mine ? (msg.status || 'sent') : null,
+          replyTo: msg.replyTo || null,
+          peerId
+        });
+        if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
+
+        try {
+          const mime = msg.mimeType || 'application/octet-stream';
+          const blob = await decryptPrivateHistoryBlob(peerId, msg.encrypted, msg.iv, mime);
+          updateMessage(domId, { localUrl: URL.createObjectURL(blob), status: 'ok' });
+        } catch (_) {
+          updateMessage(domId, { status: 'error' });
         }
       }
 
