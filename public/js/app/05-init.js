@@ -9,6 +9,11 @@ document.addEventListener('DOMContentLoaded', () => {
   if (typeof initUI === 'function') initUI();
 
   initEventListeners();
+
+  // E2EE: проверка модулей и пополнение prekeys при старте
+  checkE2EEModulesSafe();
+  ensureE2EEKeysSafe();
+
   tryAutoLogin();
 });
 
@@ -23,6 +28,22 @@ function validateStrongPasswordClient(pw) {
   if (!/[0-9]/.test(pw)) return 'need_digit';
   if (!/[^A-Za-z0-9]/.test(pw)) return 'need_special';
   return null;
+}
+
+function checkE2EEModulesSafe() {
+  const hasKeys = !!window.E2EEKeys;
+  const hasSession = !!window.E2EESession;
+
+  if (!hasKeys) {
+    console.warn('[E2EE] E2EEKeys missing');
+    if (typeof showToast === 'function') showToast('⚠️ E2EEKeys не загружен');
+  }
+  if (!hasSession) {
+    console.warn('[E2EE] E2EESession missing');
+    if (typeof showToast === 'function') showToast('⚠️ E2EESession не загружен');
+  }
+
+  if (hasKeys && hasSession) console.log('[E2EE] modules ok');
 }
 
 async function ensureE2EEKeysSafe() {
@@ -60,7 +81,8 @@ socket.on('connect', () => {
       myAvatar = res.avatar || null;
       updateLobbyAvatarBtn?.();
 
-      // E2EE: проверим/дозальём prekeys после успешной ре-авторизации
+      // E2EE: проверим модули и дозальём prekeys после успешной ре-авторизации
+      checkE2EEModulesSafe();
       ensureE2EEKeysSafe();
 
       // восстановление текущего контекста
@@ -947,7 +969,8 @@ function doLogin() {
       myAvatar   = res.avatar || null;
       try { localStorage.setItem('chat_token', authToken); } catch (_) {}
 
-      // E2EE: инициализируем/пополняем prekeys сразу после логина
+      // E2EE: проверяем модули и инициализируем/пополняем prekeys после логина
+      checkE2EEModulesSafe();
       ensureE2EEKeysSafe();
 
       onAuthSuccess();
@@ -997,7 +1020,8 @@ function doRegister() {
       myAvatar   = null;
       try { localStorage.setItem('chat_token', authToken); } catch (_) {}
 
-      // E2EE: инициализируем/пополняем prekeys сразу после регистрации
+      // E2EE: проверяем модули и инициализируем/пополняем prekeys после регистрации
+      checkE2EEModulesSafe();
       ensureE2EEKeysSafe();
 
       onAuthSuccess();
