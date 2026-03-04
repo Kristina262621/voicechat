@@ -43,7 +43,7 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .map(s => s.trim())
   .filter(Boolean);
 
-  // ════════════════════════════════════════════
+// ════════════════════════════════════════════
 //  SIGNAL (Postgres store for libsignal public/prekeys)
 // ════════════════════════════════════════════
 let signalPool = null;
@@ -58,12 +58,18 @@ if (PgPool && process.env.DATABASE_URL) {
 
 async function ensureSignalSchema() {
   if (!signalPool || signalSchemaReady) return;
+
   await signalPool.query(`
     CREATE TABLE IF NOT EXISTS signal_device_keys (
       user_id TEXT NOT NULL,
       device_id INTEGER NOT NULL DEFAULT 1,
       registration_id INTEGER NOT NULL,
+
+      -- identity DH (ECDH)
       identity_key_public BYTEA NOT NULL,
+
+      -- identity SIGN (ECDSA) for signedPreKey verification
+      identity_sign_public BYTEA NULL,
 
       signed_prekey_id INTEGER NOT NULL,
       signed_prekey_public BYTEA NOT NULL,
@@ -76,6 +82,10 @@ async function ensureSignalSchema() {
       uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       PRIMARY KEY (user_id, device_id)
     );
+
+    -- upgrade-safe
+    ALTER TABLE signal_device_keys
+      ADD COLUMN IF NOT EXISTS identity_sign_public BYTEA;
 
     CREATE TABLE IF NOT EXISTS signal_one_time_prekeys (
       user_id TEXT NOT NULL,
@@ -93,6 +103,7 @@ async function ensureSignalSchema() {
     CREATE INDEX IF NOT EXISTS idx_signal_prekeys_available
       ON signal_one_time_prekeys (user_id, device_id, is_used);
   `);
+
   signalSchemaReady = true;
 }
 
@@ -147,8 +158,6 @@ app.set('trust proxy', 1);
 //  SECURITY HEADERS
 // ════════════════════════════════════════════
 app.use((req, res, next) => {
-  // NOTE: 'unsafe-inline' в script-src оставлен временно
-  // из-за inline-скриптов в текущем index.html.
   const wsOrigins = ALLOWED_ORIGINS.map(o => o.replace(/^http:/, 'ws:').replace(/^https:/, 'wss:'));
   const connectSrc = ["'self'", ...wsOrigins].join(' ');
 
@@ -244,12 +253,11 @@ function verifyPassword(pw, stored) {
     const calc = nodeCrypto.pbkdf2Sync(pw, salt, 310000, 32, 'sha256').toString('hex');
     return nodeCrypto.timingSafeEqual(Buffer.from(calc, 'hex'), Buffer.from(hash, 'hex'));
   }
-  // fallback для старых записей
   return stored === legacyHashPassword(pw);
 }
 
 // ════════════════════════════════════════════
-//  HINT ENCRYPTION (оставлено как было)
+//  HINT ENCRYPTION
 // ════════════════════════════════════════════
 const HINT_SECRET = 'privchat-hint-encryption-key-v2';
 
@@ -282,7 +290,7 @@ function decryptHint(encrypted) {
 }
 
 // ════════════════════════════════════════════
-//  RATE LIMITING (bruteforce)
+//  RATE LIMITING
 // ════════════════════════════════════════════
 const bruteForceMap = new Map();
 const BRUTE_MAX_ATTEMPTS = 7;
@@ -338,11 +346,10 @@ function sendOtp(phone, code) {
   if (OTP_PROVIDER === 'console') {
     console.log(`[OTP DEV] ${phone}: ${code}`);
   }
-  // здесь подключается SMS/email провайдер
 }
 
 // ════════════════════════════════════════════
-//  HTTP ENDPOINT — INVITE PAGE
+//  INVITE PAGE
 // ════════════════════════════════════════════
 app.get('/invite/:roomId', async (req, res) => {
   try {
@@ -379,7 +386,7 @@ app.get('/invite/:roomId', async (req, res) => {
 });
 
 // ════════════════════════════════════════════
-//  TURN CREDENTIALS (ephemeral)
+//  TURN CREDENTIALS
 // ════════════════════════════════════════════
 app.get('/api/turn-credentials', async (req, res) => {
   try {
@@ -418,27 +425,34 @@ app.get('/api/turn-credentials', async (req, res) => {
 //  SIGNAL HTTP API
 // ════════════════════════════════════════════
 
-// Загрузка публичных ключей устройства + one-time prekeys
+// upload / replace key bundle
 app.post('/api/signal/keys/upload', requireHttpAuth, async (req, res) => {
   try {
-    if (!signalPool) {
-      return res.status(500).json({ ok: false, error: 'signal_db_unavailable' });
-    }
+    if (!signalPool) return res.status(500).json({ ok: false, error: 'signal_db_unavailable' });
     await ensureSignalSchema();
 
     const userId = req.auth.nickLower;
     const {
       deviceId = 1,
       registrationId,
+
+      // new
+      identitySignPublic,
+      identityDhPublic,
+
+      // backward alias
       identityKeyPublic,
+
       signedPreKey,
       kyberPreKey,
       oneTimePreKeys = []
     } = req.body || {};
 
+    const dhPub = identityDhPublic || identityKeyPublic;
+
     if (
       !registrationId ||
-      !identityKeyPublic ||
+      !dhPub ||
       !signedPreKey?.id || !signedPreKey?.publicKey || !signedPreKey?.signature ||
       !kyberPreKey?.id || !kyberPreKey?.publicKey || !kyberPreKey?.signature
     ) {
@@ -454,14 +468,16 @@ app.post('/api/signal/keys/upload', requireHttpAuth, async (req, res) => {
         INSERT INTO signal_device_keys (
           user_id, device_id, registration_id,
           identity_key_public,
+          identity_sign_public,
           signed_prekey_id, signed_prekey_public, signed_prekey_signature,
           kyber_prekey_id, kyber_prekey_public, kyber_prekey_signature,
           uploaded_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now())
         ON CONFLICT (user_id, device_id)
         DO UPDATE SET
           registration_id = EXCLUDED.registration_id,
           identity_key_public = EXCLUDED.identity_key_public,
+          identity_sign_public = EXCLUDED.identity_sign_public,
           signed_prekey_id = EXCLUDED.signed_prekey_id,
           signed_prekey_public = EXCLUDED.signed_prekey_public,
           signed_prekey_signature = EXCLUDED.signed_prekey_signature,
@@ -474,7 +490,8 @@ app.post('/api/signal/keys/upload', requireHttpAuth, async (req, res) => {
           userId,
           Number(deviceId),
           Number(registrationId),
-          b64ToBuf(identityKeyPublic),
+          b64ToBuf(dhPub),
+          identitySignPublic ? b64ToBuf(identitySignPublic) : null,
           Number(signedPreKey.id),
           b64ToBuf(signedPreKey.publicKey),
           b64ToBuf(signedPreKey.signature),
@@ -512,19 +529,18 @@ app.post('/api/signal/keys/upload', requireHttpAuth, async (req, res) => {
   }
 });
 
-// Получить bundle пользователя (и зарезервировать 1 one-time prekey)
+// get peer bundle (+ optionally consume prekey)
 app.get('/api/signal/keys/bundle/:userId', requireHttpAuth, async (req, res) => {
   try {
-    if (!signalPool) {
-      return res.status(500).json({ ok: false, error: 'signal_db_unavailable' });
-    }
+    if (!signalPool) return res.status(500).json({ ok: false, error: 'signal_db_unavailable' });
     await ensureSignalSchema();
 
     const raw = String(req.params.userId || '').trim().toLowerCase();
     const deviceId = Number(req.query.deviceId || 1);
+    const consume = String(req.query.consume || '1') !== '0';
+
     if (!raw) return res.status(400).json({ ok: false, error: 'bad_request' });
 
-    // Разрешаем искать и по username, и по nickLower
     let targetLower = raw;
     let targetUser = await UserDB.get(raw);
     if (!targetUser) {
@@ -546,6 +562,7 @@ app.get('/api/signal/keys/bundle/:userId', requireHttpAuth, async (req, res) => 
         SELECT
           registration_id,
           identity_key_public,
+          identity_sign_public,
           signed_prekey_id,
           signed_prekey_public,
           signed_prekey_signature,
@@ -564,33 +581,51 @@ app.get('/api/signal/keys/bundle/:userId', requireHttpAuth, async (req, res) => 
         return res.status(404).json({ ok: false, error: 'bundle_not_found' });
       }
 
-      const pick = await client.query(
-        `
-        WITH picked AS (
-          SELECT user_id, device_id, prekey_id
+      let one = null;
+
+      if (consume) {
+        const pick = await client.query(
+          `
+          WITH picked AS (
+            SELECT user_id, device_id, prekey_id
+            FROM signal_one_time_prekeys
+            WHERE user_id = $1
+              AND device_id = $2
+              AND is_used = false
+            ORDER BY prekey_id
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+          )
+          UPDATE signal_one_time_prekeys s
+          SET is_used = true, used_at = now()
+          FROM picked
+          WHERE s.user_id = picked.user_id
+            AND s.device_id = picked.device_id
+            AND s.prekey_id = picked.prekey_id
+          RETURNING s.prekey_id, s.prekey_public
+          `,
+          [targetLower, deviceId]
+        );
+        one = pick.rows[0] || null;
+      } else {
+        const peek = await client.query(
+          `
+          SELECT prekey_id, prekey_public
           FROM signal_one_time_prekeys
           WHERE user_id = $1
             AND device_id = $2
             AND is_used = false
           ORDER BY prekey_id
           LIMIT 1
-          FOR UPDATE SKIP LOCKED
-        )
-        UPDATE signal_one_time_prekeys s
-        SET is_used = true, used_at = now()
-        FROM picked
-        WHERE s.user_id = picked.user_id
-          AND s.device_id = picked.device_id
-          AND s.prekey_id = picked.prekey_id
-        RETURNING s.prekey_id, s.prekey_public
-        `,
-        [targetLower, deviceId]
-      );
+          `,
+          [targetLower, deviceId]
+        );
+        one = peek.rows[0] || null;
+      }
 
       await client.query('COMMIT');
 
       const row = dev.rows[0];
-      const one = pick.rows[0] || null;
 
       res.json({
         ok: true,
@@ -598,7 +633,14 @@ app.get('/api/signal/keys/bundle/:userId', requireHttpAuth, async (req, res) => 
           userId: targetLower,
           deviceId,
           registrationId: Number(row.registration_id),
+
+          // new
+          identitySignPublic: bufToB64(row.identity_sign_public),
+          identityDhPublic: bufToB64(row.identity_key_public),
+
+          // backward compat
           identityKeyPublic: bufToB64(row.identity_key_public),
+
           signedPreKey: {
             id: Number(row.signed_prekey_id),
             publicKey: bufToB64(row.signed_prekey_public),
@@ -627,12 +669,10 @@ app.get('/api/signal/keys/bundle/:userId', requireHttpAuth, async (req, res) => 
   }
 });
 
-// Для контроля запаса prekeys у текущего пользователя
+// count available prekeys
 app.get('/api/signal/keys/prekeys/count', requireHttpAuth, async (req, res) => {
   try {
-    if (!signalPool) {
-      return res.status(500).json({ ok: false, error: 'signal_db_unavailable' });
-    }
+    if (!signalPool) return res.status(500).json({ ok: false, error: 'signal_db_unavailable' });
     await ensureSignalSchema();
 
     const userId = req.auth.nickLower;
@@ -689,7 +729,6 @@ const io = new Server(server, {
     origin: (origin, cb) => {
       if (!origin) return cb(null, true);
       if (!ALLOWED_ORIGINS.length) {
-        // Если список пуст, безопаснее закрыть в production
         if (NODE_ENV === 'production') return cb(new Error('CORS blocked'));
         return cb(null, true);
       }
@@ -702,9 +741,9 @@ const io = new Server(server, {
 // ════════════════════════════════════════════
 //  RUNTIME STORE
 // ════════════════════════════════════════════
-const clients = new Map(); // socketId -> { nickname, nickLower, roomId, authed }
-const rooms = new Map();   // roomId   -> room object
-const onlineUsers = new Map(); // nickLower -> Set<socketId>
+const clients = new Map();
+const rooms = new Map();
+const onlineUsers = new Map();
 
 const MAX_STORED_MESSAGES = 200;
 const MAX_ENCRYPTED_B64_LEN = 35 * 1024 * 1024;
@@ -763,7 +802,7 @@ function isOnline(nickLower) {
 // ════════════════════════════════════════════
 //  REACTIONS
 // ════════════════════════════════════════════
-const messageReactions = new Map(); // msgId -> Map<emoji, Set<nickLower>>
+const messageReactions = new Map();
 
 function getReactions(msgId) {
   const map = messageReactions.get(msgId);
@@ -791,7 +830,7 @@ function removeReaction(msgId, emoji, nickLower) {
 }
 
 // ════════════════════════════════════════════
-//  ROOM LIST (personalized)
+//  ROOM LIST
 // ════════════════════════════════════════════
 function getRoomList(nickLower) {
   const list = [];
@@ -871,7 +910,7 @@ async function loadRoomsFromDB() {
     const members = await RoomDB.getMembers(room.id);
     rooms.set(room.id, {
       ...room,
-      members: new Set(), // online sockets only
+      members: new Set(),
       permanentMembers: new Set(members),
       pendingRequests: [],
       emptyTimer: null,
@@ -966,9 +1005,7 @@ io.on('connection', (socket) => {
     if (client) client.roomId = null;
   }
 
-  // ════════════════════════════
-  //  AUTH
-  // ════════════════════════════
+  // AUTH
   safeOn('auth-register', async ({ nickname, password, hint, phone, username }, cb) => {
     const nick = String(nickname || '').trim().slice(0, 32);
     const lower = nick.toLowerCase();
@@ -1042,7 +1079,6 @@ io.on('connection', (socket) => {
       const byUsername = await UserDB.getByUsername(login);
       if (byUsername) {
         user = byUsername;
-        // userLower = username? нужен настоящий nickLower
         const row = await queryOne('SELECT nick_lower FROM users WHERE username = ?', [login]);
         if (row?.nick_lower) userLower = row.nick_lower;
       }
@@ -1053,7 +1089,6 @@ io.on('connection', (socket) => {
       return setTimeout(() => cb({ ok: false, error: 'wrong_creds' }), 700);
     }
 
-    // если зашли по никнейму — userLower должен быть login
     if (!userLower || userLower === login) {
       const row = await queryOne('SELECT nick_lower FROM users WHERE nickname = ? OR nick_lower = ?', [user.nickname, login]);
       if (row?.nick_lower) userLower = row.nick_lower;
@@ -1065,7 +1100,6 @@ io.on('connection', (socket) => {
       return setTimeout(() => cb({ ok: false, error: 'wrong_creds' }), 700);
     }
 
-    // Миграция legacy hash -> pbkdf2$
     if (user.passwordHash && !String(user.passwordHash).startsWith('pbkdf2$')) {
       await UserDB.update(userLower, { passwordHash: hashPassword(password) });
     }
@@ -1082,13 +1116,11 @@ io.on('connection', (socket) => {
 
     setOnline(userLower, socket.id);
 
-    // join user group rooms
     const myRooms = await RoomDB.getUserRooms(userLower);
     for (const roomId of myRooms) {
       if (rooms.has(roomId)) socket.join(roomId);
     }
 
-    // join private rooms
     const privateRows = await PrivateChatDB.getUserChats(userLower);
     for (const row of privateRows) socket.join('pc:' + row.chat_id);
 
@@ -1167,14 +1199,14 @@ io.on('connection', (socket) => {
     const cleanPhone = String(phone || '').trim().slice(0, 20);
     const key = `${clientIp}:reset-start`;
     const bf = checkBruteForce(key);
-    if (bf.blocked) return cb({ ok: true }); // anti-enumeration
+    if (bf.blocked) return cb({ ok: true });
 
     if (!cleanPhone) return cb({ ok: true });
 
     const now = Date.now();
     const existing = otpStore.get(cleanPhone);
     if (existing?.cooldownUntil && now < existing.cooldownUntil) {
-      return cb({ ok: true }); // anti-enumeration
+      return cb({ ok: true });
     }
 
     const row = await queryOne('SELECT nick_lower FROM users WHERE phone = ?', [cleanPhone]);
@@ -1223,14 +1255,11 @@ io.on('connection', (socket) => {
     cb({ ok: true });
   });
 
-  // Legacy reset disabled
   safeOn('auth-reset-password', async (_data, cb) => {
     cb({ ok: false, error: 'use_otp_reset' });
   });
 
-  // ════════════════════════════
-  //  PROFILE / PRIVACY
-  // ════════════════════════════
+  // PROFILE / PRIVACY
   safeOn('profile-get', async (cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
@@ -1351,9 +1380,7 @@ io.on('connection', (socket) => {
     cb && cb({ ok: true, statuses: out });
   });
 
-  // ════════════════════════════
-  //  BLOCK / FRIENDS
-  // ════════════════════════════
+  // BLOCK / FRIENDS
   safeOn('user-block', async ({ nickname }, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
@@ -1444,9 +1471,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  // ════════════════════════════
-  //  PRIVATE CHATS
-  // ════════════════════════════
+  // PRIVATE CHATS
   safeOn('private-chat-open', async ({ withNickname }, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
@@ -1472,7 +1497,6 @@ io.on('connection', (socket) => {
 
     socket.join('pc:' + chatId);
 
-    // Подписываем собеседника
     for (const [sid, cl] of clients.entries()) {
       if (cl.authed && cl.nickLower === realLower) {
         const wsock = io.sockets.sockets.get(sid);
@@ -1647,7 +1671,6 @@ io.on('connection', (socket) => {
     cb({ ok: true });
   });
 
-  // typing private
   socket.on('private-typing-start', ({ chatId }) => {
     const client = clients.get(socket.id);
     if (!client?.authed) return;
@@ -1675,9 +1698,7 @@ io.on('connection', (socket) => {
     cb({ ok: true });
   });
 
-  // ════════════════════════════
-  //  REACTIONS
-  // ════════════════════════════
+  // REACTIONS
   safeOn('add-reaction', async ({ msgId, emoji, chatId, roomId }, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
@@ -1706,9 +1727,7 @@ io.on('connection', (socket) => {
     cb({ ok: true, reactions });
   });
 
-  // ════════════════════════════
-  //  SEARCH (ограничено своими группами + пользователи)
-  // ════════════════════════════
+  // SEARCH
   safeOn('search-chats', async ({ query }, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
@@ -1745,9 +1764,7 @@ io.on('connection', (socket) => {
     cb({ ok: true, rooms: roomsMatched, users: usersMatched });
   });
 
-  // ════════════════════════════
-  //  SET-NICKNAME (guest mode)
-  // ════════════════════════════
+  // GUEST
   socket.on('set-nickname', (nickname, cb) => {
     if (!ALLOW_GUEST) return cb && cb({ ok: false, error: 'guest_disabled' });
 
@@ -1762,9 +1779,7 @@ io.on('connection', (socket) => {
     cb && cb({ ok: true });
   });
 
-  // ════════════════════════════
-  //  ROOMS (GROUP)
-  // ════════════════════════════
+  // ROOMS
   safeOn('create-room', async ({ name, password, photo, autoDelete, joinMode }, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
@@ -1772,7 +1787,6 @@ io.on('connection', (socket) => {
     const roomName = String(name || '').trim().slice(0, 50);
     if (!roomName) return cb({ ok: false, error: 'empty_name' });
 
-    // password optional, но если указан — тоже проверка силы
     let passwordHash = null;
     if (password && String(password).length > 0) {
       const pwErr = validatePassword(String(password));
@@ -1861,7 +1875,6 @@ io.on('connection', (socket) => {
       client.roomId = null;
     }
 
-    // notify owner
     for (const [sid, cl] of clients.entries()) {
       if (cl.authed && cl.nickLower === room.ownerNick) {
         io.to(sid).emit('room-member-left', {
@@ -2179,7 +2192,7 @@ io.on('connection', (socket) => {
     const client = requireAuthed(cb);
     if (!client) return;
 
-    if (!client.roomId) return cb && cb({ ok: false, error: 'no_room' });
+        if (!client.roomId) return cb && cb({ ok: false, error: 'no_room' });
 
     const room = rooms.get(client.roomId);
     if (!room) return cb && cb({ ok: false, error: 'room_not_found' });
