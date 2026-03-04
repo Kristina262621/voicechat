@@ -603,34 +603,58 @@ const RoomDB = {
     return rows.map(r => r.room_id);
   },
 
-  async getMessages(roomId, limit = 200) {
-    let rows;
-    if (USE_PG) {
-      rows = await query(
-        `SELECT m.*,
-          STRING_AGG(DISTINCT d.nick_lower, ',') as deleted_for_list
-         FROM room_messages m
-         LEFT JOIN room_msg_deleted_for d ON d.msg_id = m.msg_id
-         WHERE m.room_id = ? AND m.deleted = 0
-         GROUP BY m.msg_id
-         ORDER BY m.timestamp ASC
-         LIMIT ?`,
-        [roomId, limit]
-      );
-    } else {
-      rows = await query(
-        `SELECT m.*, GROUP_CONCAT(d.nick_lower) as deleted_for_list
-         FROM room_messages m
-         LEFT JOIN room_msg_deleted_for d ON d.msg_id = m.msg_id
-         WHERE m.room_id = ? AND m.deleted = 0
-         GROUP BY m.msg_id
-         ORDER BY m.timestamp ASC
-         LIMIT ?`,
-        [roomId, limit]
-      );
-    }
-    return rows.map(_rowToRoomMsg);
-  },
+  async getMessages(chatId, limit = 50, beforeTs = null) {
+  const lim = Math.max(1, Math.min(100, Number(limit) || 50));
+  const hasBefore = beforeTs !== null && beforeTs !== undefined && Number.isFinite(Number(beforeTs));
+  const beforeNum = hasBefore ? Number(beforeTs) : null;
+
+  let rows;
+  if (USE_PG) {
+    rows = await query(
+      `SELECT
+         m.*,
+         (
+           SELECT STRING_AGG(r.nick_lower, ',')
+           FROM private_msg_read_by r
+           WHERE r.msg_id = m.msg_id
+         ) AS read_by_list,
+         (
+           SELECT STRING_AGG(d.nick_lower, ',')
+           FROM private_msg_deleted_for d
+           WHERE d.msg_id = m.msg_id
+         ) AS deleted_for_list
+       FROM private_messages m
+       WHERE m.chat_id = ?
+         ${hasBefore ? 'AND m.timestamp < ?' : ''}
+       ORDER BY m.timestamp DESC
+       LIMIT ?`,
+      hasBefore ? [chatId, beforeNum, lim] : [chatId, lim]
+    );
+  } else {
+    rows = await query(
+      `SELECT
+         m.*,
+         (
+           SELECT GROUP_CONCAT(r.nick_lower)
+           FROM private_msg_read_by r
+           WHERE r.msg_id = m.msg_id
+         ) AS read_by_list,
+         (
+           SELECT GROUP_CONCAT(d.nick_lower)
+           FROM private_msg_deleted_for d
+           WHERE d.msg_id = m.msg_id
+         ) AS deleted_for_list
+       FROM private_messages m
+       WHERE m.chat_id = ?
+         ${hasBefore ? 'AND m.timestamp < ?' : ''}
+       ORDER BY m.timestamp DESC
+       LIMIT ?`,
+      hasBefore ? [chatId, beforeNum, lim] : [chatId, lim]
+    );
+  }
+
+  return rows.reverse().map(_rowToPrivateMsg);
+},
 
   async saveMessage(msg) {
     await query(
