@@ -12,7 +12,7 @@ try {
   PgPool = null;
 }
 
-const { UserDB, TokenDB, RoomDB, PrivateChatDB, initDB, queryOne } = require('./database');
+const { UserDB, TokenDB, RoomDB, PrivateChatDB, initDB, query, queryOne } = require('./database');
 
 const app = express();
 
@@ -1538,7 +1538,6 @@ io.on('connection', (socket) => {
     cb({ ok: true, chats: list });
   });
 
-  // ✅ PAGINATED PRIVATE HISTORY
   safeOn('private-chat-history', async ({ chatId, limit, beforeTs }, cb) => {
   const client = requireAuthed(cb);
   if (!client) return;
@@ -1548,16 +1547,62 @@ io.on('connection', (socket) => {
   }
 
   const lim = Math.max(1, Math.min(100, Number(limit) || 50));
-
-  // ✅ ВАЖНО: null/undefined не превращаем в 0
   const hasBefore = beforeTs !== null && beforeTs !== undefined && beforeTs !== '' && Number.isFinite(Number(beforeTs));
   const before = hasBefore ? Number(beforeTs) : null;
 
-  const messages = await PrivateChatDB.getMessages(chatId, lim, before);
+  // 🔒 Читаем напрямую из private_messages (обход проблемы getMessages)
+  const baseRows = await query(
+    `SELECT *
+     FROM private_messages
+     WHERE chat_id = ?
+       ${hasBefore ? 'AND timestamp < ?' : ''}
+     ORDER BY timestamp DESC
+     LIMIT ?`,
+    hasBefore ? [chatId, before, lim] : [chatId, lim]
+  );
+
+  // В хронологический порядок
+  baseRows.reverse();
+
+  const messages = [];
+  for (const r of baseRows) {
+    const readRows = await query(
+      `SELECT nick_lower FROM private_msg_read_by WHERE msg_id = ?`,
+      [r.msg_id]
+    );
+    const delRows = await query(
+      `SELECT nick_lower FROM private_msg_deleted_for WHERE msg_id = ?`,
+      [r.msg_id]
+    );
+
+    messages.push({
+      id: r.msg_id,
+      chatId: r.chat_id,
+      from: r.from_lower,
+      fromNick: r.from_nick,
+      fromAvatar: r.from_avatar || null,
+      encrypted: r.encrypted || null,
+      iv: r.iv || null,
+      type: r.type || 'text',
+      fileName: r.file_name || null,
+      fileSize: r.file_size ? Number(r.file_size) : null,
+      mimeType: r.mime_type || null,
+      duration: Number(r.duration) || 0,
+      seq: Number(r.seq) || 0,
+      status: r.status || 'sent',
+      edited: !!Number(r.edited),
+      timestamp: Number(r.timestamp),
+      readBy: readRows.map(x => x.nick_lower),
+      deletedFor: delRows.map(x => x.nick_lower)
+    });
+  }
+
   const filtered = messages.filter(m => !m.deletedFor.includes(client.nickLower));
 
-  // можно оставить на время диагностики
-  const rawCountRow = await queryOne('SELECT COUNT(*) AS c FROM private_messages WHERE chat_id = ?', [chatId]);
+  const rawCountRow = await queryOne(
+    'SELECT COUNT(*) AS c FROM private_messages WHERE chat_id = ?',
+    [chatId]
+  );
   const rawCount = Number(rawCountRow?.c || 0);
 
   cb({
@@ -1567,235 +1612,6 @@ io.on('connection', (socket) => {
     _debug: { rawCount, selected: messages.length, visible: filtered.length }
   });
 });
-
-  safeOn('private-message', async ({ chatId, encrypted, iv, type, fileName, fileSize, mimeType, duration, seq, replyTo }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
-
-    if (!await PrivateChatDB.isMember(chatId, client.nickLower)) {
-      return cb({ ok: false, error: 'not_member' });
-    }
-
-    const v = validateMessagePayload({ type, encrypted, fileSize, mimeType });
-    if (!v.ok) return cb({ ok: false, error: v.error });
-
-    const user = await UserDB.get(client.nickLower);
-    const msgId = generateMsgId();
-
-    const msg = {
-      id: msgId,
-      chatId,
-      from: client.nickLower,
-      fromNick: client.nickname,
-      fromAvatar: user?.avatar || null,
-      encrypted,
-      iv,
-      type: type || 'text',
-      fileName: fileName || null,
-      fileSize: fileSize || null,
-      mimeType: mimeType || null,
-      duration: duration || 0,
-      seq,
-      status: 'sent',
-      timestamp: Date.now(),
-      replyTo: replyTo || null
-    };
-
-    await PrivateChatDB.saveMessage(msg);
-
-    socket.to('pc:' + chatId).emit('private-message', { ...msg, reactions: {} });
-
-    const chat = await PrivateChatDB.get(chatId);
-    if (chat) {
-      const otherLower = chat.member1 === client.nickLower ? chat.member2 : chat.member1;
-      for (const [sid, cl] of clients.entries()) {
-        if (cl.authed && cl.nickLower === otherLower) {
-          const wsock = io.sockets.sockets.get(sid);
-          if (wsock && !wsock.rooms.has('pc:' + chatId)) wsock.join('pc:' + chatId);
-          io.to(sid).emit('msg-delivered', { chatId, msgId });
-        }
-      }
-    }
-
-    cb({ ok: true, msgId, timestamp: msg.timestamp });
-  });
-
-  safeOn('private-msg-read', async ({ chatId, msgId }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
-
-    if (!await PrivateChatDB.isMember(chatId, client.nickLower)) return cb && cb({ ok: false, error: 'not_member' });
-
-    if (!await PrivateChatDB.isReadBy(msgId, client.nickLower)) {
-      await PrivateChatDB.markRead(msgId, client.nickLower);
-      const msg = await PrivateChatDB.getMessage(msgId);
-      if (msg) {
-        for (const [sid, cl] of clients.entries()) {
-          if (cl.nickLower === msg.from) io.to(sid).emit('msg-read', { chatId, msgId, byNick: client.nickLower });
-        }
-      }
-    }
-
-    cb && cb({ ok: true });
-  });
-
-  safeOn('private-msg-delete', async ({ chatId, msgId, deleteFor }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
-
-    if (!await PrivateChatDB.isMember(chatId, client.nickLower)) return cb({ ok: false, error: 'not_member' });
-
-    const msg = await PrivateChatDB.getMessage(msgId);
-    if (!msg) return cb({ ok: false, error: 'not_found' });
-
-    if (deleteFor === 'all') {
-      if (msg.from !== client.nickLower) return cb({ ok: false, error: 'not_yours' });
-      await PrivateChatDB.deleteMessage(msgId);
-      messageReactions.delete(msgId);
-      io.to('pc:' + chatId).emit('private-msg-deleted', { chatId, msgId, deleteFor: 'all' });
-    } else {
-      await PrivateChatDB.addDeletedFor(msgId, client.nickLower);
-      socket.emit('private-msg-deleted', { chatId, msgId, deleteFor: 'me' });
-    }
-
-    cb({ ok: true });
-  });
-
-  safeOn('private-msg-edit', async ({ chatId, msgId, newEncrypted, newIv }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
-
-    if (!await PrivateChatDB.isMember(chatId, client.nickLower)) return cb({ ok: false, error: 'not_member' });
-
-    const msg = await PrivateChatDB.getMessage(msgId);
-    if (!msg) return cb({ ok: false, error: 'not_found' });
-    if (msg.from !== client.nickLower) return cb({ ok: false, error: 'not_yours' });
-    if (msg.type !== 'text') return cb({ ok: false, error: 'not_text' });
-
-    if (!newEncrypted || String(newEncrypted).length > MAX_ENCRYPTED_B64_LEN) {
-      return cb({ ok: false, error: 'payload_too_large' });
-    }
-
-    await PrivateChatDB.editMessage(msgId, newEncrypted, newIv);
-    io.to('pc:' + chatId).emit('private-msg-edited', {
-      chatId,
-      msgId,
-      newEncrypted,
-      newIv,
-      editedAt: Date.now()
-    });
-
-    cb({ ok: true });
-  });
-
-  socket.on('private-typing-start', ({ chatId }) => {
-    const client = clients.get(socket.id);
-    if (!client?.authed) return;
-    socket.to('pc:' + chatId).emit('private-typing-start', {
-      chatId,
-      fromNick: client.nickname,
-      fromLower: client.nickLower
-    });
-  });
-
-  socket.on('private-typing-stop', ({ chatId }) => {
-    const client = clients.get(socket.id);
-    if (!client?.authed) return;
-    socket.to('pc:' + chatId).emit('private-typing-stop', {
-      chatId,
-      fromLower: client.nickLower
-    });
-  });
-
-  safeOn('private-chat-join', async ({ chatId }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
-    if (!await PrivateChatDB.isMember(chatId, client.nickLower)) return cb({ ok: false, error: 'not_member' });
-    socket.join('pc:' + chatId);
-    cb({ ok: true });
-  });
-
-  // REACTIONS
-  safeOn('add-reaction', async ({ msgId, emoji, chatId, roomId }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
-    if (!msgId || !emoji || String(emoji).length > 8) return cb({ ok: false, error: 'invalid_emoji' });
-
-    addReaction(msgId, String(emoji), client.nickLower);
-    const reactions = getReactions(msgId);
-
-    if (chatId) io.to('pc:' + chatId).emit('reaction-updated', { msgId, reactions, chatId });
-    else if (roomId) io.to(roomId).emit('reaction-updated', { msgId, reactions, roomId });
-
-    cb({ ok: true, reactions });
-  });
-
-  safeOn('remove-reaction', async ({ msgId, emoji, chatId, roomId }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
-    if (!msgId || !emoji) return cb({ ok: false, error: 'invalid' });
-
-    removeReaction(msgId, String(emoji), client.nickLower);
-    const reactions = getReactions(msgId);
-
-    if (chatId) io.to('pc:' + chatId).emit('reaction-updated', { msgId, reactions, chatId });
-    else if (roomId) io.to(roomId).emit('reaction-updated', { msgId, reactions, roomId });
-
-    cb({ ok: true, reactions });
-  });
-
-  // SEARCH
-  safeOn('search-chats', async ({ query }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
-
-    const q = String(query || '').trim().toLowerCase();
-    if (!q) return cb({ ok: true, rooms: [], users: [] });
-
-    const roomsMatched = [...rooms.values()]
-      .filter(r => (r.permanentMembers?.has(client.nickLower) || r.ownerNick === client.nickLower))
-      .filter(r => r.name.toLowerCase().includes(q))
-      .slice(0, 10)
-      .map(r => ({
-        id: r.id,
-        name: r.name,
-        photo: r.photo || null,
-        memberCount: r.members.size,
-        hasPassword: !!r.passwordHash,
-        joinMode: r.joinMode || 'open'
-      }));
-
-    const usersSeen = new Set();
-    const usersMatched = [];
-    for (const [, cl] of clients.entries()) {
-      if (!cl.authed) continue;
-      if (cl.nickLower === client.nickLower) continue;
-      if (usersSeen.has(cl.nickLower)) continue;
-      if (cl.nickname.toLowerCase().includes(q)) {
-        usersSeen.add(cl.nickLower);
-        usersMatched.push({ nickname: cl.nickname, lower: cl.nickLower });
-      }
-      if (usersMatched.length >= 10) break;
-    }
-
-    cb({ ok: true, rooms: roomsMatched, users: usersMatched });
-  });
-
-  // GUEST
-  socket.on('set-nickname', (nickname, cb) => {
-    if (!ALLOW_GUEST) return cb && cb({ ok: false, error: 'guest_disabled' });
-
-    const client = clients.get(socket.id);
-    const nick = String(nickname || '').trim().slice(0, 32);
-    if (!nick) return cb && cb({ ok: false, error: 'empty' });
-
-    client.nickname = nick;
-    client.nickLower = nick.toLowerCase();
-    client.authed = false;
-
-    cb && cb({ ok: true });
-  });
-
   // ROOMS
   safeOn('create-room', async ({ name, password, photo, autoDelete, joinMode }, cb) => {
     const client = requireAuthed(cb);
@@ -2525,5 +2341,6 @@ initDB()
     console.error('❌ DB init error:', err);
     process.exit(1);
   });
+
 
 
