@@ -10,6 +10,7 @@
   <meta name="theme-color" content="#0a0a0f">
   <link rel="manifest" href="/manifest.json">
   <link rel="apple-touch-icon" href="/icon.png">
+  <link rel="icon" href="/icon.png">
   <title>Приватный чат</title>
   <style>
     *, *::before, *::after {
@@ -374,7 +375,6 @@
   flex:1; overflow-y:auto;
   padding:4px 8px 8px;
   -webkit-overflow-scrolling:touch;
-  /* Важно — список скроллится, а не растягивает контейнер */
   min-height:0;
 }
 .chat-list-section-title {
@@ -1511,48 +1511,50 @@
             <label class="field-label">Пароль</label>
             <div class="field-input-wrap">
               <input class="field-input pw" type="password" id="login-pw"
-                     placeholder="Пароль…" maxlength="64"
+                     placeholder="Пароль…" maxlength="128"
                      autocomplete="current-password"/>
               <button class="pw-eye" data-for="login-pw" type="button">👁</button>
             </div>
           </div>
           <div class="auth-error" id="login-error"></div>
           <button class="btn-primary" id="btn-login">Войти</button>
+
           <div class="hint-recover">
-            <div class="hint-recover">
-  <button id="btn-show-hint" type="button">💡 Подсказка к паролю</button>
-  <button id="btn-show-reset" type="button">📱 Сброс по коду (OTP)</button>
-</div>
+            <button id="btn-show-hint" type="button">💡 Подсказка к паролю</button>
+            <button id="btn-show-reset" type="button">📱 Сброс по коду (OTP)</button>
+          </div>
 
-<div id="reset-password-section" style="display:none" class="reset-section">
-  <div class="reset-section-title">Сброс пароля через одноразовый код</div>
+          <div id="reset-password-section" style="display:none" class="reset-section">
+            <div class="reset-section-title">Сброс пароля через одноразовый код</div>
 
-  <div class="field-group" style="margin-bottom:10px">
-    <input class="field-input" type="tel" id="reset-phone"
-           placeholder="Номер телефона (+7…)" maxlength="20" />
-  </div>
+            <div class="field-group" style="margin-bottom:10px">
+              <input class="field-input" type="tel" id="reset-phone"
+                     placeholder="Номер телефона (+7…)" maxlength="20" autocomplete="tel" />
+            </div>
 
-  <div style="display:flex;gap:8px;margin-bottom:10px">
-    <button class="btn-primary" id="btn-reset-send-otp"
-            style="font-size:14px;padding:12px;flex:1">📨 Отправить код</button>
-  </div>
+            <div style="display:flex;gap:8px;margin-bottom:10px">
+              <button class="btn-primary" id="btn-reset-send-otp"
+                      style="font-size:14px;padding:12px;flex:1">📨 Отправить код</button>
+            </div>
 
-  <div class="field-group" style="margin-bottom:10px">
-    <input class="field-input" type="text" id="reset-otp"
-           placeholder="Код из SMS / email" maxlength="6" inputmode="numeric" />
-  </div>
+            <div class="field-group" style="margin-bottom:10px">
+              <input class="field-input" type="text" id="reset-otp"
+                     placeholder="Код из SMS / email" maxlength="6" inputmode="numeric" autocomplete="one-time-code" />
+            </div>
 
-  <div class="field-group" style="margin-bottom:10px">
-    <div class="field-input-wrap">
-      <input class="field-input pw" type="password" id="reset-newpw"
-             placeholder="Новый пароль (мин. 12, A-z, 0-9, спецсимвол)" maxlength="128" />
-      <button class="pw-eye" data-for="reset-newpw" type="button">👁</button>
-    </div>
-  </div>
+            <div class="field-group" style="margin-bottom:10px">
+              <div class="field-input-wrap">
+                <input class="field-input pw" type="password" id="reset-newpw"
+                       placeholder="Новый пароль (мин. 12, A-z, 0-9, спецсимвол)" maxlength="128" autocomplete="new-password" />
+                <button class="pw-eye" data-for="reset-newpw" type="button">👁</button>
+              </div>
+            </div>
 
-  <button class="btn-primary" id="btn-reset-confirm"
-          style="font-size:14px;padding:12px">🔑 Подтвердить сброс</button>
-</div>
+            <button class="btn-primary" id="btn-reset-confirm"
+                    style="font-size:14px;padding:12px">🔑 Подтвердить сброс</button>
+          </div>
+        </div>
+
         <!-- РЕГИСТРАЦИЯ -->
         <div id="form-register" style="display:none">
           <div class="field-group">
@@ -1580,7 +1582,7 @@
             <label class="field-label">Пароль</label>
             <div class="field-input-wrap">
               <input class="field-input pw" id="reg-pw" type="password"
-                     placeholder="Минимум 4 символа…" maxlength="64"
+                     placeholder="Минимум 12 символов…" maxlength="128"
                      autocomplete="new-password"/>
               <button class="pw-eye" data-for="reg-pw" type="button">👁</button>
             </div>
@@ -1592,7 +1594,7 @@
             </label>
             <div class="field-input-wrap">
               <input class="field-input" type="tel" id="reg-phone"
-                     placeholder="+7 900 000 00 00 (необязательно)" maxlength="20"/>
+                     placeholder="+7 900 000 00 00 (необязательно)" maxlength="20" autocomplete="tel"/>
             </div>
             <div class="hint-text">🔒 Только для восстановления пароля. Не виден другим.</div>
           </div>
@@ -1619,34 +1621,24 @@
 <div id="screen-lobby" class="screen">
   <div class="lobby-sidebar">
 
-    <!-- ХЕДЕР: бургер + аватар + кнопка + (надписи "Чаты" НЕТ) -->
+    <!-- ХЕДЕР -->
     <div class="lobby-header">
       <button class="lobby-menu-btn" id="btn-open-drawer">☰</button>
-      <!-- lobby-header-title скрыт через CSS -->
       <div class="lobby-header-title">Чаты</div>
       <div style="flex:1"></div>
       <button class="lobby-avatar-btn" id="btn-open-profile">👤</button>
       <button id="btn-create-room" title="Новый чат">＋</button>
     </div>
 
-    <!-- СТРОКА ПОИСКА (добавится через js/ui.js автоматически) -->
-    <!-- #lobby-search-bar вставляется JavaScript'ом -->
-
-    <!-- ВКЛАДКИ -->
     <div class="lobby-tabs">
       <button class="lobby-tab active" id="lobby-tab-all">Все чаты</button>
       <button class="lobby-tab" id="lobby-tab-groups">Группы</button>
       <button class="lobby-tab" id="lobby-tab-private">Личные</button>
     </div>
 
-    <!-- СПИСКИ -->
     <div class="unified-chat-list" id="unified-list"></div>
     <div class="rooms-list"  id="rooms-list"   style="display:none"></div>
     <div class="rooms-list"  id="private-list" style="display:none"></div>
-
-    <!-- НИЖНЯЯ НАВИГАЦИЯ (добавится через js/ui.js автоматически) -->
-    <!-- #bottom-nav вставляется JavaScript'ом -->
-
   </div>
   <div class="lobby-right">
     <div class="lobby-right-icon">💬</div>
@@ -1654,7 +1646,7 @@
   </div>
 </div>
 
-<!-- ═══ МОДАЛКИ (все без изменений) ═══ -->
+<!-- ═══ МОДАЛКИ ═══ -->
 
 <!-- Создание группы -->
 <div class="modal-overlay" id="modal-create-room">
@@ -1674,7 +1666,7 @@
     <div class="field-wrap">
       <div class="field-label">Пароль (необязательно)</div>
       <div class="pw-row">
-        <input type="password" id="create-room-pw" placeholder="Без пароля — открытая" maxlength="64"/>
+        <input type="password" id="create-room-pw" placeholder="Без пароля — открытая" maxlength="128"/>
         <button class="pw-toggle" id="btn-toggle-create-pw" type="button">👁</button>
       </div>
     </div>
@@ -1711,7 +1703,7 @@
     </div>
     <div class="field-wrap">
       <div class="pw-row">
-        <input type="password" id="room-pw-input" placeholder="Пароль группы…" maxlength="64"/>
+        <input type="password" id="room-pw-input" placeholder="Пароль группы…" maxlength="128"/>
         <button class="pw-toggle" id="btn-toggle-room-pw" type="button">👁</button>
       </div>
     </div>
@@ -1744,7 +1736,7 @@
     </div>
     <div class="field-wrap">
       <div class="field-label">Номер телефона</div>
-      <input type="tel" id="profile-edit-phone" placeholder="+7 900 000 00 00" maxlength="20"/>
+      <input type="tel" id="profile-edit-phone" placeholder="+7 900 000 00 00" maxlength="20" autocomplete="tel"/>
       <div style="font-size:11px;color:var(--sub);margin-top:5px">🔒 Виден только тебе</div>
     </div>
     <button class="btn-primary" id="btn-save-profile" style="margin-bottom:12px">💾 Сохранить</button>
@@ -1980,7 +1972,7 @@
             <span class="attach-item-icon">🎬</span>Видео
           </button>
           <button class="attach-item" id="btn-file">
-            <span class="attach-item-icon">📎</span>Файл (до 100 МБ)
+            <span class="attach-item-icon">📎</span>Файл (до 25 МБ)
           </button>
         </div>
         <button class="btn-attach-tg" id="btn-attach-toggle">📎</button>
@@ -2074,21 +2066,16 @@
 <script src="/socket.io/socket.io.js"></script>
 <script src="editor.js"></script>
 
-<!-- НОВЫЕ ФАЙЛЫ (загружаем ДО app.js) -->
 <script src="js/core.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/status.js"></script>
 <script src="js/invitelink.js"></script>
-
-<!-- Основной файл (загружаем ПОСЛЕДНИМ) -->
 <script src="app.js"></script>
 
 <script>
 // ─── Инициализация после загрузки ───
 document.addEventListener('DOMContentLoaded', () => {
-  // Применяем тему
   if (typeof applyTheme === 'function') applyTheme(currentTheme);
-  // Инициализируем UI (нижняя навигация, поиск)
   if (typeof initUI === 'function') initUI();
 });
 
@@ -2248,7 +2235,3 @@ document.getElementById('btn-room-members')?.addEventListener('click', () => {
 </script>
 </body>
 </html>
-
-
-
-
