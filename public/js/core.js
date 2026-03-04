@@ -63,7 +63,7 @@ function applyTheme(theme) {
     root.style.setProperty('--orange',    '#e08a3c');
   }
 
-  // Обновляем иконку кнопки
+  // Обновляем иконки всех кнопок темы
   document.querySelectorAll('#btn-drawer-theme, .theme-toggle-btn').forEach(btn => {
     btn.textContent = theme === 'dark' ? '☀️' : '🌙';
     btn.title = theme === 'dark' ? 'Светлая тема' : 'Тёмная тема';
@@ -77,17 +77,9 @@ function toggleTheme() {
   applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
 }
 
-// Применяем сразу при загрузке скрипта
+// Применяем сразу
 applyTheme(currentTheme);
 
-// Делегирование на document — работает всегда, независимо от порядка рендера
-document.addEventListener('click', function(e) {
-  const btn = e.target.closest('#btn-drawer-theme, .theme-toggle-btn');
-  if (btn) {
-    e.stopPropagation();
-    toggleTheme();
-  }
-});
 // ─── УТИЛИТЫ ───
 function escapeHtml(str) {
   return String(str)
