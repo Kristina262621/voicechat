@@ -24,13 +24,17 @@
   }
   /* Нижняя навигация всегда снизу */
   #bottom-nav {
-    flex-shrink: 0 !important;
-    width: 100% !important;
-    position: sticky !important;
-    bottom: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-  }
+  display: flex;
+  flex-shrink: 0;
+  width: 100%;
+  background: rgba(22, 22, 31, 0.82);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-top: 1px solid rgba(255,255,255,0.08);
+  padding-bottom: env(safe-area-inset-bottom);
+  box-shadow: 0 -1px 0 rgba(255,255,255,0.04),
+              0 -8px 32px rgba(0,0,0,0.3);
+}
   /* Список чатов занимает всё пространство */
   .unified-chat-list,
   .rooms-list {
