@@ -1548,33 +1548,23 @@ io.on('connection', (socket) => {
   }
 
   const lim = Math.max(1, Math.min(100, Number(limit) || 50));
-  const before = Number.isFinite(Number(beforeTs)) ? Number(beforeTs) : null;
+
+  // ✅ ВАЖНО: null/undefined не превращаем в 0
+  const hasBefore = beforeTs !== null && beforeTs !== undefined && beforeTs !== '' && Number.isFinite(Number(beforeTs));
+  const before = hasBefore ? Number(beforeTs) : null;
 
   const messages = await PrivateChatDB.getMessages(chatId, lim, before);
-
-  // DEBUG
-  const rawCountRow = await queryOne(
-    'SELECT COUNT(*) AS c FROM private_messages WHERE chat_id = ?',
-    [chatId]
-  );
-  const rawCount = Number(rawCountRow?.c || 0);
-
   const filtered = messages.filter(m => !m.deletedFor.includes(client.nickLower));
 
-  console.log('[private-chat-history]', {
-    chatId,
-    user: client.nickLower,
-    rawCount,
-    selected: messages.length,
-    visible: filtered.length,
-    sample: messages[0]?.id || null
-  });
+  // можно оставить на время диагностики
+  const rawCountRow = await queryOne('SELECT COUNT(*) AS c FROM private_messages WHERE chat_id = ?', [chatId]);
+  const rawCount = Number(rawCountRow?.c || 0);
 
   cb({
     ok: true,
     messages: filtered.map(m => ({ ...m, reactions: getReactions(m.id) })),
     hasMore: filtered.length >= lim,
-    _debug: { rawCount, selected: messages.length, visible: filtered.length } // временно
+    _debug: { rawCount, selected: messages.length, visible: filtered.length }
   });
 });
 
@@ -2535,4 +2525,5 @@ initDB()
     console.error('❌ DB init error:', err);
     process.exit(1);
   });
+
 
