@@ -1547,10 +1547,14 @@ io.on('connection', (socket) => {
   }
 
   const lim = Math.max(1, Math.min(100, Number(limit) || 50));
-  const hasBefore = beforeTs !== null && beforeTs !== undefined && beforeTs !== '' && Number.isFinite(Number(beforeTs));
+  const hasBefore =
+    beforeTs !== null &&
+    beforeTs !== undefined &&
+    beforeTs !== '' &&
+    Number.isFinite(Number(beforeTs));
   const before = hasBefore ? Number(beforeTs) : null;
 
-  // 🔒 Читаем напрямую из private_messages (обход проблемы getMessages)
+  // 1) Сообщения (новые -> старые)
   const baseRows = await query(
     `SELECT *
      FROM private_messages
@@ -1561,55 +1565,69 @@ io.on('connection', (socket) => {
     hasBefore ? [chatId, before, lim] : [chatId, lim]
   );
 
-  // В хронологический порядок
-  baseRows.reverse();
-
-  const messages = [];
-  for (const r of baseRows) {
-    const readRows = await query(
-      `SELECT nick_lower FROM private_msg_read_by WHERE msg_id = ?`,
-      [r.msg_id]
-    );
-    const delRows = await query(
-      `SELECT nick_lower FROM private_msg_deleted_for WHERE msg_id = ?`,
-      [r.msg_id]
-    );
-
-    messages.push({
-      id: r.msg_id,
-      chatId: r.chat_id,
-      from: r.from_lower,
-      fromNick: r.from_nick,
-      fromAvatar: r.from_avatar || null,
-      encrypted: r.encrypted || null,
-      iv: r.iv || null,
-      type: r.type || 'text',
-      fileName: r.file_name || null,
-      fileSize: r.file_size ? Number(r.file_size) : null,
-      mimeType: r.mime_type || null,
-      duration: Number(r.duration) || 0,
-      seq: Number(r.seq) || 0,
-      status: r.status || 'sent',
-      edited: !!Number(r.edited),
-      timestamp: Number(r.timestamp),
-      readBy: readRows.map(x => x.nick_lower),
-      deletedFor: delRows.map(x => x.nick_lower)
-    });
+  if (!baseRows.length) {
+    return cb({ ok: true, messages: [], hasMore: false });
   }
 
-  const filtered = messages.filter(m => !m.deletedFor.includes(client.nickLower));
+  const msgIds = baseRows.map(r => r.msg_id);
 
-  const rawCountRow = await queryOne(
-    'SELECT COUNT(*) AS c FROM private_messages WHERE chat_id = ?',
-    [chatId]
+  // 2) read_by по всем msg_id
+  const readRows = await query(
+    `SELECT msg_id, nick_lower
+     FROM private_msg_read_by
+     WHERE msg_id IN (${msgIds.map(() => '?').join(',')})`,
+    msgIds
   );
-  const rawCount = Number(rawCountRow?.c || 0);
+
+  // 3) deleted_for по всем msg_id
+  const delRows = await query(
+    `SELECT msg_id, nick_lower
+     FROM private_msg_deleted_for
+     WHERE msg_id IN (${msgIds.map(() => '?').join(',')})`,
+    msgIds
+  );
+
+  // Индексы
+  const readMap = new Map();
+  for (const r of readRows) {
+    if (!readMap.has(r.msg_id)) readMap.set(r.msg_id, []);
+    readMap.get(r.msg_id).push(r.nick_lower);
+  }
+
+  const delMap = new Map();
+  for (const r of delRows) {
+    if (!delMap.has(r.msg_id)) delMap.set(r.msg_id, []);
+    delMap.get(r.msg_id).push(r.nick_lower);
+  }
+
+  // Собираем в хронологическом порядке: старые -> новые
+  const messages = baseRows.reverse().map(r => ({
+    id: r.msg_id,
+    chatId: r.chat_id,
+    from: r.from_lower,
+    fromNick: r.from_nick,
+    fromAvatar: r.from_avatar || null,
+    encrypted: r.encrypted || null,
+    iv: r.iv || null,
+    type: r.type || 'text',
+    fileName: r.file_name || null,
+    fileSize: r.file_size ? Number(r.file_size) : null,
+    mimeType: r.mime_type || null,
+    duration: Number(r.duration) || 0,
+    seq: Number(r.seq) || 0,
+    status: r.status || 'sent',
+    edited: !!Number(r.edited),
+    timestamp: Number(r.timestamp),
+    readBy: readMap.get(r.msg_id) || [],
+    deletedFor: delMap.get(r.msg_id) || []
+  }));
+
+  const filtered = messages.filter(m => !m.deletedFor.includes(client.nickLower));
 
   cb({
     ok: true,
     messages: filtered.map(m => ({ ...m, reactions: getReactions(m.id) })),
-    hasMore: filtered.length >= lim,
-    _debug: { rawCount, selected: messages.length, visible: filtered.length }
+    hasMore: filtered.length >= lim
   });
 });
   // ROOMS
@@ -2341,6 +2359,7 @@ initDB()
     console.error('❌ DB init error:', err);
     process.exit(1);
   });
+
 
 
 
