@@ -45,9 +45,7 @@
   }
 
   async function verifySignedPreKey(bundle) {
-    // если бек ещё не отдаёт identitySignPublic — мягкий fallback
     if (!bundle.identitySignPublic) return true;
-
     const verifyKey = await importEcdsaSpkiPublic(bundle.identitySignPublic);
     const ok = await crypto.subtle.verify(
       { name: 'ECDSA', hash: 'SHA-256' },
@@ -88,7 +86,6 @@
   }
 
   async function deriveOutboundKey(peerId) {
-    // my identityDh.private + peer signedPre.public
     const peerBundle = await fetchBundle(peerId, 0);
     await verifySignedPreKey(peerBundle);
 
@@ -105,7 +102,6 @@
   }
 
   async function deriveInboundKey(peerId) {
-    // my signedPre.private + peer identityDh.public
     const peerBundle = await fetchBundle(peerId, 0);
 
     const mySignedPriv = await window.E2EEKeys.dbGet('signedPre.private');
@@ -137,29 +133,22 @@
     const s = await ensurePeer(peerId);
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const pt = te.encode(String(text));
-
     const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, s.outboundKey, pt);
-    return {
-      encrypted: bytesToB64(new Uint8Array(ct)),
-      iv: bytesToB64(iv)
-    };
+    return { encrypted: bytesToB64(new Uint8Array(ct)), iv: bytesToB64(iv) };
   }
 
   async function decryptTextFromPeer(peerId, encryptedB64, ivB64) {
     const s = await ensurePeer(peerId);
     const iv = b64ToBytes(ivB64);
     const ct = b64ToBytes(encryptedB64);
-
     const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, s.inboundKey, ct);
     return td.decode(pt);
   }
 
-  // NEW: decrypt own history using outboundKey
   async function decryptOwnTextForPeer(peerId, encryptedB64, ivB64) {
     const s = await ensurePeer(peerId);
     const iv = b64ToBytes(ivB64);
     const ct = b64ToBytes(encryptedB64);
-
     const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, s.outboundKey, ct);
     return td.decode(pt);
   }
@@ -168,29 +157,22 @@
     const s = await ensurePeer(peerId);
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const pt = toBytes(bytesLike);
-
     const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, s.outboundKey, pt);
-    return {
-      encrypted: bytesToB64(new Uint8Array(ct)),
-      iv: bytesToB64(iv)
-    };
+    return { encrypted: bytesToB64(new Uint8Array(ct)), iv: bytesToB64(iv) };
   }
 
   async function decryptBytesFromPeer(peerId, encryptedB64, ivB64) {
     const s = await ensurePeer(peerId);
     const iv = b64ToBytes(ivB64);
     const ct = b64ToBytes(encryptedB64);
-
     const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, s.inboundKey, ct);
     return new Uint8Array(pt);
   }
 
-  // NEW: decrypt own history bytes using outboundKey
   async function decryptOwnBytesForPeer(peerId, encryptedB64, ivB64) {
     const s = await ensurePeer(peerId);
     const iv = b64ToBytes(ivB64);
     const ct = b64ToBytes(encryptedB64);
-
     const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, s.outboundKey, ct);
     return new Uint8Array(pt);
   }
@@ -200,7 +182,6 @@
     return new Blob([bytes], { type: mimeType || 'application/octet-stream' });
   }
 
-  // NEW: decrypt own history blob using outboundKey
   async function decryptOwnBlobForPeer(peerId, encryptedB64, ivB64, mimeType) {
     const bytes = await decryptOwnBytesForPeer(peerId, encryptedB64, ivB64);
     return new Blob([bytes], { type: mimeType || 'application/octet-stream' });
