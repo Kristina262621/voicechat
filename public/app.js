@@ -64,7 +64,6 @@ let dialToneInterval = null;
 
 // ─── Pending join ───
 let pendingJoinRoomMode = 'open';
-let roomPhotoData       = null;
 
 // ─── Typing ───
 let privateChatTypingTimer = null;
