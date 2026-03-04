@@ -2,7 +2,7 @@
 (() => {
   const te = new TextEncoder();
   const td = new TextDecoder();
-  const cache = new Map(); // peer -> { outboundKey, inboundKey }
+  const cache = new Map(); // peerId -> { outboundKey, inboundKey }
 
   function b64ToBytes(b64) {
     const s = atob(b64);
@@ -17,16 +17,11 @@
     return btoa(s);
   }
 
-  async function fetchBundle(peerId, consume = 0) {
-    const token = localStorage.getItem('chat_token');
-    if (!token) throw new Error('chat_token missing');
-
-    const r = await fetch(`/api/signal/keys/bundle/${encodeURIComponent(peerId)}?consume=${consume}`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    const j = await r.json();
-    if (!r.ok || !j?.ok || !j?.bundle) throw new Error(j?.error || 'bundle_fetch_failed');
-    return j.bundle;
+  function toBytes(data) {
+    if (data instanceof Uint8Array) return data;
+    if (data instanceof ArrayBuffer) return new Uint8Array(data);
+    if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    throw new TypeError('Unsupported data type for toBytes');
   }
 
   async function importEcdhRawPublic(rawB64) {
@@ -50,7 +45,9 @@
   }
 
   async function verifySignedPreKey(bundle) {
-    if (!bundle.identitySignPublic) return; // backward compatibility
+    // если бек ещё не отдаёт identitySignPublic — мягкий fallback
+    if (!bundle.identitySignPublic) return true;
+
     const verifyKey = await importEcdsaSpkiPublic(bundle.identitySignPublic);
     const ok = await crypto.subtle.verify(
       { name: 'ECDSA', hash: 'SHA-256' },
@@ -59,6 +56,7 @@
       b64ToBytes(bundle.signedPreKey.publicKey)
     );
     if (!ok) throw new Error('signed_prekey_invalid_signature');
+    return true;
   }
 
   async function hkdfAes(sharedBits) {
@@ -77,17 +75,29 @@
     );
   }
 
+  async function fetchBundle(peerId, consume = 0) {
+    const token = localStorage.getItem('chat_token');
+    if (!token) throw new Error('chat_token_missing');
+
+    const r = await fetch(`/api/signal/keys/bundle/${encodeURIComponent(peerId)}?consume=${consume}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const j = await r.json();
+    if (!r.ok || !j?.ok || !j?.bundle) throw new Error(j?.error || 'bundle_fetch_failed');
+    return j.bundle;
+  }
+
   async function deriveOutboundKey(peerId) {
     // my identityDh.private + peer signedPre.public
     const peerBundle = await fetchBundle(peerId, 0);
     await verifySignedPreKey(peerBundle);
 
     const myIdentityDhPriv = await window.E2EEKeys.dbGet('identityDh.private');
-    if (!myIdentityDhPriv) throw new Error('identityDh.private not found');
+    if (!myIdentityDhPriv) throw new Error('identityDh.private_missing');
 
-    const peerSignedPrePub = await importEcdhRawPublic(peerBundle.signedPreKey.publicKey);
+    const peerSignedPub = await importEcdhRawPublic(peerBundle.signedPreKey.publicKey);
     const bits = await crypto.subtle.deriveBits(
-      { name: 'ECDH', public: peerSignedPrePub },
+      { name: 'ECDH', public: peerSignedPub },
       myIdentityDhPriv,
       256
     );
@@ -98,16 +108,16 @@
     // my signedPre.private + peer identityDh.public
     const peerBundle = await fetchBundle(peerId, 0);
 
-    const mySignedPrePriv = await window.E2EEKeys.dbGet('signedPre.private');
-    if (!mySignedPrePriv) throw new Error('signedPre.private not found');
+    const mySignedPriv = await window.E2EEKeys.dbGet('signedPre.private');
+    if (!mySignedPriv) throw new Error('signedPre.private_missing');
 
     const peerIdentityDh = peerBundle.identityDhPublic || peerBundle.identityKeyPublic;
-    if (!peerIdentityDh) throw new Error('peer identityDh missing');
+    if (!peerIdentityDh) throw new Error('peer_identityDh_missing');
 
-    const peerIdentityDhPub = await importEcdhRawPublic(peerIdentityDh);
+    const peerIdentityPub = await importEcdhRawPublic(peerIdentityDh);
     const bits = await crypto.subtle.deriveBits(
-      { name: 'ECDH', public: peerIdentityDhPub },
-      mySignedPrePriv,
+      { name: 'ECDH', public: peerIdentityPub },
+      mySignedPriv,
       256
     );
     return hkdfAes(bits);
@@ -127,8 +137,8 @@
     const s = await ensurePeer(peerId);
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const pt = te.encode(String(text));
-    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, s.outboundKey, pt);
 
+    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, s.outboundKey, pt);
     return {
       encrypted: bytesToB64(new Uint8Array(ct)),
       iv: bytesToB64(iv)
@@ -139,8 +149,35 @@
     const s = await ensurePeer(peerId);
     const iv = b64ToBytes(ivB64);
     const ct = b64ToBytes(encryptedB64);
+
     const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, s.inboundKey, ct);
     return td.decode(pt);
+  }
+
+  async function encryptBytesForPeer(peerId, bytesLike) {
+    const s = await ensurePeer(peerId);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const pt = toBytes(bytesLike);
+
+    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, s.outboundKey, pt);
+    return {
+      encrypted: bytesToB64(new Uint8Array(ct)),
+      iv: bytesToB64(iv)
+    };
+  }
+
+  async function decryptBytesFromPeer(peerId, encryptedB64, ivB64) {
+    const s = await ensurePeer(peerId);
+    const iv = b64ToBytes(ivB64);
+    const ct = b64ToBytes(encryptedB64);
+
+    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, s.inboundKey, ct);
+    return new Uint8Array(pt);
+  }
+
+  async function decryptBlobFromPeer(peerId, encryptedB64, ivB64, mimeType) {
+    const bytes = await decryptBytesFromPeer(peerId, encryptedB64, ivB64);
+    return new Blob([bytes], { type: mimeType || 'application/octet-stream' });
   }
 
   function clearPeer(peerId) {
@@ -150,6 +187,9 @@
   window.E2EESession = {
     encryptTextForPeer,
     decryptTextFromPeer,
+    encryptBytesForPeer,
+    decryptBytesFromPeer,
+    decryptBlobFromPeer,
     clearPeer
   };
 })();
