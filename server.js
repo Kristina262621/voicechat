@@ -778,94 +778,31 @@ function validateMessagePayload(data) {
   return { ok: true };
 }
 
-// ════════════════════════════════════════════
-//  ONLINE STATUS
-// ════════════════════════════════════════════
-safeOn('private-message', async (payload, cb) => {
-  const client = requireAuthed(cb);
-  if (!client) return;
+// ONLINE STATUS HELPERS
+function isOnline(nickLower) {
+  return onlineUsers.has(nickLower);
+}
 
-  try {
-    const {
-      chatId,
-      encrypted,
-      iv,
-      type = 'text',
-      fileName = null,
-      fileSize = null,
-      mimeType = null,
-      duration = 0,
-      seq = 0,
-      replyTo = null
-    } = payload || {};
+function setOnline(nickLower, socketId) {
+  const wasOnline = onlineUsers.has(nickLower);
+  onlineUsers.set(nickLower, socketId);
+  if (!wasOnline) io.emit('user-online', nickLower);
+}
 
-    if (!chatId || !encrypted || !iv) {
-      return cb?.({ ok: false, error: 'bad_payload' });
+function setOffline(nickLower, socketId) {
+  const current = onlineUsers.get(nickLower);
+  if (current && current !== socketId) return;
+
+  for (const [sid, c] of clients.entries()) {
+    if (sid !== socketId && c?.authed && c?.nickLower === nickLower) {
+      onlineUsers.set(nickLower, sid);
+      return;
     }
-
-    const isMember = await PrivateChatDB.isMember(chatId, client.nickLower);
-    if (!isMember) return cb?.({ ok: false, error: 'not_member' });
-
-    const chat = await PrivateChatDB.get(chatId);
-    if (!chat) return cb?.({ ok: false, error: 'chat_not_found' });
-
-    const fromUser = await UserDB.get(client.nickLower);
-    const peerLower = chat.member1 === client.nickLower ? chat.member2 : chat.member1;
-
-    const { randomUUID } = require('crypto');
-    const msgId = randomUUID();
-    const timestamp = Date.now();
-
-    const msg = {
-      id: msgId,
-      chatId,
-      from: client.nickLower,
-      fromNick: fromUser?.nickname || client.nickLower,
-      fromAvatar: fromUser?.avatar || null,
-      encrypted,
-      iv,
-      type,
-      fileName,
-      fileSize,
-      mimeType,
-      duration: Number(duration) || 0,
-      seq: Number(seq) || 0,
-      status: 'sent',
-      edited: false,
-      timestamp,
-      replyTo
-    };
-
-    await PrivateChatDB.saveMessage(msg);
-    await PrivateChatDB.markRead(msgId, client.nickLower); // у отправителя "прочитано"
-
-    // ACK в callback
-    cb?.({ ok: true, msgId, timestamp });
-
-    // ACK для клиентского seq -> msgId
-    io.to(client.id).emit('chat-msg-id', { chatId, seq: Number(seq) || 0, msgId });
-
-    const out = {
-      ...msg,
-      readBy: [client.nickLower],
-      deletedFor: [],
-      reactions: getReactions(msgId)
-    };
-
-    // себе (чтобы UI обновил статус)
-    io.to(client.id).emit('private-message', out);
-
-    // собеседнику
-    const peerSocketId = onlineUsers.get(peerLower); // <-- адаптируй имя мапы при необходимости
-    if (peerSocketId) {
-      io.to(peerSocketId).emit('private-message', out);
-      io.to(client.id).emit('msg-delivered', { chatId, msgId });
-    }
-  } catch (e) {
-    console.error('[private-message] error:', e);
-    cb?.({ ok: false, error: 'server_error' });
   }
-});
+
+  const existed = onlineUsers.delete(nickLower);
+  if (existed) io.emit('user-offline', nickLower);
+}
 
 // ════════════════════════════════════════════
 //  REACTIONS
@@ -1606,44 +1543,146 @@ io.on('connection', (socket) => {
     cb({ ok: true, chats: list });
   });
 
+  safeOn('private-message', async (payload, cb) => {
+    const client = requireAuthed(cb);
+    if (!client) return;
+
+    try {
+      const {
+        chatId,
+        encrypted,
+        iv,
+        type = 'text',
+        fileName = null,
+        fileSize = null,
+        mimeType = null,
+        duration = 0,
+        seq = 0,
+        replyTo = null
+      } = payload || {};
+
+      if (!chatId || !encrypted || !iv) {
+        return cb?.({ ok: false, error: 'bad_payload' });
+      }
+
+      const v = validateMessagePayload({ encrypted, type, fileSize, mimeType });
+      if (!v.ok) return cb?.({ ok: false, error: v.error });
+
+      const isMember = await PrivateChatDB.isMember(chatId, client.nickLower);
+      if (!isMember) return cb?.({ ok: false, error: 'not_member' });
+
+      const chat = await PrivateChatDB.get(chatId);
+      if (!chat) return cb?.({ ok: false, error: 'chat_not_found' });
+
+      const fromUser = await UserDB.get(client.nickLower);
+      const peerLower = chat.member1 === client.nickLower ? chat.member2 : chat.member1;
+
+      const msgId = generateMsgId();
+      const timestamp = Date.now();
+
+      const msg = {
+        id: msgId,
+        chatId,
+        from: client.nickLower,
+        fromNick: fromUser?.nickname || client.nickname || client.nickLower,
+        fromAvatar: fromUser?.avatar || null,
+        encrypted,
+        iv,
+        type,
+        fileName,
+        fileSize,
+        mimeType,
+        duration: Number(duration) || 0,
+        seq: Number(seq) || 0,
+        status: 'sent',
+        edited: false,
+        timestamp,
+        replyTo
+      };
+
+      await PrivateChatDB.saveMessage(msg);
+      await PrivateChatDB.markRead(msgId, client.nickLower);
+
+      cb?.({ ok: true, msgId, timestamp });
+      socket.emit('chat-msg-id', { chatId, seq: Number(seq) || 0, msgId });
+
+      const out = {
+        ...msg,
+        readBy: [client.nickLower],
+        deletedFor: [],
+        reactions: getReactions(msgId)
+      };
+
+      io.to('pc:' + chatId).emit('private-message', out);
+
+      if (isOnline(peerLower)) {
+        socket.emit('msg-delivered', { chatId, msgId });
+      }
+    } catch (e) {
+      console.error('[private-message] error:', e);
+      cb?.({ ok: false, error: 'server_error' });
+    }
+  });
+
   safeOn('private-chat-history', async ({ chatId, limit, beforeTs }, cb) => {
-  const client = requireAuthed(cb);
-  if (!client) return;
+    const client = requireAuthed(cb);
+    if (!client) return;
 
-  if (!await PrivateChatDB.isMember(chatId, client.nickLower)) {
-    return cb({ ok: false, error: 'not_member' });
-  }
+    if (!await PrivateChatDB.isMember(chatId, client.nickLower)) {
+      return cb({ ok: false, error: 'not_member' });
+    }
 
-  const lim = Math.max(1, Math.min(100, Number(limit) || 50));
-  const hasBefore = beforeTs !== null && beforeTs !== undefined && beforeTs !== '' && Number.isFinite(Number(beforeTs));
-  const before = hasBefore ? Number(beforeTs) : null;
+    const lim = Math.max(1, Math.min(100, Number(limit) || 50));
+    const hasBefore =
+      beforeTs !== null &&
+      beforeTs !== undefined &&
+      beforeTs !== '' &&
+      Number.isFinite(Number(beforeTs));
+    const before = hasBefore ? Number(beforeTs) : null;
 
-  // 🔒 Читаем напрямую из private_messages (обход проблемы getMessages)
-  const baseRows = await query(
-    `SELECT *
-     FROM private_messages
-     WHERE chat_id = ?
-       ${hasBefore ? 'AND timestamp < ?' : ''}
-     ORDER BY timestamp DESC
-     LIMIT ?`,
-    hasBefore ? [chatId, before, lim] : [chatId, lim]
-  );
+    const baseRows = await query(
+      `SELECT *
+       FROM private_messages
+       WHERE chat_id = ?
+         ${hasBefore ? 'AND timestamp < ?' : ''}
+       ORDER BY timestamp DESC
+       LIMIT ?`,
+      hasBefore ? [chatId, before, lim] : [chatId, lim]
+    );
 
-  // В хронологический порядок
-  baseRows.reverse();
+    if (!baseRows.length) {
+      return cb({ ok: true, messages: [], hasMore: false });
+    }
 
-  const messages = [];
-  for (const r of baseRows) {
+    const msgIds = baseRows.map(r => r.msg_id);
+
     const readRows = await query(
-      `SELECT nick_lower FROM private_msg_read_by WHERE msg_id = ?`,
-      [r.msg_id]
-    );
-    const delRows = await query(
-      `SELECT nick_lower FROM private_msg_deleted_for WHERE msg_id = ?`,
-      [r.msg_id]
+      `SELECT msg_id, nick_lower
+       FROM private_msg_read_by
+       WHERE msg_id IN (${msgIds.map(() => '?').join(',')})`,
+      msgIds
     );
 
-    messages.push({
+    const delRows = await query(
+      `SELECT msg_id, nick_lower
+       FROM private_msg_deleted_for
+       WHERE msg_id IN (${msgIds.map(() => '?').join(',')})`,
+      msgIds
+    );
+
+    const readMap = new Map();
+    for (const r of readRows) {
+      if (!readMap.has(r.msg_id)) readMap.set(r.msg_id, []);
+      readMap.get(r.msg_id).push(r.nick_lower);
+    }
+
+    const delMap = new Map();
+    for (const r of delRows) {
+      if (!delMap.has(r.msg_id)) delMap.set(r.msg_id, []);
+      delMap.get(r.msg_id).push(r.nick_lower);
+    }
+
+    const messages = baseRows.reverse().map(r => ({
       id: r.msg_id,
       chatId: r.chat_id,
       from: r.from_lower,
@@ -1660,26 +1699,19 @@ io.on('connection', (socket) => {
       status: r.status || 'sent',
       edited: !!Number(r.edited),
       timestamp: Number(r.timestamp),
-      readBy: readRows.map(x => x.nick_lower),
-      deletedFor: delRows.map(x => x.nick_lower)
+      readBy: readMap.get(r.msg_id) || [],
+      deletedFor: delMap.get(r.msg_id) || []
+    }));
+
+    const filtered = messages.filter(m => !m.deletedFor.includes(client.nickLower));
+
+    cb({
+      ok: true,
+      messages: filtered.map(m => ({ ...m, reactions: getReactions(m.id) })),
+      hasMore: filtered.length >= lim
     });
-  }
-
-  const filtered = messages.filter(m => !m.deletedFor.includes(client.nickLower));
-
-  const rawCountRow = await queryOne(
-    'SELECT COUNT(*) AS c FROM private_messages WHERE chat_id = ?',
-    [chatId]
-  );
-  const rawCount = Number(rawCountRow?.c || 0);
-
-  cb({
-    ok: true,
-    messages: filtered.map(m => ({ ...m, reactions: getReactions(m.id) })),
-    hasMore: filtered.length >= lim,
-    _debug: { rawCount, selected: messages.length, visible: filtered.length }
   });
-});
+
   // ROOMS
   safeOn('create-room', async ({ name, password, photo, autoDelete, joinMode }, cb) => {
     const client = requireAuthed(cb);
@@ -2409,9 +2441,3 @@ initDB()
     console.error('❌ DB init error:', err);
     process.exit(1);
   });
-
-
-
-
-
-
