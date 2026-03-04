@@ -904,6 +904,17 @@ function stopPrivateTyping() {
     socket.emit('private-typing-stop', { chatId: currentChatId });
 }
 
+async function decryptPrivateHistoryText(peerId, encrypted, iv) {
+  if (window.E2EESession?.decryptTextFromPeer && peerId) {
+    try {
+      return await window.E2EESession.decryptTextFromPeer(peerId, encrypted, iv);
+    } catch (_) {
+      // fallback below
+    }
+  }
+  return Crypto.decryptText(encrypted, iv);
+}
+
 async function enterPrivateChat(chatId, withNickname, withAvatar) {
   if (currentRoomId) {
     socket.emit('leave-room');
@@ -967,7 +978,8 @@ async function loadPrivateChatHistory(chatId) {
           if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
         } else if (msg.type === 'text') {
           try {
-            const text = await Crypto.decryptText(msg.encrypted, msg.iv);
+            const peerId = msg.from || msg.fromNick || '';
+            const text = await decryptPrivateHistoryText(peerId, msg.encrypted, msg.iv);
             const domId = appendMessage({
               id: msg.id, nickname: msg.fromNick, text, type: 'text',
               timestamp: msg.timestamp, mine, status: 'ok',
