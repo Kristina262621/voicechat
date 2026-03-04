@@ -708,7 +708,7 @@ const PrivateChatDB = {
     return chat.member1 === nickLower || chat.member2 === nickLower;
   },
 
-  // ✅ Пагинация: limit + beforeTs
+  // ✅ Пагинация: стабильная выборка (без GROUP BY на LEFT JOIN)
   async getMessages(chatId, limit = 50, beforeTs = null) {
     const lim = Math.max(1, Math.min(100, Number(limit) || 50));
     const hasBefore = Number.isFinite(Number(beforeTs));
@@ -716,30 +716,42 @@ const PrivateChatDB = {
     let rows;
     if (USE_PG) {
       rows = await query(
-        `SELECT m.*,
-          STRING_AGG(DISTINCT r.nick_lower, ',') as read_by_list,
-          STRING_AGG(DISTINCT d.nick_lower, ',') as deleted_for_list
+        `SELECT
+           m.*,
+           (
+             SELECT STRING_AGG(r.nick_lower, ',')
+             FROM private_msg_read_by r
+             WHERE r.msg_id = m.msg_id
+           ) AS read_by_list,
+           (
+             SELECT STRING_AGG(d.nick_lower, ',')
+             FROM private_msg_deleted_for d
+             WHERE d.msg_id = m.msg_id
+           ) AS deleted_for_list
          FROM private_messages m
-         LEFT JOIN private_msg_read_by     r ON r.msg_id = m.msg_id
-         LEFT JOIN private_msg_deleted_for d ON d.msg_id = m.msg_id
          WHERE m.chat_id = ?
            ${hasBefore ? 'AND m.timestamp < ?' : ''}
-         GROUP BY m.msg_id
          ORDER BY m.timestamp DESC
          LIMIT ?`,
         hasBefore ? [chatId, Number(beforeTs), lim] : [chatId, lim]
       );
     } else {
       rows = await query(
-        `SELECT m.*,
-          GROUP_CONCAT(DISTINCT r.nick_lower) as read_by_list,
-          GROUP_CONCAT(DISTINCT d.nick_lower) as deleted_for_list
+        `SELECT
+           m.*,
+           (
+             SELECT GROUP_CONCAT(r.nick_lower)
+             FROM private_msg_read_by r
+             WHERE r.msg_id = m.msg_id
+           ) AS read_by_list,
+           (
+             SELECT GROUP_CONCAT(d.nick_lower)
+             FROM private_msg_deleted_for d
+             WHERE d.msg_id = m.msg_id
+           ) AS deleted_for_list
          FROM private_messages m
-         LEFT JOIN private_msg_read_by     r ON r.msg_id = m.msg_id
-         LEFT JOIN private_msg_deleted_for d ON d.msg_id = m.msg_id
          WHERE m.chat_id = ?
            ${hasBefore ? 'AND m.timestamp < ?' : ''}
-         GROUP BY m.msg_id
          ORDER BY m.timestamp DESC
          LIMIT ?`,
         hasBefore ? [chatId, Number(beforeTs), lim] : [chatId, lim]
