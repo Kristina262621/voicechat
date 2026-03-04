@@ -1519,27 +1519,40 @@
           <div class="auth-error" id="login-error"></div>
           <button class="btn-primary" id="btn-login">Войти</button>
           <div class="hint-recover">
-            <button id="btn-show-hint" type="button">💡 Подсказка к паролю</button>
-            <button id="btn-show-reset" type="button">📱 Сброс по телефону</button>
-          </div>
-          <div id="reset-password-section" style="display:none" class="reset-section">
-            <div class="reset-section-title">Введи номер телефона и новый пароль</div>
-            <div class="field-group" style="margin-bottom:10px">
-              <input class="field-input" type="tel" id="reset-phone"
-                     placeholder="Номер телефона (+7…)" maxlength="20"/>
-            </div>
-            <div class="field-group" style="margin-bottom:10px">
-              <div class="field-input-wrap">
-                <input class="field-input pw" type="password" id="reset-newpw"
-                       placeholder="Новый пароль…" maxlength="64"/>
-                <button class="pw-eye" data-for="reset-newpw" type="button">👁</button>
-              </div>
-            </div>
-            <button class="btn-primary" id="btn-reset-password"
-                    style="font-size:14px;padding:12px">🔑 Изменить пароль</button>
-          </div>
-        </div>
+            <div class="hint-recover">
+  <button id="btn-show-hint" type="button">💡 Подсказка к паролю</button>
+  <button id="btn-show-reset" type="button">📱 Сброс по коду (OTP)</button>
+</div>
 
+<div id="reset-password-section" style="display:none" class="reset-section">
+  <div class="reset-section-title">Сброс пароля через одноразовый код</div>
+
+  <div class="field-group" style="margin-bottom:10px">
+    <input class="field-input" type="tel" id="reset-phone"
+           placeholder="Номер телефона (+7…)" maxlength="20" />
+  </div>
+
+  <div style="display:flex;gap:8px;margin-bottom:10px">
+    <button class="btn-primary" id="btn-reset-send-otp"
+            style="font-size:14px;padding:12px;flex:1">📨 Отправить код</button>
+  </div>
+
+  <div class="field-group" style="margin-bottom:10px">
+    <input class="field-input" type="text" id="reset-otp"
+           placeholder="Код из SMS / email" maxlength="6" inputmode="numeric" />
+  </div>
+
+  <div class="field-group" style="margin-bottom:10px">
+    <div class="field-input-wrap">
+      <input class="field-input pw" type="password" id="reset-newpw"
+             placeholder="Новый пароль (мин. 12, A-z, 0-9, спецсимвол)" maxlength="128" />
+      <button class="pw-eye" data-for="reset-newpw" type="button">👁</button>
+    </div>
+  </div>
+
+  <button class="btn-primary" id="btn-reset-confirm"
+          style="font-size:14px;padding:12px">🔑 Подтвердить сброс</button>
+</div>
         <!-- РЕГИСТРАЦИЯ -->
         <div id="form-register" style="display:none">
           <div class="field-group">
@@ -2235,6 +2248,7 @@ document.getElementById('btn-room-members')?.addEventListener('click', () => {
 </script>
 </body>
 </html>
+
 
 
 
