@@ -5,6 +5,12 @@ const fs = require('fs');
 const { Server } = require('socket.io');
 const path = require('path');
 const nodeCrypto = require('crypto');
+let PgPool = null;
+try {
+  ({ Pool: PgPool } = require('pg'));
+} catch (_) {
+  PgPool = null;
+}
 
 const { UserDB, TokenDB, RoomDB, PrivateChatDB, initDB, queryOne } = require('./database');
 
@@ -36,6 +42,94 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean);
+
+  // ════════════════════════════════════════════
+//  SIGNAL (Postgres store for libsignal public/prekeys)
+// ════════════════════════════════════════════
+let signalPool = null;
+let signalSchemaReady = false;
+
+if (PgPool && process.env.DATABASE_URL) {
+  signalPool = new PgPool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.PGSSL_DISABLE === 'true' ? false : { rejectUnauthorized: false }
+  });
+}
+
+async function ensureSignalSchema() {
+  if (!signalPool || signalSchemaReady) return;
+  await signalPool.query(`
+    CREATE TABLE IF NOT EXISTS signal_device_keys (
+      user_id TEXT NOT NULL,
+      device_id INTEGER NOT NULL DEFAULT 1,
+      registration_id INTEGER NOT NULL,
+      identity_key_public BYTEA NOT NULL,
+
+      signed_prekey_id INTEGER NOT NULL,
+      signed_prekey_public BYTEA NOT NULL,
+      signed_prekey_signature BYTEA NOT NULL,
+
+      kyber_prekey_id INTEGER NOT NULL,
+      kyber_prekey_public BYTEA NOT NULL,
+      kyber_prekey_signature BYTEA NOT NULL,
+
+      uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, device_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS signal_one_time_prekeys (
+      user_id TEXT NOT NULL,
+      device_id INTEGER NOT NULL DEFAULT 1,
+      prekey_id INTEGER NOT NULL,
+      prekey_public BYTEA NOT NULL,
+
+      is_used BOOLEAN NOT NULL DEFAULT FALSE,
+      used_at TIMESTAMPTZ NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+      PRIMARY KEY (user_id, device_id, prekey_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_signal_prekeys_available
+      ON signal_one_time_prekeys (user_id, device_id, is_used);
+  `);
+  signalSchemaReady = true;
+}
+
+function b64ToBuf(v) {
+  if (!v || typeof v !== 'string') return null;
+  return Buffer.from(v, 'base64');
+}
+function bufToB64(v) {
+  if (!v) return null;
+  return Buffer.from(v).toString('base64');
+}
+
+async function getHttpAuth(req) {
+  const auth = req.headers.authorization || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (!token) return null;
+
+  const nickLower = await TokenDB.get(token);
+  if (!nickLower) return null;
+
+  const user = await UserDB.get(nickLower);
+  if (!user) return null;
+
+  return { nickLower, user };
+}
+
+async function requireHttpAuth(req, res, next) {
+  try {
+    const auth = await getHttpAuth(req);
+    if (!auth) return res.status(401).json({ ok: false, error: 'unauthorized' });
+    req.auth = auth;
+    next();
+  } catch (e) {
+    console.error('[requireHttpAuth]', e);
+    res.status(500).json({ ok: false, error: 'server_error' });
+  }
+}
 
 // ════════════════════════════════════════════
 //  ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК
@@ -316,6 +410,246 @@ app.get('/api/turn-credentials', async (req, res) => {
     });
   } catch (e) {
     console.error('[turn-credentials]', e);
+    res.status(500).json({ ok: false, error: 'server_error' });
+  }
+});
+
+// ════════════════════════════════════════════
+//  SIGNAL HTTP API
+// ════════════════════════════════════════════
+
+// Загрузка публичных ключей устройства + one-time prekeys
+app.post('/api/signal/keys/upload', requireHttpAuth, async (req, res) => {
+  try {
+    if (!signalPool) {
+      return res.status(500).json({ ok: false, error: 'signal_db_unavailable' });
+    }
+    await ensureSignalSchema();
+
+    const userId = req.auth.nickLower;
+    const {
+      deviceId = 1,
+      registrationId,
+      identityKeyPublic,
+      signedPreKey,
+      kyberPreKey,
+      oneTimePreKeys = []
+    } = req.body || {};
+
+    if (
+      !registrationId ||
+      !identityKeyPublic ||
+      !signedPreKey?.id || !signedPreKey?.publicKey || !signedPreKey?.signature ||
+      !kyberPreKey?.id || !kyberPreKey?.publicKey || !kyberPreKey?.signature
+    ) {
+      return res.status(400).json({ ok: false, error: 'bad_request' });
+    }
+
+    const client = await signalPool.connect();
+    try {
+      await client.query('BEGIN');
+
+      await client.query(
+        `
+        INSERT INTO signal_device_keys (
+          user_id, device_id, registration_id,
+          identity_key_public,
+          signed_prekey_id, signed_prekey_public, signed_prekey_signature,
+          kyber_prekey_id, kyber_prekey_public, kyber_prekey_signature,
+          uploaded_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())
+        ON CONFLICT (user_id, device_id)
+        DO UPDATE SET
+          registration_id = EXCLUDED.registration_id,
+          identity_key_public = EXCLUDED.identity_key_public,
+          signed_prekey_id = EXCLUDED.signed_prekey_id,
+          signed_prekey_public = EXCLUDED.signed_prekey_public,
+          signed_prekey_signature = EXCLUDED.signed_prekey_signature,
+          kyber_prekey_id = EXCLUDED.kyber_prekey_id,
+          kyber_prekey_public = EXCLUDED.kyber_prekey_public,
+          kyber_prekey_signature = EXCLUDED.kyber_prekey_signature,
+          uploaded_at = now()
+        `,
+        [
+          userId,
+          Number(deviceId),
+          Number(registrationId),
+          b64ToBuf(identityKeyPublic),
+          Number(signedPreKey.id),
+          b64ToBuf(signedPreKey.publicKey),
+          b64ToBuf(signedPreKey.signature),
+          Number(kyberPreKey.id),
+          b64ToBuf(kyberPreKey.publicKey),
+          b64ToBuf(kyberPreKey.signature)
+        ]
+      );
+
+      for (const pk of oneTimePreKeys) {
+        if (!pk || typeof pk.id === 'undefined' || !pk.publicKey) continue;
+        await client.query(
+          `
+          INSERT INTO signal_one_time_prekeys (
+            user_id, device_id, prekey_id, prekey_public, is_used, created_at
+          ) VALUES ($1,$2,$3,$4,false,now())
+          ON CONFLICT (user_id, device_id, prekey_id) DO NOTHING
+          `,
+          [userId, Number(deviceId), Number(pk.id), b64ToBuf(pk.publicKey)]
+        );
+      }
+
+      await client.query('COMMIT');
+      res.json({ ok: true });
+    } catch (e) {
+      await client.query('ROLLBACK');
+      console.error('[signal upload]', e);
+      res.status(500).json({ ok: false, error: 'server_error' });
+    } finally {
+      client.release();
+    }
+  } catch (e) {
+    console.error('[signal upload outer]', e);
+    res.status(500).json({ ok: false, error: 'server_error' });
+  }
+});
+
+// Получить bundle пользователя (и зарезервировать 1 one-time prekey)
+app.get('/api/signal/keys/bundle/:userId', requireHttpAuth, async (req, res) => {
+  try {
+    if (!signalPool) {
+      return res.status(500).json({ ok: false, error: 'signal_db_unavailable' });
+    }
+    await ensureSignalSchema();
+
+    const raw = String(req.params.userId || '').trim().toLowerCase();
+    const deviceId = Number(req.query.deviceId || 1);
+    if (!raw) return res.status(400).json({ ok: false, error: 'bad_request' });
+
+    // Разрешаем искать и по username, и по nickLower
+    let targetLower = raw;
+    let targetUser = await UserDB.get(raw);
+    if (!targetUser) {
+      const byUsername = await UserDB.getByUsername(raw);
+      if (byUsername) {
+        targetUser = byUsername;
+        const row = await queryOne('SELECT nick_lower FROM users WHERE username = ?', [raw]);
+        if (row?.nick_lower) targetLower = row.nick_lower;
+      }
+    }
+    if (!targetUser) return res.status(404).json({ ok: false, error: 'not_found' });
+
+    const client = await signalPool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const dev = await client.query(
+        `
+        SELECT
+          registration_id,
+          identity_key_public,
+          signed_prekey_id,
+          signed_prekey_public,
+          signed_prekey_signature,
+          kyber_prekey_id,
+          kyber_prekey_public,
+          kyber_prekey_signature
+        FROM signal_device_keys
+        WHERE user_id = $1 AND device_id = $2
+        LIMIT 1
+        `,
+        [targetLower, deviceId]
+      );
+
+      if (!dev.rows.length) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ ok: false, error: 'bundle_not_found' });
+      }
+
+      const pick = await client.query(
+        `
+        WITH picked AS (
+          SELECT user_id, device_id, prekey_id
+          FROM signal_one_time_prekeys
+          WHERE user_id = $1
+            AND device_id = $2
+            AND is_used = false
+          ORDER BY prekey_id
+          LIMIT 1
+          FOR UPDATE SKIP LOCKED
+        )
+        UPDATE signal_one_time_prekeys s
+        SET is_used = true, used_at = now()
+        FROM picked
+        WHERE s.user_id = picked.user_id
+          AND s.device_id = picked.device_id
+          AND s.prekey_id = picked.prekey_id
+        RETURNING s.prekey_id, s.prekey_public
+        `,
+        [targetLower, deviceId]
+      );
+
+      await client.query('COMMIT');
+
+      const row = dev.rows[0];
+      const one = pick.rows[0] || null;
+
+      res.json({
+        ok: true,
+        bundle: {
+          userId: targetLower,
+          deviceId,
+          registrationId: Number(row.registration_id),
+          identityKeyPublic: bufToB64(row.identity_key_public),
+          signedPreKey: {
+            id: Number(row.signed_prekey_id),
+            publicKey: bufToB64(row.signed_prekey_public),
+            signature: bufToB64(row.signed_prekey_signature)
+          },
+          kyberPreKey: {
+            id: Number(row.kyber_prekey_id),
+            publicKey: bufToB64(row.kyber_prekey_public),
+            signature: bufToB64(row.kyber_prekey_signature)
+          },
+          oneTimePreKey: one
+            ? { id: Number(one.prekey_id), publicKey: bufToB64(one.prekey_public) }
+            : null
+        }
+      });
+    } catch (e) {
+      await client.query('ROLLBACK');
+      console.error('[signal bundle]', e);
+      res.status(500).json({ ok: false, error: 'server_error' });
+    } finally {
+      client.release();
+    }
+  } catch (e) {
+    console.error('[signal bundle outer]', e);
+    res.status(500).json({ ok: false, error: 'server_error' });
+  }
+});
+
+// Для контроля запаса prekeys у текущего пользователя
+app.get('/api/signal/keys/prekeys/count', requireHttpAuth, async (req, res) => {
+  try {
+    if (!signalPool) {
+      return res.status(500).json({ ok: false, error: 'signal_db_unavailable' });
+    }
+    await ensureSignalSchema();
+
+    const userId = req.auth.nickLower;
+    const deviceId = Number(req.query.deviceId || 1);
+
+    const r = await signalPool.query(
+      `
+      SELECT COUNT(*)::int AS count
+      FROM signal_one_time_prekeys
+      WHERE user_id = $1 AND device_id = $2 AND is_used = false
+      `,
+      [userId, deviceId]
+    );
+
+    res.json({ ok: true, count: r.rows[0]?.count || 0 });
+  } catch (e) {
+    console.error('[signal prekeys count]', e);
     res.status(500).json({ ok: false, error: 'server_error' });
   }
 });
