@@ -6,6 +6,39 @@
 (function injectUIStyles() {
   const style = document.createElement('style');
   style.textContent = `
+  /* Гарантируем правильную структуру лобби на мобильном */
+@media (max-width: 767px) {
+  #screen-lobby {
+    flex-direction: column !important;
+  }
+  .lobby-sidebar {
+    width: 100% !important;
+    flex: 1 !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+  .lobby-right {
+    display: none !important;
+  }
+  /* Нижняя навигация всегда снизу */
+  #bottom-nav {
+    flex-shrink: 0 !important;
+    width: 100% !important;
+    position: sticky !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+  }
+  /* Список чатов занимает всё пространство */
+  .unified-chat-list,
+  .rooms-list {
+    flex: 1 !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+}
     /* ════════════════════════════════════════
        СВЕТЛАЯ ТЕМА — полный набор стилей
     ════════════════════════════════════════ */
