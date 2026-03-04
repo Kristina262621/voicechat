@@ -16,77 +16,83 @@ function arrayBufferToBase64Safe(buffer) {
 const THEME_KEY = 'privchat_theme';
 let currentTheme = localStorage.getItem(THEME_KEY) || 'dark';
 
+const DARK_VARS = {
+  '--bg':        '#0a0a0f',
+  '--bg2':       '#111118',
+  '--surface':   '#16161f',
+  '--surface2':  '#1c1c28',
+  '--surface3':  '#222232',
+  '--text':      '#e8e8f0',
+  '--text2':     '#9090b0',
+  '--sub':       '#55556a',
+  '--divider':   'rgba(255,255,255,0.06)',
+  '--bubble-in': '#16161f',
+  '--bubble-me': '#2d1f5e',
+  '--glass':     'rgba(22,22,31,0.85)',
+  '--accent':    '#7c5cbf',
+  '--accent2':   '#a07de0',
+  '--accent-g':  'linear-gradient(135deg,#7c5cbf,#5b3fa0)',
+  '--gold':      '#c9a84c',
+  '--gold2':     '#e8c76a',
+  '--green':     '#3dba6e',
+  '--red':       '#e05252',
+  '--orange':    '#e08a3c',
+};
+
+const LIGHT_VARS = {
+  '--bg':        '#f0f2f5',
+  '--bg2':       '#ffffff',
+  '--surface':   '#ffffff',
+  '--surface2':  '#f7f8fa',
+  '--surface3':  '#eff1f3',
+  '--text':      '#111b21',
+  '--text2':     '#3b4a54',
+  '--sub':       '#8696a0',
+  '--divider':   'rgba(0,0,0,0.08)',
+  '--bubble-in': '#ffffff',
+  '--bubble-me': '#d9fdd3',
+  '--glass':     'rgba(255,255,255,0.92)',
+  '--accent':    '#00a884',
+  '--accent2':   '#00a884',
+  '--accent-g':  'linear-gradient(135deg,#00a884,#00856f)',
+  '--gold':      '#c9a84c',
+  '--gold2':     '#e8c76a',
+  '--green':     '#25d366',
+  '--red':       '#e05252',
+  '--orange':    '#e08a3c',
+};
+
 function applyTheme(theme) {
   currentTheme = theme;
   localStorage.setItem(THEME_KEY, theme);
-  document.documentElement.setAttribute('data-theme', theme);
 
-  const btns = document.querySelectorAll('.theme-toggle-btn, #btn-drawer-theme');
-  btns.forEach(btn => {
+  const vars = theme === 'light' ? LIGHT_VARS : DARK_VARS;
+  const root = document.documentElement;
+
+  // Устанавливаем все CSS-переменные
+  for (const [k, v] of Object.entries(vars)) {
+    root.style.setProperty(k, v);
+  }
+
+  // Атрибут на html для CSS-селекторов в ui.js
+  root.setAttribute('data-theme', theme);
+
+  // Обновляем кнопки переключения темы
+  document.querySelectorAll('.theme-toggle-btn, #btn-drawer-theme').forEach(btn => {
     btn.textContent = theme === 'dark' ? '☀️' : '🌙';
     btn.title = theme === 'dark' ? 'Светлая тема' : 'Тёмная тема';
   });
 
-  if (theme === 'light') {
-    // ─── Светлая тема (стиль WhatsApp/Сап) ───
-    document.documentElement.style.setProperty('--bg',        '#f0f2f5');
-    document.documentElement.style.setProperty('--bg2',       '#ffffff');
-    document.documentElement.style.setProperty('--surface',   '#ffffff');
-    document.documentElement.style.setProperty('--surface2',  '#f7f8fa');
-    document.documentElement.style.setProperty('--surface3',  '#eff1f3');
-    document.documentElement.style.setProperty('--text',      '#111b21');
-    document.documentElement.style.setProperty('--text2',     '#3b4a54');
-    document.documentElement.style.setProperty('--sub',       '#8696a0');
-    document.documentElement.style.setProperty('--divider',   'rgba(0,0,0,0.08)');
-    document.documentElement.style.setProperty('--bubble-in', '#ffffff');
-    document.documentElement.style.setProperty('--bubble-me', '#d9fdd3');
-    document.documentElement.style.setProperty('--glass',     'rgba(255,255,255,0.92)');
-    document.documentElement.style.setProperty('--accent',    '#00a884');
-    document.documentElement.style.setProperty('--accent2',   '#00a884');
-    document.documentElement.style.setProperty('--accent-g',  'linear-gradient(135deg,#00a884,#00856f)');
-    document.documentElement.style.setProperty('--green',     '#25d366');
-    // Фиксируем header и другие области
-    document.querySelectorAll('.tg-header, .lobby-header').forEach(el => {
-      el.style.background = '#f0f2f5';
-      el.style.borderBottom = '1px solid rgba(0,0,0,0.1)';
-    });
-    document.querySelectorAll('.tg-bottom').forEach(el => {
-      el.style.background = '#f0f2f5';
-    });
-    document.querySelectorAll('.lobby-tabs').forEach(el => {
-      el.style.background = '#f0f2f5';
-    });
-    document.body.style.background = '#f0f2f5';
-  } else {
-    // ─── Тёмная тема ───
-    document.documentElement.style.setProperty('--bg',        '#0a0a0f');
-    document.documentElement.style.setProperty('--bg2',       '#111118');
-    document.documentElement.style.setProperty('--surface',   '#16161f');
-    document.documentElement.style.setProperty('--surface2',  '#1c1c28');
-    document.documentElement.style.setProperty('--surface3',  '#222232');
-    document.documentElement.style.setProperty('--text',      '#e8e8f0');
-    document.documentElement.style.setProperty('--text2',     '#9090b0');
-    document.documentElement.style.setProperty('--sub',       '#55556a');
-    document.documentElement.style.setProperty('--divider',   'rgba(255,255,255,0.06)');
-    document.documentElement.style.setProperty('--bubble-in', '#16161f');
-    document.documentElement.style.setProperty('--bubble-me', '#2d1f5e');
-    document.documentElement.style.setProperty('--glass',     'rgba(22,22,31,0.85)');
-    document.documentElement.style.setProperty('--accent',    '#7c5cbf');
-    document.documentElement.style.setProperty('--accent2',   '#a07de0');
-    document.documentElement.style.setProperty('--accent-g',  'linear-gradient(135deg,#7c5cbf,#5b3fa0)');
-    document.documentElement.style.setProperty('--green',     '#3dba6e');
-    // Сбрасываем инлайн-стили
-    document.querySelectorAll('.tg-header, .lobby-header, .tg-bottom, .lobby-tabs').forEach(el => {
-      el.style.background = '';
-      el.style.borderBottom = '';
-    });
-    document.body.style.background = '';
-  }
+  // theme-color мета-тег
+  const metaTheme = document.querySelector('meta[name="theme-color"]');
+  if (metaTheme) metaTheme.setAttribute('content', theme === 'light' ? '#f0f2f5' : '#0a0a0f');
 }
 
-function toggleTheme() { applyTheme(currentTheme === 'dark' ? 'light' : 'dark'); }
+function toggleTheme() {
+  applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
+}
 
-// Применяем тему при загрузке
+// Применяем тему сразу при загрузке скрипта
 applyTheme(currentTheme);
 
 // ─── Кнопка темы в drawer ───
