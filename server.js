@@ -1538,7 +1538,8 @@ io.on('connection', (socket) => {
     cb({ ok: true, chats: list });
   });
 
-  safeOn('private-chat-history', async ({ chatId }, cb) => {
+  // ✅ PAGINATED PRIVATE HISTORY
+  safeOn('private-chat-history', async ({ chatId, limit, beforeTs }, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
 
@@ -1546,9 +1547,17 @@ io.on('connection', (socket) => {
       return cb({ ok: false, error: 'not_member' });
     }
 
-    const messages = await PrivateChatDB.getMessages(chatId, MAX_STORED_MESSAGES);
+    const lim = Math.max(1, Math.min(100, Number(limit) || 50));
+    const before = Number.isFinite(Number(beforeTs)) ? Number(beforeTs) : null;
+
+    const messages = await PrivateChatDB.getMessages(chatId, lim, before);
     const filtered = messages.filter(m => !m.deletedFor.includes(client.nickLower));
-    cb({ ok: true, messages: filtered.map(m => ({ ...m, reactions: getReactions(m.id) })) });
+
+    cb({
+      ok: true,
+      messages: filtered.map(m => ({ ...m, reactions: getReactions(m.id) })),
+      hasMore: filtered.length >= lim
+    });
   });
 
   safeOn('private-message', async ({ chatId, encrypted, iv, type, fileName, fileSize, mimeType, duration, seq, replyTo }, cb) => {
@@ -2192,7 +2201,7 @@ io.on('connection', (socket) => {
     const client = requireAuthed(cb);
     if (!client) return;
 
-        if (!client.roomId) return cb && cb({ ok: false, error: 'no_room' });
+    if (!client.roomId) return cb && cb({ ok: false, error: 'no_room' });
 
     const room = rooms.get(client.roomId);
     if (!room) return cb && cb({ ok: false, error: 'room_not_found' });
