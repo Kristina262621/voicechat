@@ -22,11 +22,6 @@ if (USE_PG) {
     ssl: { rejectUnauthorized: false }
   });
 
-  // Синхронный интерфейс для совместимости — оборачиваем в синхронные вызовы через пул
-  // Все запросы через runQuery (async внутри, но мы делаем sync-обёртку через Atomics)
-  // Для простоты используем sync-postgres через execSync — НЕТ,
-  // лучше сделаем полноценный async API и перепишем только точки входа
-
   console.log('Используем PostgreSQL (Railway)');
 } else {
   // ─── SQLite ───
@@ -283,23 +278,17 @@ async function initDB() {
 // ════════════════════════════════════════════
 //  УНИВЕРСАЛЬНЫЙ ЗАПРОС
 // ════════════════════════════════════════════
-
-// PG использует $1,$2... SQLite использует ?
-// Конвертируем ? → $1,$2... для PG
 function convertPlaceholders(sql) {
   let i = 0;
   return sql.replace(/\?/g, () => '$' + (++i));
 }
 
-// Для PG: возвращает { rows }
-// Для SQLite: эмулируем { rows }
 async function query(sql, params = []) {
   if (USE_PG) {
     const pgSql = convertPlaceholders(sql);
     const res   = await pgPool.query(pgSql, params);
     return res.rows;
   } else {
-    // Определяем тип запроса
     const trimmed = sql.trim().toUpperCase();
     if (trimmed.startsWith('SELECT') || trimmed.startsWith('WITH')) {
       return db.prepare(sql).all(...params);
@@ -585,7 +574,6 @@ const RoomDB = {
   },
 
   async delete(roomId) {
-    // Удаляем связанные данные вручную (PG не имеет ON DELETE CASCADE без FK)
     await query(`DELETE FROM room_members WHERE room_id = ?`, [roomId]);
     await query(`DELETE FROM room_msg_deleted_for WHERE msg_id IN (SELECT msg_id FROM room_messages WHERE room_id = ?)`, [roomId]);
     await query(`DELETE FROM room_messages WHERE room_id = ?`, [roomId]);
@@ -696,23 +684,23 @@ const PrivateChatDB = {
   },
 
   async getUserChats(nickLower) {
-  return await query(
-    `SELECT pc.*,
-      pm.type as last_type,
-      pm.timestamp as last_ts,
-      pm.encrypted as last_encrypted
-     FROM private_chats pc
-     LEFT JOIN private_messages pm ON pm.msg_id = (
-       SELECT msg_id FROM private_messages
-       WHERE chat_id = pc.chat_id
-         AND seq IS NOT NULL
-       ORDER BY timestamp DESC LIMIT 1
-     )
-     WHERE (pc.member1 = ? OR pc.member2 = ?)
-     ORDER BY COALESCE(pm.timestamp, pc.created_at) DESC`,
-    [nickLower, nickLower]
-  );
-},
+    return await query(
+      `SELECT pc.*,
+        pm.type as last_type,
+        pm.timestamp as last_ts,
+        pm.encrypted as last_encrypted
+       FROM private_chats pc
+       LEFT JOIN private_messages pm ON pm.msg_id = (
+         SELECT msg_id FROM private_messages
+         WHERE chat_id = pc.chat_id
+           AND seq IS NOT NULL
+         ORDER BY timestamp DESC LIMIT 1
+       )
+       WHERE (pc.member1 = ? OR pc.member2 = ?)
+       ORDER BY COALESCE(pm.timestamp, pc.created_at) DESC`,
+      [nickLower, nickLower]
+    );
+  },
 
   async isMember(chatId, nickLower) {
     const chat = await queryOne(`SELECT * FROM private_chats WHERE chat_id = ?`, [chatId]);
@@ -720,7 +708,11 @@ const PrivateChatDB = {
     return chat.member1 === nickLower || chat.member2 === nickLower;
   },
 
-  async getMessages(chatId, limit = 200) {
+  // ✅ Пагинация: limit + beforeTs
+  async getMessages(chatId, limit = 50, beforeTs = null) {
+    const lim = Math.max(1, Math.min(100, Number(limit) || 50));
+    const hasBefore = Number.isFinite(Number(beforeTs));
+
     let rows;
     if (USE_PG) {
       rows = await query(
@@ -731,10 +723,11 @@ const PrivateChatDB = {
          LEFT JOIN private_msg_read_by     r ON r.msg_id = m.msg_id
          LEFT JOIN private_msg_deleted_for d ON d.msg_id = m.msg_id
          WHERE m.chat_id = ?
+           ${hasBefore ? 'AND m.timestamp < ?' : ''}
          GROUP BY m.msg_id
-         ORDER BY m.timestamp ASC
+         ORDER BY m.timestamp DESC
          LIMIT ?`,
-        [chatId, limit]
+        hasBefore ? [chatId, Number(beforeTs), lim] : [chatId, lim]
       );
     } else {
       rows = await query(
@@ -745,13 +738,16 @@ const PrivateChatDB = {
          LEFT JOIN private_msg_read_by     r ON r.msg_id = m.msg_id
          LEFT JOIN private_msg_deleted_for d ON d.msg_id = m.msg_id
          WHERE m.chat_id = ?
+           ${hasBefore ? 'AND m.timestamp < ?' : ''}
          GROUP BY m.msg_id
-         ORDER BY m.timestamp ASC
+         ORDER BY m.timestamp DESC
          LIMIT ?`,
-        [chatId, limit]
+        hasBefore ? [chatId, Number(beforeTs), lim] : [chatId, lim]
       );
     }
-    return rows.map(_rowToPrivateMsg);
+
+    // Возвращаем в порядке старые → новые
+    return rows.reverse().map(_rowToPrivateMsg);
   },
 
   async saveMessage(msg) {
