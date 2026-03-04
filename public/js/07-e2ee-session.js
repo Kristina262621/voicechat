@@ -154,6 +154,16 @@
     return td.decode(pt);
   }
 
+  // NEW: decrypt own history using outboundKey
+  async function decryptOwnTextForPeer(peerId, encryptedB64, ivB64) {
+    const s = await ensurePeer(peerId);
+    const iv = b64ToBytes(ivB64);
+    const ct = b64ToBytes(encryptedB64);
+
+    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, s.outboundKey, ct);
+    return td.decode(pt);
+  }
+
   async function encryptBytesForPeer(peerId, bytesLike) {
     const s = await ensurePeer(peerId);
     const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -175,8 +185,24 @@
     return new Uint8Array(pt);
   }
 
+  // NEW: decrypt own history bytes using outboundKey
+  async function decryptOwnBytesForPeer(peerId, encryptedB64, ivB64) {
+    const s = await ensurePeer(peerId);
+    const iv = b64ToBytes(ivB64);
+    const ct = b64ToBytes(encryptedB64);
+
+    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, s.outboundKey, ct);
+    return new Uint8Array(pt);
+  }
+
   async function decryptBlobFromPeer(peerId, encryptedB64, ivB64, mimeType) {
     const bytes = await decryptBytesFromPeer(peerId, encryptedB64, ivB64);
+    return new Blob([bytes], { type: mimeType || 'application/octet-stream' });
+  }
+
+  // NEW: decrypt own history blob using outboundKey
+  async function decryptOwnBlobForPeer(peerId, encryptedB64, ivB64, mimeType) {
+    const bytes = await decryptOwnBytesForPeer(peerId, encryptedB64, ivB64);
     return new Blob([bytes], { type: mimeType || 'application/octet-stream' });
   }
 
@@ -187,9 +213,12 @@
   window.E2EESession = {
     encryptTextForPeer,
     decryptTextFromPeer,
+    decryptOwnTextForPeer,
     encryptBytesForPeer,
     decryptBytesFromPeer,
+    decryptOwnBytesForPeer,
     decryptBlobFromPeer,
+    decryptOwnBlobForPeer,
     clearPeer
   };
 })();
