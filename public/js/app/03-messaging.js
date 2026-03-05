@@ -295,30 +295,38 @@ function hideChatUploadStatus() {
 //  E2EE helper для private (text+bytes)
 // ───────────────────────────────────────────────
 async function encryptPrivateTextE2EE(peerId, text) {
-  if (window.E2EESession?.encryptTextForPeer && peerId) {
-    return window.E2EESession.encryptTextForPeer(peerId, text);
+  // Приводим peerId к нижнему регистру для consistency
+  const normalizedPeerId = peerId ? String(peerId).toLowerCase().trim() : '';
+  if (window.E2EESession?.encryptTextForPeer && normalizedPeerId) {
+    return window.E2EESession.encryptTextForPeer(normalizedPeerId, text);
   }
   return Crypto.encrypt(text);
 }
 
 async function decryptPrivateTextE2EE(peerId, encrypted, iv) {
-  if (window.E2EESession?.decryptTextFromPeer && peerId) {
-    try { return await window.E2EESession.decryptTextFromPeer(peerId, encrypted, iv); }
+  // Приводим peerId к нижнему регистру для consistency
+  const normalizedPeerId = peerId ? String(peerId).toLowerCase().trim() : '';
+  if (window.E2EESession?.decryptTextFromPeer && normalizedPeerId) {
+    try { return await window.E2EESession.decryptTextFromPeer(normalizedPeerId, encrypted, iv); }
     catch (_) {}
   }
   return Crypto.decryptText(encrypted, iv);
 }
 
 async function encryptPrivateBytesE2EE(peerId, bytesLike) {
-  if (window.E2EESession?.encryptBytesForPeer && peerId) {
-    return window.E2EESession.encryptBytesForPeer(peerId, bytesLike);
+  // Приводим peerId к нижнему регистру для consistency
+  const normalizedPeerId = peerId ? String(peerId).toLowerCase().trim() : '';
+  if (window.E2EESession?.encryptBytesForPeer && normalizedPeerId) {
+    return window.E2EESession.encryptBytesForPeer(normalizedPeerId, bytesLike);
   }
   return Crypto.encrypt(bytesLike);
 }
 
 async function decryptPrivateBlobE2EE(peerId, encrypted, iv, mime) {
-  if (window.E2EESession?.decryptBlobFromPeer && peerId) {
-    try { return await window.E2EESession.decryptBlobFromPeer(peerId, encrypted, iv, mime); }
+  // Приводим peerId к нижнему регистру для consistency
+  const normalizedPeerId = peerId ? String(peerId).toLowerCase().trim() : '';
+  if (window.E2EESession?.decryptBlobFromPeer && normalizedPeerId) {
+    try { return await window.E2EESession.decryptBlobFromPeer(normalizedPeerId, encrypted, iv, mime); }
     catch (_) {}
   }
   return Crypto.decryptBlob(encrypted, iv, mime);
@@ -619,7 +627,25 @@ async function sendMediaBlob(blob, mimeType, fileName, type, caption) {
 socket.on('private-message', async data => {
   const isCurrentChat = currentChatType === 'private' && currentChatId === data.chatId;
 
+  // Проверка на дублирование: если сообщение от текущего пользователя, пропускаем
+  const isFromMe = data.fromNick === myNickname || data.from === myUsername;
+  if (isFromMe && isCurrentChat) {
+    // Сообщение уже добавлено локально при отправке, не добавляем дубль
+    // Но обновим статус прочтения, если нужно
+    if (data.id) socket.emit('private-msg-read', { chatId: data.chatId, msgId: data.id });
+    return;
+  }
+
+  // Проверка на дублирование по msgId (если сообщение уже есть в чате)
+  if (data.id && msgIdToDomId.has(data.id)) {
+    // Дубликат, игнорируем
+    return;
+  }
+
   if (!isCurrentChat) {
+    // Если сообщение от меня, не показываем уведомление
+    if (isFromMe) return;
+    
     const setting = getNotifSetting(data.chatId);
     if (setting !== 'none') {
       showToast('💬 ' + (data.fromNick || '?') + ': новое сообщение', 4000, () => {
@@ -636,9 +662,14 @@ socket.on('private-message', async data => {
   if (getNotifSetting(data.chatId) !== 'none') playMsgSound(data.chatId);
   if (data.id) socket.emit('private-msg-read', { chatId: data.chatId, msgId: data.id });
 
-  const peerId = data.from || data.fromNick || currentChatWith || '';
+  const peerIdRaw = data.from || data.fromNick || currentChatWith || '';
+  const peerId = peerIdRaw.toLowerCase().trim();
 
   if (data.type === 'voice') {
+    // Проверка на дублирование для голосовых сообщений
+    if (isFromMe || (data.id && msgIdToDomId.has(data.id))) {
+      return;
+    }
     try {
       const blob = await decryptPrivateBlobE2EE(peerId, data.encrypted, data.iv, data.mimeType || 'audio/webm');
       const localUrl = URL.createObjectURL(blob);
