@@ -65,10 +65,7 @@ async function ensureSignalSchema() {
       device_id INTEGER NOT NULL DEFAULT 1,
       registration_id INTEGER NOT NULL,
 
-      -- identity DH (ECDH)
       identity_key_public BYTEA NOT NULL,
-
-      -- identity SIGN (ECDSA) for signedPreKey verification
       identity_sign_public BYTEA NULL,
 
       signed_prekey_id INTEGER NOT NULL,
@@ -83,7 +80,6 @@ async function ensureSignalSchema() {
       PRIMARY KEY (user_id, device_id)
     );
 
-    -- upgrade-safe
     ALTER TABLE signal_device_keys
       ADD COLUMN IF NOT EXISTS identity_sign_public BYTEA;
 
@@ -143,7 +139,7 @@ async function requireHttpAuth(req, res, next) {
 }
 
 // ════════════════════════════════════════════
-//  ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК
+//  ERROR HANDLERS
 // ════════════════════════════════════════════
 process.on('uncaughtException', (err) => {
   console.error('[UNCAUGHT EXCEPTION]', err.stack || err);
@@ -175,7 +171,10 @@ app.use((req, res, next) => {
   ].join('; ');
 
   res.setHeader('Content-Security-Policy', csp);
-  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+
+  // FIX: разрешаем микрофон/камеру для self
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(self), camera=(self)');
+
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
@@ -202,25 +201,14 @@ function getClientIp(socket) {
     || socket.handshake.address
     || 'unknown';
 }
-
-function shortId(id) {
-  return id ? id.slice(0, 6) : '??';
-}
-function generateRoomId() {
-  return nodeCrypto.randomBytes(3).toString('hex').toUpperCase();
-}
-function generateToken() {
-  return nodeCrypto.randomBytes(32).toString('hex');
-}
-function generateChatId(a, b) {
-  return [a, b].sort().join('::');
-}
-function generateMsgId() {
-  return nodeCrypto.randomBytes(8).toString('hex');
-}
+function shortId(id) { return id ? id.slice(0, 6) : '??'; }
+function generateRoomId() { return nodeCrypto.randomBytes(3).toString('hex').toUpperCase(); }
+function generateToken() { return nodeCrypto.randomBytes(32).toString('hex'); }
+function generateChatId(a, b) { return [a, b].sort().join('::'); }
+function generateMsgId() { return nodeCrypto.randomBytes(8).toString('hex'); }
 
 // ════════════════════════════════════════════
-//  PASSWORD POLICY + HASH
+//  PASSWORD HASH
 // ════════════════════════════════════════════
 function validatePassword(pw) {
   if (typeof pw !== 'string') return 'invalid';
@@ -231,18 +219,15 @@ function validatePassword(pw) {
   if (!/[^A-Za-z0-9]/.test(pw)) return 'need_special';
   return null;
 }
-
 function legacyHashPassword(pw) {
   const salt = 'voicechat-pw-salt-v2-' + pw.slice(0, 2);
   return nodeCrypto.pbkdf2Sync(pw, salt, 100000, 32, 'sha256').toString('hex');
 }
-
 function hashPassword(pw) {
   const salt = nodeCrypto.randomBytes(16).toString('hex');
   const hash = nodeCrypto.pbkdf2Sync(pw, salt, 310000, 32, 'sha256').toString('hex');
   return `pbkdf2$${salt}$${hash}`;
 }
-
 function verifyPassword(pw, stored) {
   if (!stored) return false;
   if (stored.startsWith('pbkdf2$')) {
@@ -260,7 +245,6 @@ function verifyPassword(pw, stored) {
 //  HINT ENCRYPTION
 // ════════════════════════════════════════════
 const HINT_SECRET = 'privchat-hint-encryption-key-v2';
-
 function encryptHint(text) {
   if (!text) return '';
   try {
@@ -269,11 +253,8 @@ function encryptHint(text) {
     const cipher = nodeCrypto.createCipheriv('aes-256-cbc', key, iv);
     const encrypted = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
     return iv.toString('hex') + ':' + encrypted.toString('hex');
-  } catch {
-    return '';
-  }
+  } catch { return ''; }
 }
-
 function decryptHint(encrypted) {
   if (!encrypted) return '';
   try {
@@ -284,13 +265,11 @@ function decryptHint(encrypted) {
     const data = Buffer.from(dataHex, 'hex');
     const decipher = nodeCrypto.createDecipheriv('aes-256-cbc', key, iv);
     return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
-  } catch {
-    return '';
-  }
+  } catch { return ''; }
 }
 
 // ════════════════════════════════════════════
-//  RATE LIMITING
+//  RATE LIMIT
 // ════════════════════════════════════════════
 const bruteForceMap = new Map();
 const BRUTE_MAX_ATTEMPTS = 7;
@@ -305,7 +284,6 @@ function checkBruteForce(key) {
   }
   return { blocked: false };
 }
-
 function recordFailedAttempt(key) {
   const now = Date.now();
   const entry = bruteForceMap.get(key) || { attempts: 0, firstAttempt: now, blockedUntil: null };
@@ -315,16 +293,12 @@ function recordFailedAttempt(key) {
     entry.blockedUntil = null;
   }
   entry.attempts++;
-  if (entry.attempts >= BRUTE_MAX_ATTEMPTS) {
-    entry.blockedUntil = now + BRUTE_BLOCK_MS;
-  }
+  if (entry.attempts >= BRUTE_MAX_ATTEMPTS) entry.blockedUntil = now + BRUTE_BLOCK_MS;
   bruteForceMap.set(key, entry);
 }
-
 function recordSuccessAttempt(key) {
   bruteForceMap.delete(key);
 }
-
 setInterval(() => {
   const now = Date.now();
   for (const [k, entry] of bruteForceMap) {
@@ -336,16 +310,12 @@ setInterval(() => {
 // ════════════════════════════════════════════
 //  OTP RESET
 // ════════════════════════════════════════════
-const otpStore = new Map(); // phone -> { codeHash, expiresAt, attempts, cooldownUntil, nickLower }
-
+const otpStore = new Map();
 function otpHash(code) {
   return nodeCrypto.createHash('sha256').update(String(code)).digest('hex');
 }
-
 function sendOtp(phone, code) {
-  if (OTP_PROVIDER === 'console') {
-    console.log(`[OTP DEV] ${phone}: ${code}`);
-  }
+  if (OTP_PROVIDER === 'console') console.log(`[OTP DEV] ${phone}: ${code}`);
 }
 
 // ════════════════════════════════════════════
@@ -398,10 +368,7 @@ app.get('/api/turn-credentials', async (req, res) => {
     if (!nickLower) return res.status(401).json({ ok: false, error: 'unauthorized' });
 
     if (!TURN_SECRET || !TURN_URLS.length) {
-      return res.json({
-        ok: true,
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-      });
+      return res.json({ ok: true, iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
     }
 
     const unix = Math.floor(Date.now() / 1000) + TURN_TTL_SEC;
@@ -424,8 +391,6 @@ app.get('/api/turn-credentials', async (req, res) => {
 // ════════════════════════════════════════════
 //  SIGNAL HTTP API
 // ════════════════════════════════════════════
-
-// upload / replace key bundle
 app.post('/api/signal/keys/upload', requireHttpAuth, async (req, res) => {
   try {
     if (!signalPool) return res.status(500).json({ ok: false, error: 'signal_db_unavailable' });
@@ -435,14 +400,9 @@ app.post('/api/signal/keys/upload', requireHttpAuth, async (req, res) => {
     const {
       deviceId = 1,
       registrationId,
-
-      // new
       identitySignPublic,
       identityDhPublic,
-
-      // backward alias
       identityKeyPublic,
-
       signedPreKey,
       kyberPreKey,
       oneTimePreKeys = []
@@ -455,9 +415,7 @@ app.post('/api/signal/keys/upload', requireHttpAuth, async (req, res) => {
       !dhPub ||
       !signedPreKey?.id || !signedPreKey?.publicKey || !signedPreKey?.signature ||
       !kyberPreKey?.id || !kyberPreKey?.publicKey || !kyberPreKey?.signature
-    ) {
-      return res.status(400).json({ ok: false, error: 'bad_request' });
-    }
+    ) return res.status(400).json({ ok: false, error: 'bad_request' });
 
     const client = await signalPool.connect();
     try {
@@ -467,12 +425,11 @@ app.post('/api/signal/keys/upload', requireHttpAuth, async (req, res) => {
         `
         INSERT INTO signal_device_keys (
           user_id, device_id, registration_id,
-          identity_key_public,
-          identity_sign_public,
+          identity_key_public, identity_sign_public,
           signed_prekey_id, signed_prekey_public, signed_prekey_signature,
           kyber_prekey_id, kyber_prekey_public, kyber_prekey_signature,
           uploaded_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now())
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now())
         ON CONFLICT (user_id, device_id)
         DO UPDATE SET
           registration_id = EXCLUDED.registration_id,
@@ -487,17 +444,11 @@ app.post('/api/signal/keys/upload', requireHttpAuth, async (req, res) => {
           uploaded_at = now()
         `,
         [
-          userId,
-          Number(deviceId),
-          Number(registrationId),
+          userId, Number(deviceId), Number(registrationId),
           b64ToBuf(dhPub),
           identitySignPublic ? b64ToBuf(identitySignPublic) : null,
-          Number(signedPreKey.id),
-          b64ToBuf(signedPreKey.publicKey),
-          b64ToBuf(signedPreKey.signature),
-          Number(kyberPreKey.id),
-          b64ToBuf(kyberPreKey.publicKey),
-          b64ToBuf(kyberPreKey.signature)
+          Number(signedPreKey.id), b64ToBuf(signedPreKey.publicKey), b64ToBuf(signedPreKey.signature),
+          Number(kyberPreKey.id), b64ToBuf(kyberPreKey.publicKey), b64ToBuf(kyberPreKey.signature)
         ]
       );
 
@@ -505,9 +456,8 @@ app.post('/api/signal/keys/upload', requireHttpAuth, async (req, res) => {
         if (!pk || typeof pk.id === 'undefined' || !pk.publicKey) continue;
         await client.query(
           `
-          INSERT INTO signal_one_time_prekeys (
-            user_id, device_id, prekey_id, prekey_public, is_used, created_at
-          ) VALUES ($1,$2,$3,$4,false,now())
+          INSERT INTO signal_one_time_prekeys (user_id, device_id, prekey_id, prekey_public, is_used, created_at)
+          VALUES ($1,$2,$3,$4,false,now())
           ON CONFLICT (user_id, device_id, prekey_id) DO NOTHING
           `,
           [userId, Number(deviceId), Number(pk.id), b64ToBuf(pk.publicKey)]
@@ -529,7 +479,6 @@ app.post('/api/signal/keys/upload', requireHttpAuth, async (req, res) => {
   }
 });
 
-// get peer bundle (+ optionally consume prekey)
 app.get('/api/signal/keys/bundle/:userId', requireHttpAuth, async (req, res) => {
   try {
     if (!signalPool) return res.status(500).json({ ok: false, error: 'signal_db_unavailable' });
@@ -538,7 +487,6 @@ app.get('/api/signal/keys/bundle/:userId', requireHttpAuth, async (req, res) => 
     const raw = String(req.params.userId || '').trim().toLowerCase();
     const deviceId = Number(req.query.deviceId || 1);
     const consume = String(req.query.consume || '1') !== '0';
-
     if (!raw) return res.status(400).json({ ok: false, error: 'bad_request' });
 
     let targetLower = raw;
@@ -559,16 +507,9 @@ app.get('/api/signal/keys/bundle/:userId', requireHttpAuth, async (req, res) => 
 
       const dev = await client.query(
         `
-        SELECT
-          registration_id,
-          identity_key_public,
-          identity_sign_public,
-          signed_prekey_id,
-          signed_prekey_public,
-          signed_prekey_signature,
-          kyber_prekey_id,
-          kyber_prekey_public,
-          kyber_prekey_signature
+        SELECT registration_id, identity_key_public, identity_sign_public,
+               signed_prekey_id, signed_prekey_public, signed_prekey_signature,
+               kyber_prekey_id, kyber_prekey_public, kyber_prekey_signature
         FROM signal_device_keys
         WHERE user_id = $1 AND device_id = $2
         LIMIT 1
@@ -582,16 +523,13 @@ app.get('/api/signal/keys/bundle/:userId', requireHttpAuth, async (req, res) => 
       }
 
       let one = null;
-
       if (consume) {
         const pick = await client.query(
           `
           WITH picked AS (
             SELECT user_id, device_id, prekey_id
             FROM signal_one_time_prekeys
-            WHERE user_id = $1
-              AND device_id = $2
-              AND is_used = false
+            WHERE user_id = $1 AND device_id = $2 AND is_used = false
             ORDER BY prekey_id
             LIMIT 1
             FOR UPDATE SKIP LOCKED
@@ -612,9 +550,7 @@ app.get('/api/signal/keys/bundle/:userId', requireHttpAuth, async (req, res) => 
           `
           SELECT prekey_id, prekey_public
           FROM signal_one_time_prekeys
-          WHERE user_id = $1
-            AND device_id = $2
-            AND is_used = false
+          WHERE user_id = $1 AND device_id = $2 AND is_used = false
           ORDER BY prekey_id
           LIMIT 1
           `,
@@ -626,21 +562,15 @@ app.get('/api/signal/keys/bundle/:userId', requireHttpAuth, async (req, res) => 
       await client.query('COMMIT');
 
       const row = dev.rows[0];
-
       res.json({
         ok: true,
         bundle: {
           userId: targetLower,
           deviceId,
           registrationId: Number(row.registration_id),
-
-          // new
           identitySignPublic: bufToB64(row.identity_sign_public),
           identityDhPublic: bufToB64(row.identity_key_public),
-
-          // backward compat
           identityKeyPublic: bufToB64(row.identity_key_public),
-
           signedPreKey: {
             id: Number(row.signed_prekey_id),
             publicKey: bufToB64(row.signed_prekey_public),
@@ -651,9 +581,7 @@ app.get('/api/signal/keys/bundle/:userId', requireHttpAuth, async (req, res) => 
             publicKey: bufToB64(row.kyber_prekey_public),
             signature: bufToB64(row.kyber_prekey_signature)
           },
-          oneTimePreKey: one
-            ? { id: Number(one.prekey_id), publicKey: bufToB64(one.prekey_public) }
-            : null
+          oneTimePreKey: one ? { id: Number(one.prekey_id), publicKey: bufToB64(one.prekey_public) } : null
         }
       });
     } catch (e) {
@@ -669,7 +597,6 @@ app.get('/api/signal/keys/bundle/:userId', requireHttpAuth, async (req, res) => 
   }
 });
 
-// count available prekeys
 app.get('/api/signal/keys/prekeys/count', requireHttpAuth, async (req, res) => {
   try {
     if (!signalPool) return res.status(500).json({ ok: false, error: 'signal_db_unavailable' });
@@ -679,11 +606,9 @@ app.get('/api/signal/keys/prekeys/count', requireHttpAuth, async (req, res) => {
     const deviceId = Number(req.query.deviceId || 1);
 
     const r = await signalPool.query(
-      `
-      SELECT COUNT(*)::int AS count
-      FROM signal_one_time_prekeys
-      WHERE user_id = $1 AND device_id = $2 AND is_used = false
-      `,
+      `SELECT COUNT(*)::int AS count
+       FROM signal_one_time_prekeys
+       WHERE user_id = $1 AND device_id = $2 AND is_used = false`,
       [userId, deviceId]
     );
 
@@ -695,7 +620,7 @@ app.get('/api/signal/keys/prekeys/count', requireHttpAuth, async (req, res) => {
 });
 
 // ════════════════════════════════════════════
-//  ГЛОБАЛЬНЫЙ HTTP ERROR HANDLER
+//  GLOBAL HTTP ERROR
 // ════════════════════════════════════════════
 app.use((err, req, res, next) => {
   console.error('[HTTP ERROR]', err.stack || err);
@@ -739,14 +664,15 @@ const io = new Server(server, {
 });
 
 // ════════════════════════════════════════════
-//  RUNTIME STORE
+//  RUNTIME
 // ════════════════════════════════════════════
-const clients = new Map();
-const rooms = new Map();
-const onlineUsers = new Map();
+const clients = new Map(); // socketId -> {nickname,nickLower,roomId,authed,lastSeen}
+const rooms = new Map();   // roomId -> runtime object
+const onlineUsers = new Map(); // nickLower -> socketId
 
 const MAX_STORED_MESSAGES = 200;
 const MAX_ENCRYPTED_B64_LEN = 35 * 1024 * 1024;
+const MAX_CAPTION_B64_LEN = 200 * 1024;
 
 const FILE_LIMITS = {
   image: 10 * 1024 * 1024,
@@ -758,15 +684,17 @@ const FILE_LIMITS = {
 function validateMessagePayload(data) {
   const type = String(data?.type || 'text');
   const encrypted = data?.encrypted ? String(data.encrypted) : '';
-  if (!encrypted || encrypted.length > MAX_ENCRYPTED_B64_LEN) {
-    return { ok: false, error: 'payload_too_large' };
-  }
+  if (!encrypted || encrypted.length > MAX_ENCRYPTED_B64_LEN) return { ok: false, error: 'payload_too_large' };
+
+  const capEnc = data?.captionEncrypted ? String(data.captionEncrypted) : '';
+  const capIv = data?.captionIv ? String(data.captionIv) : '';
+  if (capEnc && capEnc.length > MAX_CAPTION_B64_LEN) return { ok: false, error: 'caption_too_large' };
+  if (capEnc && !capIv) return { ok: false, error: 'caption_bad_iv' };
 
   if (type === 'text') return { ok: true };
 
   const fileSize = Number(data?.fileSize || 0);
   if (!Number.isFinite(fileSize) || fileSize <= 0) return { ok: false, error: 'bad_size' };
-
   const limit = FILE_LIMITS[type] || FILE_LIMITS.file;
   if (fileSize > limit) return { ok: false, error: 'file_too_large' };
 
@@ -778,15 +706,21 @@ function validateMessagePayload(data) {
   return { ok: true };
 }
 
-// ONLINE STATUS HELPERS
 function isOnline(nickLower) {
   return onlineUsers.has(nickLower);
+}
+
+function emitOnline(nickLower) {
+  io.emit('user-online', { nickLower });
+}
+function emitOffline(nickLower, lastSeen) {
+  io.emit('user-offline', { nickLower, lastSeen });
 }
 
 function setOnline(nickLower, socketId) {
   const wasOnline = onlineUsers.has(nickLower);
   onlineUsers.set(nickLower, socketId);
-  if (!wasOnline) io.emit('user-online', nickLower);
+  if (!wasOnline) emitOnline(nickLower);
 }
 
 function setOffline(nickLower, socketId) {
@@ -801,13 +735,13 @@ function setOffline(nickLower, socketId) {
   }
 
   const existed = onlineUsers.delete(nickLower);
-  if (existed) io.emit('user-offline', nickLower);
+  if (existed) emitOffline(nickLower, Date.now());
 }
 
 // ════════════════════════════════════════════
-//  REACTIONS
+//  REACTIONS (runtime)
 // ════════════════════════════════════════════
-const messageReactions = new Map();
+const messageReactions = new Map(); // msgId -> Map(emoji -> Set(nickLower))
 
 function getReactions(msgId) {
   const map = messageReactions.get(msgId);
@@ -835,8 +769,26 @@ function removeReaction(msgId, emoji, nickLower) {
 }
 
 // ════════════════════════════════════════════
-//  ROOM LIST
+//  ROOM HELPERS
 // ════════════════════════════════════════════
+function canManageRoom(room, nickLower) {
+  if (!room || !nickLower) return false;
+  if (room.ownerNick === nickLower) return true;
+  const role = room.roles?.get(nickLower);
+  return role === 'admin';
+}
+function canModerateRoom(room, nickLower) {
+  if (!room || !nickLower) return false;
+  if (room.ownerNick === nickLower) return true;
+  const role = room.roles?.get(nickLower);
+  return role === 'admin' || role === 'moderator';
+}
+function getRoomRole(room, nickLower) {
+  if (!room || !nickLower) return null;
+  if (room.ownerNick === nickLower) return 'owner';
+  return room.roles?.get(nickLower) || null;
+}
+
 function getRoomList(nickLower) {
   const list = [];
   for (const [id, room] of rooms.entries()) {
@@ -844,17 +796,25 @@ function getRoomList(nickLower) {
     const isOwner = room.ownerNick === nickLower;
     if (!isMember && !isOwner) continue;
 
+    const totalMembers = room.permanentMembers?.size || 0;
+    const onlineCount = [...(room.permanentMembers || [])].filter(m => isOnline(m)).length;
+
     const entry = {
       id,
       name: room.name,
       hasPassword: !!room.passwordHash,
       photo: room.photo || null,
-      memberCount: room.members.size,
+      memberCount: totalMembers,
+      onlineCount,
       createdAt: room.createdAt,
-      ownerId: null,
+      ownerId: room.ownerNick,
       autoDelete: room.autoDelete || null,
-      joinMode: room.joinMode || 'open'
+      joinMode: room.joinMode || 'open',
+      voiceEnabled: room.voiceEnabled !== false,
+      wallpaper: room.wallpaper || null,
+      descriptionText: room.descriptionText || ''
     };
+
     if (room.members.size === 0 && room.emptyAt && room.autoDelete) {
       entry.deleteAt = room.emptyAt + room.autoDelete;
     }
@@ -875,14 +835,16 @@ function broadcastRoomList() {
 function scheduleRoomDelete(roomId) {
   const room = rooms.get(roomId);
   if (!room) return;
+
   if (!room.autoDelete) {
     room.emptyAt = Date.now();
     broadcastRoomList();
     return;
   }
-  if (room.emptyTimer) return;
 
+  if (room.emptyTimer) return;
   room.emptyAt = Date.now();
+
   room.emptyTimer = setTimeout(async () => {
     const r = rooms.get(roomId);
     if (r && r.members.size === 0) {
@@ -911,19 +873,29 @@ function cancelRoomDelete(roomId) {
 // ════════════════════════════════════════════
 async function loadRoomsFromDB() {
   const dbRooms = await RoomDB.getAll();
+
   for (const room of dbRooms) {
     const members = await RoomDB.getMembers(room.id);
+    const roles = await RoomDB.getRoles(room.id);
+
+    const roleMap = new Map();
+    for (const r of roles) roleMap.set(r.nickLower, r.role);
+
+    if (!roleMap.has(room.ownerNick)) roleMap.set(room.ownerNick, 'owner');
+
     rooms.set(room.id, {
       ...room,
-      members: new Set(),
+      members: new Set(), // online sockets in room
       permanentMembers: new Set(members),
       pendingRequests: [],
       emptyTimer: null,
       emptyAt: null,
       lastSeq: new Map(),
-      messages: []
+      messages: [],
+      roles: roleMap
     });
   }
+
   console.log(`Loaded ${dbRooms.length} rooms from DB`);
 }
 
@@ -959,7 +931,7 @@ setInterval(async () => {
 // ════════════════════════════════════════════
 io.on('connection', (socket) => {
   console.log('Connected:', socket.id);
-  clients.set(socket.id, { nickname: '', nickLower: '', roomId: null, authed: false });
+  clients.set(socket.id, { nickname: '', nickLower: '', roomId: null, authed: false, lastSeen: Date.now() });
   const clientIp = getClientIp(socket);
 
   socket.emit('room-list', []);
@@ -987,10 +959,6 @@ io.on('connection', (socket) => {
     return c;
   }
 
-  function isRoomOwner(client, room) {
-    return !!client && !!room && client.nickLower === room.ownerNick;
-  }
-
   function leaveRoom(sock, roomId) {
     const room = rooms.get(roomId);
     const client = clients.get(sock.id);
@@ -1010,11 +978,10 @@ io.on('connection', (socket) => {
     if (client) client.roomId = null;
   }
 
-  // AUTH
+  // AUTH REGISTER
   safeOn('auth-register', async ({ nickname, password, hint, phone, username }, cb) => {
     const nick = String(nickname || '').trim().slice(0, 32);
     const lower = nick.toLowerCase();
-
     if (!nick || nick.length < 2) return cb({ ok: false, error: 'nick_short' });
 
     const pwErr = validatePassword(String(password || ''));
@@ -1025,8 +992,8 @@ io.on('connection', (socket) => {
       .slice(0, 32)
       .toLowerCase()
       .replace(/[^a-z0-9_]/g, '');
-
     if (!uname || uname.length < 2) return cb({ ok: false, error: 'username_invalid' });
+
     if (await UserDB.has(lower)) return cb({ ok: false, error: 'nick_taken' });
     if (await UserDB.hasUsername(uname)) return cb({ ok: false, error: 'username_taken' });
 
@@ -1058,19 +1025,15 @@ io.on('connection', (socket) => {
     client.nickname = nick;
     client.nickLower = lower;
     client.authed = true;
+    client.lastSeen = Date.now();
 
     setOnline(lower, socket.id);
     socket.emit('room-list', getRoomList(lower));
 
-    cb({
-      ok: true,
-      token,
-      nickname: nick,
-      username: uname,
-      avatar: null
-    });
+    cb({ ok: true, token, nickname: nick, username: uname, avatar: null });
   });
 
+  // AUTH LOGIN
   safeOn('auth-login', async ({ nickname, password }, cb) => {
     const login = String(nickname || '').trim().toLowerCase();
     const key = `${clientIp}:login`;
@@ -1094,12 +1057,6 @@ io.on('connection', (socket) => {
       return setTimeout(() => cb({ ok: false, error: 'wrong_creds' }), 700);
     }
 
-    if (!userLower || userLower === login) {
-      const row = await queryOne('SELECT nick_lower FROM users WHERE nickname = ? OR nick_lower = ?', [user.nickname, login]);
-      if (row?.nick_lower) userLower = row.nick_lower;
-    }
-    if (!userLower) userLower = login;
-
     if (!verifyPassword(password, user.passwordHash)) {
       recordFailedAttempt(key);
       return setTimeout(() => cb({ ok: false, error: 'wrong_creds' }), 700);
@@ -1118,6 +1075,7 @@ io.on('connection', (socket) => {
     client.nickname = user.nickname;
     client.nickLower = userLower;
     client.authed = true;
+    client.lastSeen = Date.now();
 
     setOnline(userLower, socket.id);
 
@@ -1141,6 +1099,7 @@ io.on('connection', (socket) => {
     });
   });
 
+  // AUTH TOKEN
   safeOn('auth-token', async ({ token }, cb) => {
     const lower = await TokenDB.get(token);
     if (!lower) return cb({ ok: false, error: 'invalid_token' });
@@ -1152,13 +1111,12 @@ io.on('connection', (socket) => {
     client.nickname = user.nickname;
     client.nickLower = lower;
     client.authed = true;
+    client.lastSeen = Date.now();
 
     setOnline(lower, socket.id);
 
     const myRooms = await RoomDB.getUserRooms(lower);
-    for (const roomId of myRooms) {
-      if (rooms.has(roomId)) socket.join(roomId);
-    }
+    for (const roomId of myRooms) if (rooms.has(roomId)) socket.join(roomId);
 
     const privateRows = await PrivateChatDB.getUserChats(lower);
     for (const row of privateRows) socket.join('pc:' + row.chat_id);
@@ -1176,9 +1134,11 @@ io.on('connection', (socket) => {
 
   safeOn('auth-logout', async ({ token }, cb) => {
     if (token) await TokenDB.delete(token);
-
     const client = clients.get(socket.id);
-    if (client?.nickLower) setOffline(client.nickLower, socket.id);
+    if (client?.nickLower) {
+      client.lastSeen = Date.now();
+      setOffline(client.nickLower, socket.id);
+    }
 
     if (client) {
       client.authed = false;
@@ -1186,8 +1146,7 @@ io.on('connection', (socket) => {
       client.nickLower = '';
       client.roomId = null;
     }
-
-    cb && cb({ ok: true });
+    cb?.({ ok: true });
   });
 
   safeOn('auth-get-hint', async ({ nickname }, cb) => {
@@ -1195,7 +1154,6 @@ io.on('connection', (socket) => {
     let user = await UserDB.get(lower);
     if (!user) user = await UserDB.getByUsername(lower);
     if (!user) return cb({ ok: false, error: 'not_found' });
-
     cb({ ok: true, hint: decryptHint(user.hint) || '' });
   });
 
@@ -1205,17 +1163,13 @@ io.on('connection', (socket) => {
     const key = `${clientIp}:reset-start`;
     const bf = checkBruteForce(key);
     if (bf.blocked) return cb({ ok: true });
-
     if (!cleanPhone) return cb({ ok: true });
 
     const now = Date.now();
     const existing = otpStore.get(cleanPhone);
-    if (existing?.cooldownUntil && now < existing.cooldownUntil) {
-      return cb({ ok: true });
-    }
+    if (existing?.cooldownUntil && now < existing.cooldownUntil) return cb({ ok: true });
 
     const row = await queryOne('SELECT nick_lower FROM users WHERE phone = ?', [cleanPhone]);
-
     if (row?.nick_lower) {
       const code = String(Math.floor(100000 + Math.random() * 900000));
       otpStore.set(cleanPhone, {
@@ -1251,17 +1205,24 @@ io.on('connection', (socket) => {
     }
 
     entry.attempts += 1;
-    if (otpHash(cleanCode) !== entry.codeHash) {
-      return cb({ ok: false, error: 'otp_invalid' });
-    }
+    if (otpHash(cleanCode) !== entry.codeHash) return cb({ ok: false, error: 'otp_invalid' });
 
     await UserDB.update(entry.nickLower, { passwordHash: hashPassword(newPassword) });
     otpStore.delete(cleanPhone);
     cb({ ok: true });
   });
 
-  safeOn('auth-reset-password', async (_data, cb) => {
-    cb({ ok: false, error: 'use_otp_reset' });
+  safeOn('auth-reset-password', async (_data, cb) => cb({ ok: false, error: 'use_otp_reset' }));
+
+  // compatibility with frontend
+  safeOn('set-nickname', async (nickname, cb) => {
+    const client = clients.get(socket.id);
+    if (!client?.authed) return cb?.({ ok: false, error: 'not_authed' });
+    const nn = String(nickname || '').trim().slice(0, 32);
+    if (!nn) return cb?.({ ok: false, error: 'bad_nickname' });
+    client.nickname = nn;
+    await UserDB.update(client.nickLower, { nickname: nn });
+    cb?.({ ok: true });
   });
 
   // PROFILE / PRIVACY
@@ -1343,10 +1304,8 @@ io.on('connection', (socket) => {
   safeOn('privacy-get', async (cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
-
     const user = await UserDB.get(client.nickLower);
     if (!user) return cb({ ok: false, error: 'not_found' });
-
     cb({ ok: true, privacy: user.privacy || {} });
   });
 
@@ -1382,7 +1341,7 @@ io.on('connection', (socket) => {
   safeOn('get-online-status', async ({ nicknames }, cb) => {
     const out = {};
     for (const n of (nicknames || [])) out[String(n).toLowerCase()] = isOnline(String(n).toLowerCase());
-    cb && cb({ ok: true, statuses: out });
+    cb?.({ ok: true, statuses: out });
   });
 
   // BLOCK / FRIENDS
@@ -1468,12 +1427,56 @@ io.on('connection', (socket) => {
   safeOn('friends-list', async (cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
-
     cb({
       ok: true,
       friends: await UserDB.getFriends(client.nickLower),
       requests: await UserDB.getFriendRequests(client.nickLower)
     });
+  });
+
+  // SEARCH
+  safeOn('search-chats', async ({ query: q }, cb) => {
+    const client = requireAuthed(cb);
+    if (!client) return;
+
+    const queryStr = String(q || '').trim().toLowerCase();
+    if (!queryStr) return cb({ ok: true, rooms: [], users: [] });
+
+    const roomsOut = [];
+    for (const [id, room] of rooms.entries()) {
+      const canSee = room.permanentMembers.has(client.nickLower) || room.ownerNick === client.nickLower;
+      if (!canSee) continue;
+      if (!room.name.toLowerCase().includes(queryStr)) continue;
+      roomsOut.push({
+        id,
+        name: room.name,
+        hasPassword: !!room.passwordHash,
+        photo: room.photo || null,
+        memberCount: room.permanentMembers.size,
+        joinMode: room.joinMode || 'open'
+      });
+      if (roomsOut.length >= 30) break;
+    }
+
+    const usersRows = await query(
+      `SELECT nick_lower, nickname, username, avatar
+       FROM users
+       WHERE nick_lower LIKE ? OR nickname LIKE ? OR username LIKE ?
+       ORDER BY created_at DESC
+       LIMIT 30`,
+      [`%${queryStr}%`, `%${queryStr}%`, `%${queryStr}%`]
+    );
+
+    const usersOut = usersRows
+      .filter(u => u.nick_lower !== client.nickLower)
+      .map(u => ({
+        lower: u.nick_lower,
+        nickname: u.nickname,
+        username: u.username,
+        avatar: u.avatar || null
+      }));
+
+    cb({ ok: true, rooms: roomsOut, users: usersOut });
   });
 
   // PRIVATE CHATS
@@ -1518,6 +1521,18 @@ io.on('connection', (socket) => {
     });
   });
 
+  safeOn('private-chat-join', async ({ chatId }, cb) => {
+    const client = requireAuthed(cb);
+    if (!client) return;
+    if (!chatId) return cb?.({ ok: false, error: 'bad_chat' });
+
+    const isMember = await PrivateChatDB.isMember(chatId, client.nickLower);
+    if (!isMember) return cb?.({ ok: false, error: 'not_member' });
+
+    socket.join('pc:' + chatId);
+    cb?.({ ok: true });
+  });
+
   safeOn('private-chat-list', async (cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
@@ -1532,6 +1547,7 @@ io.on('connection', (socket) => {
         withNickname: other?.nickname || otherLower,
         withAvatar: other?.avatar || null,
         withLower: otherLower,
+        wallpaper: row.wallpaper || null,
         createdAt: Number(row.created_at) || Date.now(),
         online: isOnline(otherLower),
         lastMessage: (row.last_type && lastTs && !isNaN(lastTs))
@@ -1543,6 +1559,33 @@ io.on('connection', (socket) => {
     cb({ ok: true, chats: list });
   });
 
+  safeOn('private-set-wallpaper', async ({ chatId, wallpaper }, cb) => {
+    const client = requireAuthed(cb);
+    if (!client) return;
+    if (!chatId) return cb({ ok: false, error: 'bad_chat' });
+
+    const isMember = await PrivateChatDB.isMember(chatId, client.nickLower);
+    if (!isMember) return cb({ ok: false, error: 'not_member' });
+
+    const wp = wallpaper ? String(wallpaper) : null;
+    if (wp && wp.length > 5 * 1024 * 1024) return cb({ ok: false, error: 'wallpaper_too_large' });
+
+    await PrivateChatDB.setWallpaper(chatId, wp);
+    io.to('pc:' + chatId).emit('private-wallpaper-updated', { chatId, wallpaper: wp, by: client.nickLower });
+    cb({ ok: true, wallpaper: wp });
+  });
+
+  safeOn('private-get-wallpaper', async ({ chatId }, cb) => {
+    const client = requireAuthed(cb);
+    if (!client) return;
+    if (!chatId) return cb({ ok: false, error: 'bad_chat' });
+    const isMember = await PrivateChatDB.isMember(chatId, client.nickLower);
+    if (!isMember) return cb({ ok: false, error: 'not_member' });
+
+    const wallpaper = await PrivateChatDB.getWallpaper(chatId);
+    cb({ ok: true, wallpaper: wallpaper || null });
+  });
+
   safeOn('private-message', async (payload, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
@@ -1552,6 +1595,8 @@ io.on('connection', (socket) => {
         chatId,
         encrypted,
         iv,
+        captionEncrypted = null,
+        captionIv = null,
         type = 'text',
         fileName = null,
         fileSize = null,
@@ -1561,11 +1606,12 @@ io.on('connection', (socket) => {
         replyTo = null
       } = payload || {};
 
-      if (!chatId || !encrypted || !iv) {
-        return cb?.({ ok: false, error: 'bad_payload' });
-      }
+      if (!chatId || !encrypted || !iv) return cb?.({ ok: false, error: 'bad_payload' });
 
-      const v = validateMessagePayload({ encrypted, type, fileSize, mimeType });
+      const v = validateMessagePayload({
+        encrypted, iv, type, fileSize, mimeType,
+        captionEncrypted, captionIv
+      });
       if (!v.ok) return cb?.({ ok: false, error: v.error });
 
       const isMember = await PrivateChatDB.isMember(chatId, client.nickLower);
@@ -1588,6 +1634,8 @@ io.on('connection', (socket) => {
         fromAvatar: fromUser?.avatar || null,
         encrypted,
         iv,
+        captionEncrypted,
+        captionIv,
         type,
         fileName,
         fileSize,
@@ -1613,7 +1661,7 @@ io.on('connection', (socket) => {
         reactions: getReactions(msgId)
       };
 
-      socket.to('pc:' + chatId).emit('private-message', out);
+      io.to('pc:' + chatId).emit('private-message', out);
 
       if (isOnline(peerLower)) {
         socket.emit('msg-delivered', { chatId, msgId });
@@ -1627,12 +1675,11 @@ io.on('connection', (socket) => {
   safeOn('private-chat-history', async ({ chatId, limit, beforeTs }, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
-
     if (!await PrivateChatDB.isMember(chatId, client.nickLower)) {
       return cb({ ok: false, error: 'not_member' });
     }
 
-    const lim = Math.max(1, Math.min(100, Number(limit) || 50));
+    const lim = Math.max(1, Math.min(200, Number(limit) || 50));
     const hasBefore =
       beforeTs !== null &&
       beforeTs !== undefined &&
@@ -1650,9 +1697,7 @@ io.on('connection', (socket) => {
       hasBefore ? [chatId, before, lim] : [chatId, lim]
     );
 
-    if (!baseRows.length) {
-      return cb({ ok: true, messages: [], hasMore: false });
-    }
+    if (!baseRows.length) return cb({ ok: true, messages: [], hasMore: false });
 
     const msgIds = baseRows.map(r => r.msg_id);
 
@@ -1662,7 +1707,6 @@ io.on('connection', (socket) => {
        WHERE msg_id IN (${msgIds.map(() => '?').join(',')})`,
       msgIds
     );
-
     const delRows = await query(
       `SELECT msg_id, nick_lower
        FROM private_msg_deleted_for
@@ -1675,7 +1719,6 @@ io.on('connection', (socket) => {
       if (!readMap.has(r.msg_id)) readMap.set(r.msg_id, []);
       readMap.get(r.msg_id).push(r.nick_lower);
     }
-
     const delMap = new Map();
     for (const r of delRows) {
       if (!delMap.has(r.msg_id)) delMap.set(r.msg_id, []);
@@ -1690,6 +1733,8 @@ io.on('connection', (socket) => {
       fromAvatar: r.from_avatar || null,
       encrypted: r.encrypted || null,
       iv: r.iv || null,
+      captionEncrypted: r.caption_encrypted || null,
+      captionIv: r.caption_iv || null,
       type: r.type || 'text',
       fileName: r.file_name || null,
       fileSize: r.file_size ? Number(r.file_size) : null,
@@ -1704,7 +1749,6 @@ io.on('connection', (socket) => {
     }));
 
     const filtered = messages.filter(m => !m.deletedFor.includes(client.nickLower));
-
     cb({
       ok: true,
       messages: filtered.map(m => ({ ...m, reactions: getReactions(m.id) })),
@@ -1712,7 +1756,90 @@ io.on('connection', (socket) => {
     });
   });
 
-  // ROOMS
+  safeOn('private-msg-read', async ({ chatId, msgId }, cb) => {
+    const client = requireAuthed(cb);
+    if (!client) return;
+    if (!chatId || !msgId) return cb?.({ ok: false, error: 'bad_payload' });
+
+    if (!await PrivateChatDB.isMember(chatId, client.nickLower)) return cb?.({ ok: false, error: 'not_member' });
+
+    await PrivateChatDB.markRead(msgId, client.nickLower);
+    io.to('pc:' + chatId).emit('msg-read', { chatId, msgId, by: client.nickLower });
+    cb?.({ ok: true });
+  });
+
+  safeOn('private-msg-delete', async ({ chatId, msgId, deleteFor }, cb) => {
+    const client = requireAuthed(cb);
+    if (!client) return;
+    if (!chatId || !msgId) return cb({ ok: false, error: 'bad_payload' });
+    if (!await PrivateChatDB.isMember(chatId, client.nickLower)) return cb({ ok: false, error: 'not_member' });
+
+    const msg = await PrivateChatDB.getMessage(msgId);
+    if (!msg) return cb({ ok: false, error: 'not_found' });
+
+    const mine = msg.from === client.nickLower;
+
+    if (deleteFor === 'all') {
+      if (!mine) return cb({ ok: false, error: 'not_allowed' });
+      await PrivateChatDB.deleteMessage(msgId);
+      messageReactions.delete(msgId);
+      io.to('pc:' + chatId).emit('private-msg-deleted', { chatId, msgId, deleteFor: 'all' });
+      return cb({ ok: true });
+    }
+
+    if (deleteFor === 'me') {
+      await PrivateChatDB.addDeletedFor(msgId, client.nickLower);
+      socket.emit('private-msg-deleted', { chatId, msgId, deleteFor: 'me' });
+      return cb({ ok: true });
+    }
+
+    cb({ ok: false, error: 'invalid_delete_for' });
+  });
+
+  safeOn('private-msg-edit', async ({ chatId, msgId, newEncrypted, newIv }, cb) => {
+    const client = requireAuthed(cb);
+    if (!client) return;
+    if (!chatId || !msgId || !newEncrypted || !newIv) return cb({ ok: false, error: 'bad_payload' });
+    if (String(newEncrypted).length > MAX_ENCRYPTED_B64_LEN) return cb({ ok: false, error: 'payload_too_large' });
+    if (!await PrivateChatDB.isMember(chatId, client.nickLower)) return cb({ ok: false, error: 'not_member' });
+
+    const msg = await PrivateChatDB.getMessage(msgId);
+    if (!msg) return cb({ ok: false, error: 'not_found' });
+    if (msg.from !== client.nickLower) return cb({ ok: false, error: 'not_yours' });
+    if (msg.type !== 'text') return cb({ ok: false, error: 'not_text' });
+
+    await PrivateChatDB.editMessage(msgId, newEncrypted, newIv);
+    io.to('pc:' + chatId).emit('private-msg-edited', {
+      chatId, msgId, newEncrypted, newIv, editedAt: Date.now()
+    });
+    cb({ ok: true });
+  });
+
+  safeOn('private-typing-start', async ({ chatId }, cb) => {
+    const client = requireAuthed(cb);
+    if (!client) return;
+    if (!chatId) return cb?.({ ok: false, error: 'bad_chat' });
+    if (!await PrivateChatDB.isMember(chatId, client.nickLower)) return cb?.({ ok: false, error: 'not_member' });
+
+    socket.to('pc:' + chatId).emit('private-typing-start', {
+      chatId, from: client.nickLower, fromNick: client.nickname
+    });
+    cb?.({ ok: true });
+  });
+
+  safeOn('private-typing-stop', async ({ chatId }, cb) => {
+    const client = requireAuthed(cb);
+    if (!client) return;
+    if (!chatId) return cb?.({ ok: false, error: 'bad_chat' });
+    if (!await PrivateChatDB.isMember(chatId, client.nickLower)) return cb?.({ ok: false, error: 'not_member' });
+
+    socket.to('pc:' + chatId).emit('private-typing-stop', {
+      chatId, from: client.nickLower
+    });
+    cb?.({ ok: true });
+  });
+
+  // GROUPS
   safeOn('create-room', async ({ name, password, photo, autoDelete, joinMode }, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
@@ -1746,13 +1873,17 @@ io.on('connection', (socket) => {
       autoDelete: autoDeleteMs,
       salt: roomSalt,
       createdAt: Date.now(),
+      voiceEnabled: true,
+      wallpaper: null,
+      descriptionText: '',
       members: new Set(),
       permanentMembers: new Set([client.nickLower]),
       pendingRequests: [],
       emptyTimer: null,
       emptyAt: null,
       lastSeq: new Map(),
-      messages: []
+      messages: [],
+      roles: new Map([[client.nickLower, 'owner']])
     };
 
     await RoomDB.create(roomId, roomData);
@@ -1770,7 +1901,7 @@ io.on('connection', (socket) => {
 
     const room = rooms.get(roomId);
     if (!room) return cb({ ok: false, error: 'not_found' });
-    if (!isRoomOwner(client, room)) return cb({ ok: false, error: 'not_owner' });
+    if (room.ownerNick !== client.nickLower) return cb({ ok: false, error: 'not_owner' });
 
     io.to(roomId).emit('room-deleted', { roomId, roomName: room.name });
 
@@ -1791,14 +1922,15 @@ io.on('connection', (socket) => {
   safeOn('leave-room-permanent', async ({ roomId }, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
-
     const room = rooms.get(roomId);
     if (!room) return cb({ ok: false, error: 'not_found' });
-
-    if (isRoomOwner(client, room)) return cb({ ok: false, error: 'owner_cannot_leave' });
+    if (room.ownerNick === client.nickLower) return cb({ ok: false, error: 'owner_cannot_leave' });
 
     room.permanentMembers.delete(client.nickLower);
+    room.roles.delete(client.nickLower);
+
     await RoomDB.removeMember(roomId, client.nickLower);
+    await RoomDB.removeRole(roomId, client.nickLower);
 
     socket.leave(roomId);
 
@@ -1822,13 +1954,13 @@ io.on('connection', (socket) => {
     cb({ ok: true });
   });
 
-  safeOn('room-settings-update', async ({ roomId, autoDelete, joinMode }, cb) => {
+  safeOn('room-settings-update', async ({ roomId, autoDelete, joinMode, voiceEnabled, wallpaper, descriptionText }, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
 
     const room = rooms.get(roomId);
     if (!room) return cb({ ok: false, error: 'not_found' });
-    if (!isRoomOwner(client, room)) return cb({ ok: false, error: 'not_owner' });
+    if (!canManageRoom(room, client.nickLower)) return cb({ ok: false, error: 'not_allowed' });
 
     const updates = {};
 
@@ -1847,15 +1979,53 @@ io.on('connection', (socket) => {
       updates.joinMode = room.joinMode;
     }
 
+    if (voiceEnabled !== undefined) {
+      room.voiceEnabled = !!voiceEnabled;
+      updates.voiceEnabled = !!voiceEnabled;
+    }
+
+    if (wallpaper !== undefined) {
+      const wp = wallpaper ? String(wallpaper) : null;
+      if (wp && wp.length > 5 * 1024 * 1024) return cb({ ok: false, error: 'wallpaper_too_large' });
+      room.wallpaper = wp;
+      updates.wallpaper = wp;
+    }
+
+    if (descriptionText !== undefined) {
+      room.descriptionText = String(descriptionText || '').slice(0, 2000);
+      updates.descriptionText = room.descriptionText;
+    }
+
     await RoomDB.update(roomId, updates);
     broadcastRoomList();
+
     io.to(roomId).emit('room-settings-changed', {
       roomId,
       autoDelete: room.autoDelete,
-      joinMode: room.joinMode
+      joinMode: room.joinMode,
+      voiceEnabled: room.voiceEnabled,
+      wallpaper: room.wallpaper,
+      descriptionText: room.descriptionText
     });
 
     cb({ ok: true });
+  });
+
+  safeOn('room-set-wallpaper', async ({ roomId, wallpaper }, cb) => {
+    const client = requireAuthed(cb);
+    if (!client) return;
+    const room = rooms.get(roomId);
+    if (!room) return cb({ ok: false, error: 'not_found' });
+    if (!canManageRoom(room, client.nickLower)) return cb({ ok: false, error: 'not_allowed' });
+
+    const wp = wallpaper ? String(wallpaper) : null;
+    if (wp && wp.length > 5 * 1024 * 1024) return cb({ ok: false, error: 'wallpaper_too_large' });
+
+    room.wallpaper = wp;
+    await RoomDB.update(roomId, { wallpaper: wp });
+
+    io.to(roomId).emit('room-wallpaper-updated', { roomId, wallpaper: wp, by: client.nickLower });
+    cb({ ok: true, wallpaper: wp });
   });
 
   safeOn('room-rename', async ({ roomId, newName }, cb) => {
@@ -1864,7 +2034,7 @@ io.on('connection', (socket) => {
 
     const room = rooms.get(roomId);
     if (!room) return cb({ ok: false, error: 'not_found' });
-    if (!isRoomOwner(client, room)) return cb({ ok: false, error: 'not_owner' });
+    if (!canManageRoom(room, client.nickLower)) return cb({ ok: false, error: 'not_allowed' });
 
     const name = String(newName || '').trim().slice(0, 50);
     if (!name) return cb({ ok: false, error: 'empty_name' });
@@ -1874,7 +2044,6 @@ io.on('connection', (socket) => {
 
     broadcastRoomList();
     io.to(roomId).emit('room-renamed', { roomId, newName: name });
-
     cb({ ok: true });
   });
 
@@ -1884,7 +2053,7 @@ io.on('connection', (socket) => {
 
     const room = rooms.get(roomId);
     if (!room) return cb({ ok: false, error: 'not_found' });
-    if (!isRoomOwner(client, room)) return cb({ ok: false, error: 'not_owner' });
+    if (!canManageRoom(room, client.nickLower)) return cb({ ok: false, error: 'not_allowed' });
 
     const p = photo ? String(photo) : null;
     if (p && p.length > 3 * 1024 * 1024) return cb({ ok: false, error: 'photo_too_large' });
@@ -1894,7 +2063,6 @@ io.on('connection', (socket) => {
 
     broadcastRoomList();
     io.to(roomId).emit('room-photo-updated', { roomId, photo: p });
-
     cb({ ok: true });
   });
 
@@ -1905,24 +2073,123 @@ io.on('connection', (socket) => {
     const room = rooms.get(roomId);
     if (!room) return cb({ ok: false, error: 'not_found' });
 
-    const canAccess = room.permanentMembers.has(client.nickLower) || isRoomOwner(client, room);
+    const canAccess = room.permanentMembers.has(client.nickLower) || room.ownerNick === client.nickLower;
     if (!canAccess) return cb({ ok: false, error: 'not_member' });
 
-    const list = [...room.members].map(sid => {
-      const c = clients.get(sid);
-      return {
-        id: sid,
-        nickname: c?.nickname || shortId(sid),
-        avatar: null,
-        isOwner: c?.nickLower === room.ownerNick
-      };
+    const membersLower = [...room.permanentMembers];
+    const users = [];
+    for (const lower of membersLower) {
+      const u = await UserDB.get(lower);
+      users.push({
+        id: lower,
+        nickLower: lower,
+        nickname: u?.nickname || lower,
+        avatar: u?.avatar || null,
+        online: isOnline(lower),
+        isOwner: lower === room.ownerNick,
+        role: getRoomRole(room, lower) || 'member'
+      });
+    }
+
+    users.sort((a, b) => {
+      if (a.online !== b.online) return a.online ? -1 : 1; // online вверх
+      const rank = r => r === 'owner' ? 0 : r === 'admin' ? 1 : r === 'moderator' ? 2 : 3;
+      if (rank(a.role) !== rank(b.role)) return rank(a.role) - rank(b.role);
+      return a.nickname.localeCompare(b.nickname, 'ru');
     });
 
     cb({
       ok: true,
-      members: list,
-      pendingRequests: isRoomOwner(client, room) ? (room.pendingRequests || []) : []
+      members: users,
+      pendingRequests: canManageRoom(room, client.nickLower) ? (room.pendingRequests || []) : [],
+      meRole: getRoomRole(room, client.nickLower) || 'member'
     });
+  });
+
+  safeOn('room-roles', async ({ roomId }, cb) => {
+    const client = requireAuthed(cb);
+    if (!client) return;
+    const room = rooms.get(roomId);
+    if (!room) return cb({ ok: false, error: 'not_found' });
+
+    const canAccess = room.permanentMembers.has(client.nickLower) || room.ownerNick === client.nickLower;
+    if (!canAccess) return cb({ ok: false, error: 'not_member' });
+
+    const roles = await RoomDB.getRoles(roomId);
+    cb({ ok: true, roles });
+  });
+
+  safeOn('room-set-role', async ({ roomId, nickLower, role }, cb) => {
+    const client = requireAuthed(cb);
+    if (!client) return;
+    const room = rooms.get(roomId);
+    if (!room) return cb({ ok: false, error: 'not_found' });
+
+    const meRole = getRoomRole(room, client.nickLower);
+    if (meRole !== 'owner') return cb({ ok: false, error: 'only_owner' });
+
+    const target = String(nickLower || '').trim().toLowerCase();
+    if (!target || !room.permanentMembers.has(target)) return cb({ ok: false, error: 'not_member' });
+    if (target === room.ownerNick) return cb({ ok: false, error: 'cannot_change_owner' });
+
+    const normRole = String(role || '').trim().toLowerCase();
+    if (!['admin', 'moderator', 'member'].includes(normRole)) return cb({ ok: false, error: 'bad_role' });
+
+    if (normRole === 'member') {
+      room.roles.delete(target);
+      await RoomDB.removeRole(roomId, target);
+    } else {
+      room.roles.set(target, normRole);
+      await RoomDB.setRole(roomId, target, normRole, client.nickLower);
+    }
+
+    io.to(roomId).emit('room-role-updated', { roomId, nickLower: target, role: normRole });
+    cb({ ok: true });
+  });
+
+  safeOn('room-kick', async ({ roomId, nickLower }, cb) => {
+    const client = requireAuthed(cb);
+    if (!client) return;
+    const room = rooms.get(roomId);
+    if (!room) return cb({ ok: false, error: 'not_found' });
+
+    const by = client.nickLower;
+    if (!canModerateRoom(room, by)) return cb({ ok: false, error: 'not_allowed' });
+
+    const target = String(nickLower || '').trim().toLowerCase();
+    if (!target || !room.permanentMembers.has(target)) return cb({ ok: false, error: 'not_member' });
+    if (target === room.ownerNick) return cb({ ok: false, error: 'cannot_kick_owner' });
+
+    const byRole = getRoomRole(room, by);
+    const targetRole = getRoomRole(room, target);
+    const rank = r => r === 'owner' ? 3 : r === 'admin' ? 2 : r === 'moderator' ? 1 : 0;
+    if (rank(targetRole) >= rank(byRole) && by !== room.ownerNick) return cb({ ok: false, error: 'cannot_kick_same_or_higher' });
+
+    room.permanentMembers.delete(target);
+    room.roles.delete(target);
+    await RoomDB.removeMember(roomId, target);
+    await RoomDB.removeRole(roomId, target);
+
+    // выгнать все сокеты пользователя из room
+    for (const [sid, c] of clients.entries()) {
+      if (c.authed && c.nickLower === target) {
+        const s = io.sockets.sockets.get(sid);
+        if (!s) continue;
+        s.leave(roomId);
+        if (c.roomId === roomId) c.roomId = null;
+        room.members.delete(sid);
+        io.to(sid).emit('room-kicked', { roomId, by });
+      }
+    }
+
+    io.to(roomId).emit('room-member-left', {
+      roomId,
+      nickname: target,
+      nickLower: target
+    });
+
+    broadcastRoomList();
+    cb({ ok: true });
   });
 
   safeOn('room-request-join', async ({ roomId }, cb) => {
@@ -1967,7 +2234,7 @@ io.on('connection', (socket) => {
 
     const room = rooms.get(roomId);
     if (!room) return cb({ ok: false, error: 'not_found' });
-    if (!isRoomOwner(client, room)) return cb({ ok: false, error: 'not_owner' });
+    if (!canManageRoom(room, client.nickLower)) return cb({ ok: false, error: 'not_allowed' });
 
     const idx = room.pendingRequests.findIndex(r => r.nickLower === nickLower);
     if (idx === -1) return cb({ ok: false, error: 'not_found' });
@@ -1986,6 +2253,7 @@ io.on('connection', (socket) => {
       }
     }
 
+    broadcastRoomList();
     cb({ ok: true });
   });
 
@@ -1996,7 +2264,7 @@ io.on('connection', (socket) => {
     const room = rooms.get(roomId);
     if (!room) return cb({ ok: false, error: 'room_not_found' });
 
-    const canInvite = room.permanentMembers.has(client.nickLower) || isRoomOwner(client, room);
+    const canInvite = room.permanentMembers.has(client.nickLower) || room.ownerNick === client.nickLower;
     if (!canInvite) return cb({ ok: false, error: 'not_member' });
 
     const toLower = String(toNickname || '').trim().toLowerCase();
@@ -2038,7 +2306,7 @@ io.on('connection', (socket) => {
     recordSuccessAttempt(`${clientIp}:join-room`);
 
     const isMember = room.permanentMembers.has(client.nickLower);
-    const owner = isRoomOwner(client, room);
+    const owner = room.ownerNick === client.nickLower;
 
     if (room.joinMode === 'approval' && !owner && !isMember) {
       return cb({ ok: false, error: 'approval_required' });
@@ -2059,21 +2327,26 @@ io.on('connection', (socket) => {
     socket.join(roomId);
 
     const user = await UserDB.get(client.nickLower);
-    const others = [...room.members]
-      .filter(id => id !== socket.id)
-      .map(id => {
-        const c = clients.get(id);
-        return {
-          id,
-          nickname: c?.nickname || shortId(id),
-          avatar: null
-        };
+
+    const others = [];
+    for (const lower of room.permanentMembers) {
+      if (lower === client.nickLower) continue;
+      const u = await UserDB.get(lower);
+      others.push({
+        id: lower,
+        nickLower: lower,
+        nickname: u?.nickname || lower,
+        avatar: u?.avatar || null,
+        online: isOnline(lower),
+        role: getRoomRole(room, lower) || 'member'
       });
+    }
 
     socket.to(roomId).emit('room-user-joined', {
       id: socket.id,
       nickname: client.nickname,
-      avatar: user?.avatar || null
+      avatar: user?.avatar || null,
+      nickLower: client.nickLower
     });
 
     broadcastRoomList();
@@ -2087,9 +2360,13 @@ io.on('connection', (socket) => {
         members: others,
         roomSalt: room.salt,
         isOwner: owner,
+        myRole: getRoomRole(room, client.nickLower) || 'member',
         autoDelete: room.autoDelete,
         joinMode: room.joinMode,
-        pendingRequests: owner ? room.pendingRequests : []
+        voiceEnabled: room.voiceEnabled !== false,
+        wallpaper: room.wallpaper || null,
+        descriptionText: room.descriptionText || '',
+        pendingRequests: canManageRoom(room, client.nickLower) ? room.pendingRequests : []
       }
     });
   });
@@ -2098,7 +2375,7 @@ io.on('connection', (socket) => {
     const client = requireAuthed(cb);
     if (!client) return;
     if (client.roomId) leaveRoom(socket, client.roomId);
-    cb && cb({ ok: true });
+    cb?.({ ok: true });
   });
 
   safeOn('room-history', async ({ roomId }, cb) => {
@@ -2108,7 +2385,7 @@ io.on('connection', (socket) => {
     const room = rooms.get(roomId);
     if (!room) return cb({ ok: false, error: 'not_found' });
 
-    const canAccess = room.permanentMembers.has(client.nickLower) || isRoomOwner(client, room);
+    const canAccess = room.permanentMembers.has(client.nickLower) || room.ownerNick === client.nickLower;
     if (!canAccess) return cb({ ok: false, error: 'not_member' });
 
     if (!room.messages || room.messages.length === 0) {
@@ -2125,24 +2402,22 @@ io.on('connection', (socket) => {
     const client = requireAuthed(cb);
     if (!client) return;
 
-    if (!client.roomId) return cb && cb({ ok: false, error: 'no_room' });
-
+    if (!client.roomId) return cb?.({ ok: false, error: 'no_room' });
     const room = rooms.get(client.roomId);
-    if (!room) return cb && cb({ ok: false, error: 'room_not_found' });
-
-    if (!(room.permanentMembers.has(client.nickLower) || isRoomOwner(client, room))) {
-      return cb && cb({ ok: false, error: 'not_member' });
+    if (!room) return cb?.({ ok: false, error: 'room_not_found' });
+    if (!(room.permanentMembers.has(client.nickLower) || room.ownerNick === client.nickLower)) {
+      return cb?.({ ok: false, error: 'not_member' });
     }
 
     const seqNum = parseInt(data?.seq, 10);
-    if (!Number.isInteger(seqNum) || seqNum < 0) return cb && cb({ ok: false, error: 'bad_seq' });
+    if (!Number.isInteger(seqNum) || seqNum < 0) return cb?.({ ok: false, error: 'bad_seq' });
 
     const lastSeq = room.lastSeq.get(socket.id) || -1;
-    if (seqNum <= lastSeq) return cb && cb({ ok: false, error: 'replay' });
+    if (seqNum <= lastSeq) return cb?.({ ok: false, error: 'replay' });
     room.lastSeq.set(socket.id, seqNum);
 
     const v = validateMessagePayload(data || {});
-    if (!v.ok) return cb && cb({ ok: false, error: v.error });
+    if (!v.ok) return cb?.({ ok: false, error: v.error });
 
     const msgId = generateMsgId();
     const msg = {
@@ -2153,6 +2428,8 @@ io.on('connection', (socket) => {
       nickname: client.nickname,
       encrypted: data.encrypted || null,
       iv: data.iv || null,
+      captionEncrypted: data.captionEncrypted || null,
+      captionIv: data.captionIv || null,
       type: data.type || 'text',
       fileName: data.fileName || null,
       fileSize: data.fileSize || null,
@@ -2177,7 +2454,7 @@ io.on('connection', (socket) => {
     socket.to(client.roomId).emit('chat-message', { ...msg, reactions: {} });
     socket.emit('chat-msg-id', { seq: seqNum, msgId });
 
-    cb && cb({ ok: true, msgId });
+    cb?.({ ok: true, msgId });
   });
 
   safeOn('room-msg-delete', async ({ roomId, msgId, deleteFor }, cb) => {
@@ -2187,17 +2464,17 @@ io.on('connection', (socket) => {
     const room = rooms.get(roomId);
     if (!room) return cb({ ok: false, error: 'not_found' });
 
-    const canAccess = room.permanentMembers.has(client.nickLower) || isRoomOwner(client, room);
+    const canAccess = room.permanentMembers.has(client.nickLower) || room.ownerNick === client.nickLower;
     if (!canAccess) return cb({ ok: false, error: 'not_member' });
 
     const msg = await RoomDB.getMessage(msgId);
     if (!msg) return cb({ ok: false, error: 'not_found' });
 
     const mine = msg.nickLower === client.nickLower;
-    const owner = isRoomOwner(client, room);
+    const moderator = canModerateRoom(room, client.nickLower);
 
     if (deleteFor === 'all') {
-      if (!mine && !owner) return cb({ ok: false, error: 'not_allowed' });
+      if (!mine && !moderator) return cb({ ok: false, error: 'not_allowed' });
       await RoomDB.deleteMessage(msgId);
       messageReactions.delete(msgId);
       room.messages = room.messages.filter(m => m.id !== msgId);
@@ -2207,10 +2484,7 @@ io.on('connection', (socket) => {
 
     if (deleteFor === 'me') {
       await RoomDB.addDeletedFor(msgId, client.nickLower);
-      room.messages = room.messages.map(m => {
-        if (m.id !== msgId) return m;
-        return { ...m, deletedFor: [...(m.deletedFor || []), client.nickLower] };
-      });
+      room.messages = room.messages.map(m => m.id !== msgId ? m : { ...m, deletedFor: [...(m.deletedFor || []), client.nickLower] });
       socket.emit('room-msg-deleted', { roomId, msgId, deleteFor: 'me' });
       return cb({ ok: true });
     }
@@ -2225,7 +2499,7 @@ io.on('connection', (socket) => {
     const room = rooms.get(roomId);
     if (!room) return cb({ ok: false, error: 'not_found' });
 
-    const canAccess = room.permanentMembers.has(client.nickLower) || isRoomOwner(client, room);
+    const canAccess = room.permanentMembers.has(client.nickLower) || room.ownerNick === client.nickLower;
     if (!canAccess) return cb({ ok: false, error: 'not_member' });
 
     const msg = await RoomDB.getMessage(msgId);
@@ -2240,25 +2514,118 @@ io.on('connection', (socket) => {
     await RoomDB.editMessage(msgId, newEncrypted, newIv);
 
     room.messages = room.messages.map(m =>
-      m.id === msgId
-        ? { ...m, encrypted: newEncrypted, iv: newIv, edited: true }
-        : m
+      m.id === msgId ? { ...m, encrypted: newEncrypted, iv: newIv, edited: true } : m
     );
 
     io.to(roomId).emit('room-msg-edited', {
-      roomId,
-      msgId,
-      newEncrypted,
-      newIv,
-      editedAt: Date.now()
+      roomId, msgId, newEncrypted, newIv, editedAt: Date.now()
     });
 
     cb({ ok: true });
   });
 
-  // ════════════════════════════
-  //  GROUP VOICE / WEBRTC
-  // ════════════════════════════
+  // pinned media in group description
+  safeOn('room-pin-media', async ({ roomId, msgId, kind }, cb) => {
+    const client = requireAuthed(cb);
+    if (!client) return;
+    const room = rooms.get(roomId);
+    if (!room) return cb({ ok: false, error: 'not_found' });
+    if (!canModerateRoom(room, client.nickLower)) return cb({ ok: false, error: 'not_allowed' });
+
+    const msg = await RoomDB.getMessage(msgId);
+    if (!msg || msg.roomId !== roomId) return cb({ ok: false, error: 'msg_not_found' });
+    if (!['image', 'video', 'file', 'voice'].includes(msg.type)) return cb({ ok: false, error: 'not_media' });
+
+    await RoomDB.pinMedia(roomId, msgId, client.nickLower, kind || 'media');
+    const pinned = await RoomDB.getPinnedMedia(roomId);
+    io.to(roomId).emit('room-pinned-media-updated', { roomId, pinned });
+    cb({ ok: true, pinned });
+  });
+
+  safeOn('room-unpin-media', async ({ roomId, msgId }, cb) => {
+    const client = requireAuthed(cb);
+    if (!client) return;
+    const room = rooms.get(roomId);
+    if (!room) return cb({ ok: false, error: 'not_found' });
+    if (!canModerateRoom(room, client.nickLower)) return cb({ ok: false, error: 'not_allowed' });
+
+    await RoomDB.unpinMedia(roomId, msgId);
+    const pinned = await RoomDB.getPinnedMedia(roomId);
+    io.to(roomId).emit('room-pinned-media-updated', { roomId, pinned });
+    cb({ ok: true, pinned });
+  });
+
+  safeOn('room-pinned-media', async ({ roomId }, cb) => {
+    const client = requireAuthed(cb);
+    if (!client) return;
+    const room = rooms.get(roomId);
+    if (!room) return cb({ ok: false, error: 'not_found' });
+
+    const canAccess = room.permanentMembers.has(client.nickLower) || room.ownerNick === client.nickLower;
+    if (!canAccess) return cb({ ok: false, error: 'not_member' });
+
+    const pinned = await RoomDB.getPinnedMedia(roomId);
+    cb({ ok: true, pinned });
+  });
+
+  // reactions
+  safeOn('add-reaction', async ({ msgId, emoji, chatId, roomId }, cb) => {
+    const client = requireAuthed(cb);
+    if (!client) return;
+    const e = String(emoji || '').slice(0, 8);
+    if (!msgId || !e) return cb({ ok: false, error: 'bad_payload' });
+
+    if (chatId) {
+      if (!await PrivateChatDB.isMember(chatId, client.nickLower)) return cb({ ok: false, error: 'not_member' });
+      addReaction(msgId, e, client.nickLower);
+      const reactions = getReactions(msgId);
+      io.to('pc:' + chatId).emit('reaction-updated', { msgId, reactions, chatId });
+      return cb({ ok: true, reactions });
+    }
+
+    if (roomId) {
+      const room = rooms.get(roomId);
+      if (!room) return cb({ ok: false, error: 'not_found' });
+      if (!(room.permanentMembers.has(client.nickLower) || room.ownerNick === client.nickLower)) return cb({ ok: false, error: 'not_member' });
+
+      addReaction(msgId, e, client.nickLower);
+      const reactions = getReactions(msgId);
+      io.to(roomId).emit('reaction-updated', { msgId, reactions, roomId });
+      return cb({ ok: true, reactions });
+    }
+
+    cb({ ok: false, error: 'bad_target' });
+  });
+
+  safeOn('remove-reaction', async ({ msgId, emoji, chatId, roomId }, cb) => {
+    const client = requireAuthed(cb);
+    if (!client) return;
+    const e = String(emoji || '').slice(0, 8);
+    if (!msgId || !e) return cb({ ok: false, error: 'bad_payload' });
+
+    if (chatId) {
+      if (!await PrivateChatDB.isMember(chatId, client.nickLower)) return cb({ ok: false, error: 'not_member' });
+      removeReaction(msgId, e, client.nickLower);
+      const reactions = getReactions(msgId);
+      io.to('pc:' + chatId).emit('reaction-updated', { msgId, reactions, chatId });
+      return cb({ ok: true, reactions });
+    }
+
+    if (roomId) {
+      const room = rooms.get(roomId);
+      if (!room) return cb({ ok: false, error: 'not_found' });
+      if (!(room.permanentMembers.has(client.nickLower) || room.ownerNick === client.nickLower)) return cb({ ok: false, error: 'not_member' });
+
+      removeReaction(msgId, e, client.nickLower);
+      const reactions = getReactions(msgId);
+      io.to(roomId).emit('reaction-updated', { msgId, reactions, roomId });
+      return cb({ ok: true, reactions });
+    }
+
+    cb({ ok: false, error: 'bad_target' });
+  });
+
+  // GROUP VOICE / WEBRTC
   socket.on('offer', ({ to, offer }) => {
     const c = clients.get(socket.id);
     if (!c?.authed || !c?.roomId) return;
@@ -2282,6 +2649,12 @@ io.on('connection', (socket) => {
     if (!c?.authed || !c?.roomId) return;
     const room = rooms.get(c.roomId);
     if (!room) return;
+
+    // feature: admin can disable group voice
+    if (room.voiceEnabled === false) {
+      socket.emit('voice-disabled', { roomId: c.roomId });
+      return;
+    }
 
     const others = [...room.members]
       .filter(id => id !== socket.id)
@@ -2327,14 +2700,15 @@ io.on('connection', (socket) => {
     io.to(to).emit('key-fingerprint', { from: socket.id, nickname: c.nickname, fingerprint });
   });
 
-  // ════════════════════════════
-  //  PRIVATE CALLS
-  // ════════════════════════════
-  socket.on('private-call-offer', ({ chatId, to, offer, isVideo }) => {
+  // PRIVATE CALLS
+  socket.on('private-call-offer', async ({ chatId, to, offer, isVideo }) => {
     const c = clients.get(socket.id);
     if (!c?.authed) return;
 
+    const fromUser = await UserDB.get(c.nickLower);
     let sent = false;
+
+    // to can be nickLower
     for (const [sid, cl] of clients.entries()) {
       if (cl.authed && cl.nickLower === to) {
         io.to(sid).emit('private-call-offer', {
@@ -2342,20 +2716,22 @@ io.on('connection', (socket) => {
           from: socket.id,
           fromNick: c.nickname,
           fromNickLower: c.nickLower,
-          fromAvatar: null,
+          fromAvatar: fromUser?.avatar || null,
           offer,
           isVideo: !!isVideo
         });
         sent = true;
       }
     }
+
+    // fallback if to is socketId
     if (!sent && io.sockets.sockets.get(to)) {
       io.to(to).emit('private-call-offer', {
         chatId,
         from: socket.id,
         fromNick: c.nickname,
         fromNickLower: c.nickLower,
-        fromAvatar: null,
+        fromAvatar: fromUser?.avatar || null,
         offer,
         isVideo: !!isVideo
       });
@@ -2401,7 +2777,6 @@ io.on('connection', (socket) => {
   socket.on('private-call-ecdh', ({ to, pubkey }) => {
     const c = clients.get(socket.id);
     if (!c?.authed) return;
-
     if (io.sockets.sockets.get(to)) {
       io.to(to).emit('private-call-ecdh', { from: socket.id, pubkey });
     } else {
@@ -2411,13 +2786,14 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ════════════════════════════
-  //  DISCONNECT
-  // ════════════════════════════
+  // DISCONNECT
   socket.on('disconnect', () => {
     const client = clients.get(socket.id);
     if (client?.roomId) leaveRoom(socket, client.roomId);
-    if (client?.nickLower) setOffline(client.nickLower, socket.id);
+    if (client?.nickLower) {
+      client.lastSeen = Date.now();
+      setOffline(client.nickLower, socket.id);
+    }
     clients.delete(socket.id);
     console.log('Disconnected:', socket.id);
   });
@@ -2441,4 +2817,3 @@ initDB()
     console.error('❌ DB init error:', err);
     process.exit(1);
   });
-
