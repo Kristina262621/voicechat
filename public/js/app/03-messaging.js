@@ -717,7 +717,16 @@ socket.on('private-message', async data => {
       updateMessage(domId, { localUrl: URL.createObjectURL(blob), status: 'ok', caption });
     }
   } catch (_) {
-    updateMessage(domId, { status: 'error' });
+    // Не обновлять статус на ошибку, если сообщение уже успешно расшифровано
+    const msgEl = document.getElementById(domId);
+    if (msgEl) {
+      const statusEl = msgEl.querySelector('.msg-decrypt-status');
+      if (!statusEl || !statusEl.classList.contains('ok')) {
+        updateMessage(domId, { status: 'error' });
+      }
+    } else {
+      updateMessage(domId, { status: 'error' });
+    }
   }
 
   loadPrivateChatsList();
@@ -843,7 +852,16 @@ socket.on('chat-message', async data => {
       if (document.visibilityState !== 'visible') addUnread(chatId, 1);
     }
   } catch (_) {
-    updateMessage(domId, { status: 'error' });
+    // Не обновлять статус на ошибку, если сообщение уже успешно расшифровано
+    const msgEl = document.getElementById(domId);
+    if (msgEl) {
+      const statusEl = msgEl.querySelector('.msg-decrypt-status');
+      if (!statusEl || !statusEl.classList.contains('ok')) {
+        updateMessage(domId, { status: 'error' });
+      }
+    } else {
+      updateMessage(domId, { status: 'error' });
+    }
   }
 });
 
@@ -949,7 +967,14 @@ function buildCaptionHTML(caption) {
 }
 
 function buildContentHTML(msg) {
-  if (msg.type === 'text') return escapeHtml(msg.text || '');
+  if (msg.type === 'text') {
+    // Если текст есть, показываем его
+    if (msg.text) return escapeHtml(msg.text);
+    // Если текста нет и статус не 'ok', показываем placeholder
+    if (msg.status !== 'ok') return '<span style="opacity:0.6;font-style:italic">[зашифровано]</span>';
+    // Иначе пустая строка
+    return '';
+  }
 
   if (msg.type === 'image') {
     const caption = buildCaptionHTML(msg.caption);
