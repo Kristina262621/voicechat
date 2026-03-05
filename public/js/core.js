@@ -103,6 +103,86 @@ function applyTheme(theme) {
     root.style.setProperty('--green',     '#6bcf7f');
     root.style.setProperty('--red',       '#ff6b8b');
     root.style.setProperty('--orange',    '#ffa85c');
+  } else if (theme === 'telegram-dark') {
+    // Тёмная тема Telegram (сине-серая)
+    root.style.setProperty('--bg',        '#17212b');
+    root.style.setProperty('--bg2',       '#232f3d');
+    root.style.setProperty('--surface',   '#2b5278');
+    root.style.setProperty('--surface2',  '#3a5d82');
+    root.style.setProperty('--surface3',  '#4a6b8f');
+    root.style.setProperty('--text',      '#ffffff');
+    root.style.setProperty('--text2',     '#8f9ba8');
+    root.style.setProperty('--sub',       '#6b7b8c');
+    root.style.setProperty('--divider',   'rgba(255,255,255,0.08)');
+    root.style.setProperty('--bubble-in', '#2b5278');
+    root.style.setProperty('--bubble-me', '#2b5278');
+    root.style.setProperty('--glass',     'rgba(43,82,120,0.85)');
+    root.style.setProperty('--accent',    '#5288c1');
+    root.style.setProperty('--accent2',   '#6ba1e0');
+    root.style.setProperty('--accent-g',  'linear-gradient(135deg,#5288c1,#3a6ea5)');
+    root.style.setProperty('--green',     '#34c759');
+    root.style.setProperty('--red',       '#ff3b30');
+    root.style.setProperty('--orange',    '#ff9500');
+  } else if (theme === 'whatsapp-green') {
+    // Светлая тема WhatsApp (зелёная)
+    root.style.setProperty('--bg',        '#f0f2f5');
+    root.style.setProperty('--bg2',       '#ffffff');
+    root.style.setProperty('--surface',   '#ffffff');
+    root.style.setProperty('--surface2',  '#f7f8fa');
+    root.style.setProperty('--surface3',  '#eff1f3');
+    root.style.setProperty('--text',      '#111b21');
+    root.style.setProperty('--text2',     '#3b4a54');
+    root.style.setProperty('--sub',       '#8696a0');
+    root.style.setProperty('--divider',   'rgba(0,0,0,0.08)');
+    root.style.setProperty('--bubble-in', '#ffffff');
+    root.style.setProperty('--bubble-me', '#d9fdd3');
+    root.style.setProperty('--glass',     'rgba(255,255,255,0.92)');
+    root.style.setProperty('--accent',    '#00a884');
+    root.style.setProperty('--accent2',   '#00a884');
+    root.style.setProperty('--accent-g',  'linear-gradient(135deg,#00a884,#00856f)');
+    root.style.setProperty('--green',     '#25d366');
+    root.style.setProperty('--red',       '#e05252');
+    root.style.setProperty('--orange',    '#e08a3c');
+  } else if (theme === 'blue-dark') {
+    // Синяя тёмная тема
+    root.style.setProperty('--bg',        '#0d1b2a');
+    root.style.setProperty('--bg2',       '#1b263b');
+    root.style.setProperty('--surface',   '#415a77');
+    root.style.setProperty('--surface2',  '#4a6380');
+    root.style.setProperty('--surface3',  '#556b8a');
+    root.style.setProperty('--text',      '#e0e1dd');
+    root.style.setProperty('--text2',     '#a3b1c2');
+    root.style.setProperty('--sub',       '#778da9');
+    root.style.setProperty('--divider',   'rgba(224,225,221,0.08)');
+    root.style.setProperty('--bubble-in', '#415a77');
+    root.style.setProperty('--bubble-me', '#2d4a6e');
+    root.style.setProperty('--glass',     'rgba(65,90,119,0.85)');
+    root.style.setProperty('--accent',    '#4cc9f0');
+    root.style.setProperty('--accent2',   '#6bd4ff');
+    root.style.setProperty('--accent-g',  'linear-gradient(135deg,#4cc9f0,#2a9d8f)');
+    root.style.setProperty('--green',     '#2a9d8f');
+    root.style.setProperty('--red',       '#e63946');
+    root.style.setProperty('--orange',    '#f4a261');
+  } else if (theme === 'amber') {
+    // Янтарная тёплая тема
+    root.style.setProperty('--bg',        '#fff8e1');
+    root.style.setProperty('--bg2',       '#ffecb3');
+    root.style.setProperty('--surface',   '#ffd54f');
+    root.style.setProperty('--surface2',  '#ffca28');
+    root.style.setProperty('--surface3',  '#ffb300');
+    root.style.setProperty('--text',      '#5d4037');
+    root.style.setProperty('--text2',     '#8d6e63');
+    root.style.setProperty('--sub',       '#a1887f');
+    root.style.setProperty('--divider',   'rgba(93,64,55,0.1)');
+    root.style.setProperty('--bubble-in', '#ffecb3');
+    root.style.setProperty('--bubble-me', '#ffd54f');
+    root.style.setProperty('--glass',     'rgba(255,248,225,0.92)');
+    root.style.setProperty('--accent',    '#ff9800');
+    root.style.setProperty('--accent2',   '#ffb74d');
+    root.style.setProperty('--accent-g',  'linear-gradient(135deg,#ff9800,#f57c00)');
+    root.style.setProperty('--green',     '#4caf50');
+    root.style.setProperty('--red',       '#f44336');
+    root.style.setProperty('--orange',    '#ff9800');
   }
 
   // Обновляем иконки всех кнопок темы
@@ -127,7 +207,7 @@ function applyTheme(theme) {
 }
 
 function toggleTheme() {
-  const themes = ['dark', 'light', 'dark-beautiful', 'light-beautiful'];
+  const themes = ['dark', 'light', 'dark-beautiful', 'light-beautiful', 'telegram-dark', 'whatsapp-green', 'blue-dark', 'amber'];
   const currentIndex = themes.indexOf(currentTheme);
   const nextIndex = (currentIndex + 1) % themes.length;
   applyTheme(themes[nextIndex]);
