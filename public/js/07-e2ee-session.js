@@ -3,6 +3,7 @@
   const te = new TextEncoder();
   const td = new TextDecoder();
   const cache = new Map(); // peerId -> { outboundKey, inboundKey }
+  const messageCounts = new Map(); // peerId -> count
 
   function b64ToBytes(b64) {
     const s = atob(b64);
@@ -73,7 +74,7 @@
     );
   }
 
-  async function fetchBundle(peerId, consume = 0) {
+  async function fetchBundle(peerId, consume = 1) {
     const token = localStorage.getItem('chat_token');
     if (!token) throw new Error('chat_token_missing');
 
@@ -86,24 +87,39 @@
   }
 
   async function deriveOutboundKey(peerId) {
-    const peerBundle = await fetchBundle(peerId, 0);
+    const peerBundle = await fetchBundle(peerId, 1); // consume one-time
     await verifySignedPreKey(peerBundle);
 
     const myIdentityDhPriv = await window.E2EEKeys.dbGet('identityDh.private');
     if (!myIdentityDhPriv) throw new Error('identityDh.private_missing');
 
     const peerSignedPub = await importEcdhRawPublic(peerBundle.signedPreKey.publicKey);
-    const bits = await crypto.subtle.deriveBits(
+    const bits1 = await crypto.subtle.deriveBits(
       { name: 'ECDH', public: peerSignedPub },
       myIdentityDhPriv,
       256
     );
-    return hkdfAes(bits);
+
+    let combined = new Uint8Array(bits1);
+    if (peerBundle.oneTimePreKey) {
+      const peerOnePub = await importEcdhRawPublic(peerBundle.oneTimePreKey.publicKey);
+      const bits2 = await crypto.subtle.deriveBits(
+        { name: 'ECDH', public: peerOnePub },
+        myIdentityDhPriv,
+        256
+      );
+      combined = new Uint8Array(bits1.byteLength + bits2.byteLength);
+      combined.set(new Uint8Array(bits1), 0);
+      combined.set(new Uint8Array(bits2), bits1.byteLength);
+    }
+
+    const hash = await crypto.subtle.digest('SHA-256', combined);
+    return hkdfAes(hash);
   }
 
   async function deriveInboundKey(peerId) {
-    const peerBundle = await fetchBundle(peerId, 0);
-
+    const peerBundle = await fetchBundle(peerId, 0); // для inbound не потребляем
+    // Для inbound используем свой signed private и peer identity public
     const mySignedPriv = await window.E2EEKeys.dbGet('signedPre.private');
     if (!mySignedPriv) throw new Error('signedPre.private_missing');
 
@@ -129,11 +145,26 @@
     return s;
   }
 
+  async function rotateKeysIfNeeded(peerId, direction) {
+    const count = (messageCounts.get(peerId) || 0) + 1;
+    messageCounts.set(peerId, count);
+    if (count % 50 === 0) {
+      const s = cache.get(peerId);
+      if (!s) return;
+      if (direction === 'outbound') {
+        s.outboundKey = await deriveOutboundKey(peerId);
+      } else if (direction === 'inbound') {
+        s.inboundKey = await deriveInboundKey(peerId);
+      }
+    }
+  }
+
   async function encryptTextForPeer(peerId, text) {
     const s = await ensurePeer(peerId);
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const pt = te.encode(String(text));
     const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, s.outboundKey, pt);
+    await rotateKeysIfNeeded(peerId, 'outbound');
     return { encrypted: bytesToB64(new Uint8Array(ct)), iv: bytesToB64(iv) };
   }
 
@@ -142,6 +173,7 @@
     const iv = b64ToBytes(ivB64);
     const ct = b64ToBytes(encryptedB64);
     const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, s.inboundKey, ct);
+    await rotateKeysIfNeeded(peerId, 'inbound');
     return td.decode(pt);
   }
 
@@ -158,6 +190,7 @@
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const pt = toBytes(bytesLike);
     const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, s.outboundKey, pt);
+    await rotateKeysIfNeeded(peerId, 'outbound');
     return { encrypted: bytesToB64(new Uint8Array(ct)), iv: bytesToB64(iv) };
   }
 
@@ -166,6 +199,7 @@
     const iv = b64ToBytes(ivB64);
     const ct = b64ToBytes(encryptedB64);
     const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, s.inboundKey, ct);
+    await rotateKeysIfNeeded(peerId, 'inbound');
     return new Uint8Array(pt);
   }
 
@@ -189,6 +223,7 @@
 
   function clearPeer(peerId) {
     cache.delete(peerId);
+    messageCounts.delete(peerId);
   }
 
   window.E2EESession = {
