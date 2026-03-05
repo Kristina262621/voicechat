@@ -998,7 +998,8 @@ io.on('connection', (socket) => {
       .replace(/[^a-z0-9_]/g, '');
     if (!uname || uname.length < 2) return cb({ ok: false, error: 'username_invalid' });
 
-    if (await UserDB.has(lower)) return cb({ ok: false, error: 'nick_taken' });
+    // Разрешаем одинаковые имена пользователей (nickname), уникальным должен быть только username
+    // if (await UserDB.has(lower)) return cb({ ok: false, error: 'nick_taken' });
     if (await UserDB.hasUsername(uname)) return cb({ ok: false, error: 'username_taken' });
 
     await UserDB.create(lower, {
