@@ -117,6 +117,27 @@ function openMsgContextMenu(domId, msgEl) {
     const firstItem = sheet.querySelector('.msg-ctx-item[data-action]');
     if (firstItem) firstItem.insertAdjacentElement('beforebegin', replyBtn);
     else sheet.appendChild(replyBtn);
+
+    // Кнопка "Закрепить" — только в групповом чате для медиа-сообщений, если пользователь owner/admin
+    const canPin = currentChatType === 'group' && currentRoomId && msgIdAttr &&
+      (typeof myRole !== 'undefined' ? (myRole === 'owner' || myRole === 'admin') : isRoomOwner);
+    const isMedia = ['image', 'video', 'file', 'voice'].includes(msgType);
+    if (canPin && isMedia) {
+      const pinBtn = document.createElement('button');
+      pinBtn.className = 'msg-ctx-item';
+      pinBtn.style.cssText = 'display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:12px;border:none;background:none;color:var(--text);font-size:15px;cursor:pointer;width:100%;text-align:left;';
+      pinBtn.innerHTML = '<span style="font-size:20px">📌</span><span>Закрепить в описании</span>';
+      pinBtn.addEventListener('click', () => {
+        menu.remove();
+        socket.emit('room-pin-media', { roomId: currentRoomId, msgId: msgIdAttr, kind: msgType }, res => {
+          if (!res?.ok) showToast('❌ Не удалось закрепить');
+          else showToast('📌 Медиа закреплено в описании группы');
+        });
+      });
+      const cancelBtn = sheet.querySelector('.msg-ctx-cancel');
+      if (cancelBtn) cancelBtn.insertAdjacentElement('beforebegin', pinBtn);
+      else sheet.appendChild(pinBtn);
+    }
   });
 }
 
