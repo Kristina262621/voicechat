@@ -506,7 +506,7 @@ function stopVoiceRecording() {
 // ───────────────────────────────────────────────
 //  ФАЙЛЫ / МЕДИА
 // ───────────────────────────────────────────────
-async function sendMediaBlob(blob, mimeType, fileName, type) {
+async function sendMediaBlob(blob, mimeType, fileName, type, caption) {
   showUploadProgress(fileName, mimeType);
   showChatUploadStatus(type);
 
@@ -529,6 +529,18 @@ async function sendMediaBlob(blob, mimeType, fileName, type) {
     clearInterval(progressInterval);
     updateUploadProgress(95);
 
+    // Шифруем подпись если есть
+    let captionEncrypted = null, captionIv = null;
+    if (caption && caption.trim()) {
+      try {
+        if (currentChatType === 'private' && currentChatWith) {
+          ({ encrypted: captionEncrypted, iv: captionIv } = await encryptPrivateTextE2EE(currentChatWith, caption.trim()));
+        } else {
+          ({ encrypted: captionEncrypted, iv: captionIv } = await Crypto.encrypt(caption.trim()));
+        }
+      } catch (_) {}
+    }
+
     const localUrl = URL.createObjectURL(new Blob([ab], { type: mimeType }));
     const seq = ++outgoingSeq;
 
@@ -536,12 +548,15 @@ async function sendMediaBlob(blob, mimeType, fileName, type) {
       encrypted, iv, type, seq,
       fileName: fileName || 'file',
       fileSize: blob.size,
-      mimeType
+      mimeType,
+      captionEncrypted: captionEncrypted || null,
+      captionIv: captionIv || null
     };
 
     const domId = appendMessage({
       from: socket.id, nickname: myNickname, type, localUrl,
       fileName: fileName || 'file', fileSize: blob.size, mimeType,
+      caption: caption || null,
       timestamp: Date.now(), mine: true, status: 'ok', msgStatus: 'sending'
     });
     msgIdToDomId.set('pending-' + seq, domId);
@@ -639,7 +654,12 @@ socket.on('private-message', async data => {
     } else {
       const mime = data.mimeType || 'application/octet-stream';
       const blob = await decryptPrivateBlobE2EE(peerId, data.encrypted, data.iv, mime);
-      updateMessage(domId, { localUrl: URL.createObjectURL(blob), status: 'ok' });
+      // Расшифровываем подпись если есть
+      let caption = null;
+      if (data.captionEncrypted && data.captionIv) {
+        try { caption = await decryptPrivateTextE2EE(peerId, data.captionEncrypted, data.captionIv); } catch (_) {}
+      }
+      updateMessage(domId, { localUrl: URL.createObjectURL(blob), status: 'ok', caption });
     }
   } catch (_) {
     updateMessage(domId, { status: 'error' });
@@ -755,7 +775,12 @@ socket.on('chat-message', async data => {
     } else {
       const mime = data.mimeType || 'application/octet-stream';
       const blob = await Crypto.decryptBlob(data.encrypted, data.iv, mime);
-      updateMessage(domId, { localUrl: URL.createObjectURL(blob), status: 'ok' });
+      // Расшифровываем подпись если есть
+      let caption = null;
+      if (data.captionEncrypted && data.captionIv) {
+        try { caption = await Crypto.decryptText(data.captionEncrypted, data.captionIv); } catch (_) {}
+      }
+      updateMessage(domId, { localUrl: URL.createObjectURL(blob), status: 'ok', caption });
       if (document.visibilityState !== 'visible') addUnread(chatId, 1);
     }
   } catch (_) {
@@ -781,6 +806,7 @@ function appendMessage(msg) {
   div.dataset.iv = msg.iv || '';
   div.dataset.msgId = msg.id || '';
   div.dataset.peerId = msg.peerId || '';
+  div.dataset.caption = msg.caption || '';
   div.innerHTML = buildMsgHTML(msg);
   chatMessages.appendChild(div);
   scrollToBottom();
@@ -809,8 +835,11 @@ function updateMessage(id, updates) {
       fileName: div.dataset.fileName,
       fileSize: div.dataset.fileSize,
       duration: div.dataset.duration,
+      caption: div.dataset.caption || null,
       ...updates
     };
+    // Сохраняем caption в dataset для последующих обновлений
+    if (updates.caption !== undefined) div.dataset.caption = updates.caption || '';
     content.innerHTML = buildContentHTML(merged);
     bindMediaEvents(div);
   }
@@ -855,23 +884,31 @@ function buildMsgHTML(msg) {
     ${st}`;
 }
 
+function buildCaptionHTML(caption) {
+  if (!caption) return '';
+  return `<div class="msg-caption" style="margin-top:6px;font-size:14px;color:var(--text);line-height:1.5;word-break:break-word;">${escapeHtml(caption)}</div>`;
+}
+
 function buildContentHTML(msg) {
   if (msg.type === 'text') return escapeHtml(msg.text || '');
 
   if (msg.type === 'image') {
+    const caption = buildCaptionHTML(msg.caption);
     return msg.localUrl
-      ? `<img class="msg-media" src="${msg.localUrl}" alt="фото" loading="lazy">`
+      ? `<img class="msg-media" src="${msg.localUrl}" alt="фото" loading="lazy">${caption}`
       : `<div style="display:flex;align-items:center;gap:8px;color:var(--sub);font-size:13px"><span>🖼</span><span>Загрузка…</span></div>`;
   }
 
   if (msg.type === 'video') {
+    const caption = buildCaptionHTML(msg.caption);
     return msg.localUrl
-      ? `<video class="msg-media" src="${msg.localUrl}" controls playsinline></video>`
+      ? `<video class="msg-media" src="${msg.localUrl}" controls playsinline></video>${caption}`
       : `<div style="display:flex;align-items:center;gap:8px;color:var(--sub);font-size:13px"><span>🎬</span><span>Загрузка…</span></div>`;
   }
 
   if (msg.type === 'file') {
     const size = msg.fileSize ? formatSize(parseInt(msg.fileSize)) : '';
+    const caption = buildCaptionHTML(msg.caption);
     return msg.localUrl
       ? `<div class="msg-file">
           <span class="msg-file-icon">📄</span>
@@ -880,7 +917,7 @@ function buildContentHTML(msg) {
             <div class="msg-file-size">${size}</div>
           </div>
           <a class="msg-file-dl" href="${msg.localUrl}" download="${escapeHtml(msg.fileName || 'file')}">⬇️</a>
-         </div>`
+         </div>${caption}`
       : `<div style="display:flex;align-items:center;gap:8px;color:var(--sub);font-size:13px"><span>📎</span><span>${escapeHtml(msg.fileName || 'файл')} · Загрузка…</span></div>`;
   }
 
