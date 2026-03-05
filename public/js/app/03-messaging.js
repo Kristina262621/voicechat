@@ -613,7 +613,6 @@ async function sendMediaBlob(blob, mimeType, fileName, type, caption) {
     showToast('❌ Ошибка отправки: ' + e.message);
   }
 }
-
 // ───────────────────────────────────────────────
 //  ВХОДЯЩИЕ СООБЩЕНИЯ (ЛИЧНЫЕ)
 // ───────────────────────────────────────────────
@@ -678,7 +677,11 @@ socket.on('private-message', async data => {
       // Расшифровываем подпись если есть
       let caption = null;
       if (data.captionEncrypted && data.captionIv) {
-        try { caption = await decryptPrivateTextE2EE(peerId, data.captionEncrypted, data.captionIv); } catch (_) {}
+        try {
+          caption = await decryptPrivateTextE2EE(peerId, data.captionEncrypted, data.captionIv);
+        } catch (e) {
+          console.warn('[private-message] caption decrypt error', e);
+        }
       }
       updateMessage(domId, { localUrl: URL.createObjectURL(blob), status: 'ok', caption });
     }
@@ -799,7 +802,11 @@ socket.on('chat-message', async data => {
       // Расшифровываем подпись если есть
       let caption = null;
       if (data.captionEncrypted && data.captionIv) {
-        try { caption = await Crypto.decryptText(data.captionEncrypted, data.captionIv); } catch (_) {}
+        try {
+          caption = await Crypto.decryptText(data.captionEncrypted, data.captionIv);
+        } catch (e) {
+          console.warn('[chat-message] caption decrypt error', e);
+        }
       }
       updateMessage(domId, { localUrl: URL.createObjectURL(blob), status: 'ok', caption });
       if (document.visibilityState !== 'visible') addUnread(chatId, 1);
@@ -1114,7 +1121,6 @@ function buildReactionsHTML(msgId, reactions) {
     ? `<div class="msg-reactions" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;">${html}</div>`
     : '';
 }
-
 function openReactionPicker(msgId, msgEl) {
   document.querySelector('.reaction-picker-popup')?.remove();
 
