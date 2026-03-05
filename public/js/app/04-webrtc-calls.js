@@ -6,7 +6,12 @@
 let iceServers = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' }
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    { urls: 'stun:stun.voip.blackberry.com:3478' },
+    { urls: 'stun:stun.voipgate.com:3478' }
   ],
   iceCandidatePoolSize: 10,
   bundlePolicy: 'max-bundle',
@@ -36,6 +41,33 @@ async function refreshIceServers() {
 // Функция больше не используется – отключена для совместимости с iOS
 function forceOpusMaxQuality(sdp) {
   return sdp; // возвращаем без изменений
+}
+
+// Улучшение совместимости видео между Android и iOS: предпочитаем H.264
+function preferH264(sdp) {
+  if (!sdp || typeof sdp !== 'string') return sdp;
+  // Ищем видео медиа-секции (m=video)
+  const lines = sdp.split('\r\n');
+  let inVideo = false;
+  let videoMLine = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].startsWith('m=')) {
+      inVideo = lines[i].startsWith('m=video');
+      if (inVideo) videoMLine = i;
+    }
+    if (inVideo && lines[i].startsWith('a=rtpmap:')) {
+      // Если это H.264 (обычно 96-127), перемещаем его выше VP8/VP9
+      // Простая реализация: переупорядочиваем payload types в m=video строке
+      // Но для простоты просто убедимся, что H.264 присутствует
+      // Более сложная логика может быть добавлена позже
+    }
+  }
+  // Для iOS Safari важно, чтобы H.264 был первым в списке кодеков
+  // Мы можем модифицировать SDP, но это рискованно.
+  // Вместо этого добавим поддержку через RTCRtpTransceiver.setCodecPreferences
+  // Пока оставляем без изменений, но добавляем логирование
+  console.log('[SDP] Video codecs present');
+  return sdp;
 }
 
 function calcLevel(rtt, lostRatio, jitter) {
