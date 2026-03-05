@@ -24,6 +24,7 @@ function applyTheme(theme) {
   const root = document.documentElement;
 
   if (theme === 'light') {
+    // Стандартная светлая тема (День)
     root.style.setProperty('--bg',        '#f0f2f5');
     root.style.setProperty('--bg2',       '#ffffff');
     root.style.setProperty('--surface',   '#ffffff');
@@ -42,7 +43,8 @@ function applyTheme(theme) {
     root.style.setProperty('--green',     '#25d366');
     root.style.setProperty('--red',       '#e05252');
     root.style.setProperty('--orange',    '#e08a3c');
-  } else {
+  } else if (theme === 'dark') {
+    // Стандартная тёмная тема (Ночная)
     root.style.setProperty('--bg',        '#0a0a0f');
     root.style.setProperty('--bg2',       '#111118');
     root.style.setProperty('--surface',   '#16161f');
@@ -61,20 +63,74 @@ function applyTheme(theme) {
     root.style.setProperty('--green',     '#3dba6e');
     root.style.setProperty('--red',       '#e05252');
     root.style.setProperty('--orange',    '#e08a3c');
+  } else if (theme === 'light-beautiful') {
+    // Красивая светлая тема (пастельные тона)
+    root.style.setProperty('--bg',        '#f9f5ff');
+    root.style.setProperty('--bg2',       '#ffffff');
+    root.style.setProperty('--surface',   '#ffffff');
+    root.style.setProperty('--surface2',  '#f3edff');
+    root.style.setProperty('--surface3',  '#e9e0ff');
+    root.style.setProperty('--text',      '#2d1b69');
+    root.style.setProperty('--text2',     '#5a4b8c');
+    root.style.setProperty('--sub',       '#8a7cb0');
+    root.style.setProperty('--divider',   'rgba(45,27,105,0.08)');
+    root.style.setProperty('--bubble-in', '#ffffff');
+    root.style.setProperty('--bubble-me', '#e0d4ff');
+    root.style.setProperty('--glass',     'rgba(255,255,255,0.92)');
+    root.style.setProperty('--accent',    '#9d7bff');
+    root.style.setProperty('--accent2',   '#b59cff');
+    root.style.setProperty('--accent-g',  'linear-gradient(135deg,#9d7bff,#7b5bd6)');
+    root.style.setProperty('--green',     '#6bcf7f');
+    root.style.setProperty('--red',       '#ff6b8b');
+    root.style.setProperty('--orange',    '#ffa85c');
+  } else if (theme === 'dark-beautiful') {
+    // Красивая тёмная тема (глубокий фиолетовый)
+    root.style.setProperty('--bg',        '#0f0a1f');
+    root.style.setProperty('--bg2',       '#1a1430');
+    root.style.setProperty('--surface',   '#221c3c');
+    root.style.setProperty('--surface2',  '#2a2448');
+    root.style.setProperty('--surface3',  '#342e54');
+    root.style.setProperty('--text',      '#e8e0ff');
+    root.style.setProperty('--text2',     '#b8a8e8');
+    root.style.setProperty('--sub',       '#7a6ca0');
+    root.style.setProperty('--divider',   'rgba(232,224,255,0.06)');
+    root.style.setProperty('--bubble-in', '#221c3c');
+    root.style.setProperty('--bubble-me', '#3d2a6e');
+    root.style.setProperty('--glass',     'rgba(34,28,60,0.85)');
+    root.style.setProperty('--accent',    '#a07de0');
+    root.style.setProperty('--accent2',   '#c0a5ff');
+    root.style.setProperty('--accent-g',  'linear-gradient(135deg,#a07de0,#7c5cbf)');
+    root.style.setProperty('--green',     '#6bcf7f');
+    root.style.setProperty('--red',       '#ff6b8b');
+    root.style.setProperty('--orange',    '#ffa85c');
   }
 
   // Обновляем иконки всех кнопок темы
   document.querySelectorAll('#btn-drawer-theme, .theme-toggle-btn').forEach(btn => {
-    btn.textContent = theme === 'dark' ? '☀️' : '🌙';
-    btn.title = theme === 'dark' ? 'Светлая тема' : 'Тёмная тема';
+    // Устанавливаем иконку в зависимости от темы
+    let icon = '🌙';
+    if (theme === 'light') icon = '☀️';
+    else if (theme === 'light-beautiful') icon = '✨';
+    else if (theme === 'dark-beautiful') icon = '🌟';
+    btn.textContent = icon;
+    btn.title = theme === 'dark' ? 'Светлая тема' :
+                theme === 'light' ? 'Тёмная тема' :
+                theme === 'dark-beautiful' ? 'Красивая тёмная' : 'Красивая светлая';
   });
 
   const metaTheme = document.querySelector('meta[name="theme-color"]');
-  if (metaTheme) metaTheme.content = theme === 'light' ? '#f0f2f5' : '#0a0a0f';
+  let themeColor = '#0a0a0f';
+  if (theme === 'light') themeColor = '#f0f2f5';
+  else if (theme === 'light-beautiful') themeColor = '#f9f5ff';
+  else if (theme === 'dark-beautiful') themeColor = '#0f0a1f';
+  if (metaTheme) metaTheme.content = themeColor;
 }
 
 function toggleTheme() {
-  applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
+  const themes = ['dark', 'light', 'dark-beautiful', 'light-beautiful'];
+  const currentIndex = themes.indexOf(currentTheme);
+  const nextIndex = (currentIndex + 1) % themes.length;
+  applyTheme(themes[nextIndex]);
 }
 
 // Применяем сразу
