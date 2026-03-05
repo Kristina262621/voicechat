@@ -247,15 +247,15 @@ function doLogin() {
 function doRegister() {
   const nick     = regNick?.value.trim();
   const pw       = regPw?.value;
-  const hint     = $('reg-hint')     ? $('reg-hint').value.trim()     : '';
-  const phone    = $('reg-phone')    ? $('reg-phone').value.trim()    : '';
-  const username = $('reg-username') ? $('reg-username').value.trim() : '';
+  const hint     = $('reg-hint')      ? $('reg-hint').value.trim()      : '';
+  const email    = $('reg-email')     ? $('reg-email').value.trim()     : '';
+  const username = $('reg-username')  ? $('reg-username').value.trim()  : '';
 
   if (!nick || nick.length < 2) { if (regError) regError.textContent = 'Ник минимум 2 символа'; return; }
   if (!pw || pw.length < 4)     { if (regError) regError.textContent = 'Пароль минимум 4 символа'; return; }
 
   if (btnRegister) { btnRegister.disabled = true; btnRegister.textContent = '⏳'; }
-  socket.emit('auth-register', { nickname: nick, password: pw, hint, phone, username }, res => {
+  socket.emit('auth-register', { nickname: nick, password: pw, hint, phone: email, username }, res => {
     if (btnRegister) { btnRegister.disabled = false; btnRegister.textContent = 'Создать аккаунт'; }
     if (res.ok) {
       authToken  = res.token;
@@ -814,6 +814,13 @@ function searchUserForFriend(inputEl, resultEl) {
 //  О ПРОЕКТЕ
 // ───────────────────────────────────────────────
 function openAboutPage() {
+  // Если окно уже открыто, просто покажем его (не создаём дубликат)
+  if (window._aboutSheet && document.body.contains(window._aboutSheet)) {
+    // Убедимся, что окно видимо (на случай, если оно скрыто)
+    window._aboutSheet.style.transform = 'translateX(0)';
+    return;
+  }
+
   const sheet = document.createElement('div');
   sheet.style.cssText = 'position:fixed;inset:0;z-index:2000;background:var(--bg);overflow-y:auto;display:flex;flex-direction:column;transform:translateX(100%);transition:transform 0.32s cubic-bezier(0.4,0,0.2,1)';
   sheet.innerHTML = `
@@ -842,11 +849,15 @@ function openAboutPage() {
       <div style="text-align:center;color:var(--sub);font-size:12px;padding-bottom:40px">Сделано с ❤️ для приватного общения</div>
     </div>`;
   document.body.appendChild(sheet);
+  window._aboutSheet = sheet; // сохраняем ссылку
 
   requestAnimationFrame(() => requestAnimationFrame(() => { sheet.style.transform = 'translateX(0)'; }));
   const close = () => {
     sheet.style.transform = 'translateX(100%)';
-    sheet.addEventListener('transitionend', () => sheet.remove(), { once: true });
+    sheet.addEventListener('transitionend', () => {
+      sheet.remove();
+      window._aboutSheet = null; // очищаем ссылку после удаления
+    }, { once: true });
   };
 
   sheet.querySelector('#about-back').addEventListener('click', close);
