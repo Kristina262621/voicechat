@@ -33,22 +33,9 @@ async function refreshIceServers() {
   return false;
 }
 
+// Функция больше не используется – отключена для совместимости с iOS
 function forceOpusMaxQuality(sdp) {
-  const lines = sdp.split('\r\n');
-  const result = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line.includes('a=rtpmap') && line.toLowerCase().includes('opus')) {
-      result.push(line);
-      const pt = line.split(':')[1].split(' ')[0];
-      if (i + 1 < lines.length && lines[i + 1].startsWith('a=fmtp:' + pt)) i++;
-      result.push('a=fmtp:' + pt + ' minptime=10;useinbandfec=1;stereo=0;sprop-stereo=0;maxaveragebitrate=40000;dtx=1;cbr=0');
-      continue;
-    }
-    if (line.startsWith('b=AS:') || line.startsWith('b=TIAS:')) continue;
-    result.push(line);
-  }
-  return result.join('\r\n');
+  return sdp; // возвращаем без изменений
 }
 
 function calcLevel(rtt, lostRatio, jitter) {
@@ -393,9 +380,9 @@ async function handleOffer(from, offer, nickname) {
   try {
     await peer.setRemoteDescription(new RTCSessionDescription(offer));
     const answer = await peer.createAnswer();
-    const improved = { type: answer.type, sdp: forceOpusMaxQuality(answer.sdp) };
-    await peer.setLocalDescription(improved);
-    socket.emit('answer', { to: from, answer: improved });
+    // Не модифицируем SDP
+    await peer.setLocalDescription(answer);
+    socket.emit('answer', { to: from, answer: answer });
   } catch (e) {
     console.error('handleOffer error:', e);
   }
@@ -490,9 +477,9 @@ function createPeer(userId, isInitiator) {
       offerSent = true;
       try {
         const offer = await peer.createOffer({ offerToReceiveAudio: true });
-        const improved = { type: offer.type, sdp: forceOpusMaxQuality(offer.sdp) };
-        await peer.setLocalDescription(improved);
-        socket.emit('offer', { to: userId, offer: improved });
+        // Не модифицируем SDP
+        await peer.setLocalDescription(offer);
+        socket.emit('offer', { to: userId, offer: offer });
       } catch (e) {
         console.error('createOffer error:', e);
         offerSent = false;
@@ -859,8 +846,9 @@ function ensureLocalVideo() {
 
 async function startLocalVideo() {
   try {
+    // Упрощённые ограничения для лучшей совместимости с iOS
     localVideoStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode:'user', width:{ideal:1280}, height:{ideal:720} },
+      video: { facingMode: 'user' },
       audio: false
     });
     const lv = ensureLocalVideo();
