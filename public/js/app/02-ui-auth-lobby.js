@@ -998,7 +998,6 @@ async function renderPrivateHistoryMessages(chatId, messages, { replace = false 
   for (const msg of messages) {
     const mine = msg.from === myLower;
     if (msg.deletedFor && msg.deletedFor.includes(myLower)) continue;
-
     const peerId = resolvePrivateHistoryPeerId(chatId, myLower, mine, msg);
 
     if (msg.type === 'text') {
@@ -1790,8 +1789,47 @@ function openMembersModal() {
 
   socket.emit('room-members', { roomId: currentRoomId }, res => {
     if (!res?.ok) {
-      if (membersListContainer) membersListContainer.innerHTML = '<div class="empty-list">Ошибка</div>';
-      if (mo) mo.innerHTML = '<div class="empty-list">Ошибка</div>';
+      if (res?.error === 'not_member') {
+        // Запрашиваем публичную информацию о группе для кнопки "Вступить"
+        socket.emit('room-public-info', { roomId: currentRoomId }, pubRes => {
+          const rName = pubRes?.ok ? pubRes.name : 'Группа';
+          const rJoinMode = pubRes?.ok ? pubRes.joinMode : 'open';
+          const rHasPw = pubRes?.ok ? pubRes.hasPassword : false;
+          const rCount = pubRes?.ok ? pubRes.memberCount : '?';
+
+          const notMemberHtml = `
+            <div style="text-align:center;padding:24px 16px;">
+              <div style="font-size:32px;margin-bottom:8px;">🔒</div>
+              <div style="font-weight:600;font-size:16px;margin-bottom:4px;">${escapeHtml(rName)}</div>
+              <div style="color:var(--sub);font-size:13px;margin-bottom:20px;">👥 ${rCount} участников</div>
+              <button id="btn-join-from-members" class="btn-primary" style="width:100%;max-width:240px;">
+                ${rJoinMode === 'approval' ? '📋 Подать заявку' : '➕ Вступить в группу'}
+              </button>
+            </div>`;
+
+          if (membersListContainer) membersListContainer.innerHTML = notMemberHtml;
+          if (mo) mo.innerHTML = '';
+
+          document.getElementById('btn-join-from-members')?.addEventListener('click', () => {
+            if (rHasPw) {
+              openRoomPasswordModal(currentRoomId, rName, rJoinMode);
+            } else if (rJoinMode === 'approval') {
+              handleApprovalJoin(currentRoomId, rName);
+            } else {
+              // joinRoom вызывает cb(ok, errorCode) — ok=true при успехе
+              joinRoom(currentRoomId, '', (ok, err) => {
+                if (!ok) {
+                  showToast('❌ Не удалось вступить: ' + (err || 'ошибка'));
+                }
+                // При ok=true joinRoom сам переходит в чат группы
+              });
+            }
+          });
+        });
+      } else {
+        if (membersListContainer) membersListContainer.innerHTML = '<div class="empty-list">Ошибка</div>';
+        if (mo) mo.innerHTML = '<div class="empty-list">Ошибка</div>';
+      }
       return;
     }
 
