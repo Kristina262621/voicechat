@@ -221,6 +221,9 @@ function initEventListeners() {
   });
 
   $('profile-avatar-wrap')?.addEventListener('click', () => { $('avatar-input')?.click(); });
+  $('btn-set-background')?.addEventListener('click', () => {
+    showToast('🖼️ Установка фона — функция в разработке');
+  });
   $('avatar-input')?.addEventListener('change', () => {
     const ai = $('avatar-input');
     const file = ai?.files?.[0];
@@ -284,11 +287,25 @@ function initEventListeners() {
 
   $('settings-go-data')?.addEventListener('click', () => showToast('💾 Кэш очищен'));
   $('settings-go-lang')?.addEventListener('click', () => showToast('🌐 Язык: Русский'));
-  $('settings-go-chats')?.addEventListener('click', () => showToast('💬 Раздел в разработке'));
-  $('settings-go-about')?.addEventListener('click', () => {
-    modalSettings?.classList.remove('open');
-    openAboutPage();
+  // Обработчик settings-go-chats теперь в ui.js (открывает настройки чатов)
+  
+  // Инициализация переключателя звуков сообщений
+  const soundToggle = $('toggle-message-sounds');
+  if (soundToggle) {
+    const saved = localStorage.getItem('messageSounds');
+    soundToggle.checked = saved !== '0'; // по умолчанию включено (если не '0')
+    soundToggle.addEventListener('change', function() {
+      localStorage.setItem('messageSounds', this.checked ? '1' : '0');
+      showToast(this.checked ? '🔊 Звуки сообщений включены' : '🔇 Звуки сообщений выключены');
+    });
+  }
+  
+  // Размер шрифта
+  $('settings-go-font-size')?.addEventListener('click', () => {
+    showToast('🔤 Размер шрифта: можно выбрать маленький, средний или большой');
   });
+  
+  // Обработчик settings-go-about удалён, чтобы избежать дублирования с ui.js
 
   // Create room
   $('btn-close-create')?.addEventListener('click', () => {
@@ -1150,9 +1167,9 @@ function doLogin() {
 function doRegister() {
   const nick     = regNick?.value.trim();
   const pw       = regPw?.value;
-  const hint     = $('reg-hint')     ? $('reg-hint').value.trim()     : '';
-  const phone    = $('reg-phone')    ? $('reg-phone').value.trim()    : '';
-  const username = $('reg-username') ? $('reg-username').value.trim() : '';
+  const hint     = $('reg-hint')      ? $('reg-hint').value.trim()      : '';
+  const email    = $('reg-email')     ? $('reg-email').value.trim()     : '';
+  const username = $('reg-username')  ? $('reg-username').value.trim()  : '';
 
   if (!nick || nick.length < 2) { if (regError) regError.textContent = 'Ник минимум 2 символа'; return; }
 
@@ -1170,7 +1187,7 @@ function doRegister() {
   }
 
   if (btnRegister) { btnRegister.disabled = true; btnRegister.textContent = '⏳'; }
-  socket.emit('auth-register', { nickname: nick, password: pw, hint, phone, username }, res => {
+  socket.emit('auth-register', { nickname: nick, password: pw, hint, phone: email, username }, res => {
     if (btnRegister) { btnRegister.disabled = false; btnRegister.textContent = 'Создать аккаунт'; }
     if (res.ok) {
       authToken  = res.token;
