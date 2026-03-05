@@ -1009,6 +1009,10 @@ async function renderPrivateHistoryMessages(chatId, messages, { replace = false 
   for (const msg of messages) {
     const mine = msg.from === myLower;
     if (msg.deletedFor && msg.deletedFor.includes(myLower)) continue;
+    
+    // Проверка на дублирование: если сообщение уже есть в чате, пропускаем
+    if (msg.id && msgIdToDomId.has(msg.id)) continue;
+    
     const peerId = resolvePrivateHistoryPeerId(chatId, myLower, mine, msg);
 
     if (msg.type === 'text') {
@@ -1027,7 +1031,7 @@ async function renderPrivateHistoryMessages(chatId, messages, { replace = false 
           replyTo: msg.replyTo || null,
           peerId
         });
-        if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
+        if (msg.id) msgIdToDomId.set(msg.id, domId);
       } catch (_) {
         appendMessage({
           id: msg.id, nickname: msg.fromNick, text: '[зашифровано]',
@@ -1054,7 +1058,7 @@ async function renderPrivateHistoryMessages(chatId, messages, { replace = false 
           msgStatus: mine ? (msg.status || 'sent') : null,
           peerId
         });
-        if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
+        if (msg.id) msgIdToDomId.set(msg.id, domId);
       } catch (_) {
         const domId = appendMessage({
           id: msg.id,
@@ -1070,7 +1074,7 @@ async function renderPrivateHistoryMessages(chatId, messages, { replace = false 
           msgStatus: mine ? (msg.status || 'sent') : null,
           peerId
         });
-        if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
+        if (msg.id) msgIdToDomId.set(msg.id, domId);
       }
       continue;
     }
@@ -1089,7 +1093,7 @@ async function renderPrivateHistoryMessages(chatId, messages, { replace = false 
       replyTo: msg.replyTo || null,
       peerId
     });
-    if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
+    if (msg.id) msgIdToDomId.set(msg.id, domId);
 
     try {
       const mime = msg.mimeType || 'application/octet-stream';
@@ -1550,7 +1554,7 @@ function joinRoom(roomId, password, cb) {
                 duration: msg.duration || 0, timestamp: msg.timestamp,
                 mine, status: 'ok', encrypted: msg.encrypted, iv: msg.iv, mimeType: msg.mimeType
               });
-              if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
+              if (msg.id) msgIdToDomId.set(msg.id, domId);
             } else if (msg.type === 'text') {
               try {
                 const text = await Crypto.decryptText(msg.encrypted, msg.iv);
@@ -1559,7 +1563,7 @@ function joinRoom(roomId, password, cb) {
                   timestamp: msg.timestamp, mine, status: 'ok',
                   edited: msg.edited, replyTo: msg.replyTo || null
                 });
-                if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
+                if (msg.id) msgIdToDomId.set(msg.id, domId);
               } catch (_) {
                 appendMessage({
                   id: msg.id, nickname: msg.nickname, text: '[зашифровано]',
