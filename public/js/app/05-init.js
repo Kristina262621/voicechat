@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════
-//  05-init.js — инициализация и все обработчики UI
+//  05-init.js — инициализация и обработчики UI
 // ═══════════════════════════════════════════════
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -57,13 +57,33 @@ async function ensureE2EEKeysSafe() {
   }
 }
 
+function setChatWallpaperDataUrl(dataUrl) {
+  const cm = document.getElementById('chat-messages');
+  if (!cm) return;
+
+  if (!dataUrl) {
+    cm.style.backgroundImage = '';
+    cm.dataset.wallpaper = '';
+    return;
+  }
+
+  cm.dataset.wallpaper = dataUrl;
+  cm.style.backgroundImage = `linear-gradient(rgba(10,10,15,0.25), rgba(10,10,15,0.25)), url('${dataUrl}')`;
+  cm.style.backgroundSize = 'cover';
+  cm.style.backgroundPosition = 'center center';
+  cm.style.backgroundRepeat = 'no-repeat';
+}
+
+function getCurrentChatEntityId() {
+  return currentChatType === 'private' ? currentChatId : currentRoomId;
+}
+
 // ───────────────────────────────────────────────
 //  CONNECT / DISCONNECT
 // ───────────────────────────────────────────────
 socket.on('connect', () => {
   if (reconnectBanner) reconnectBanner.classList.remove('visible');
 
-  // Важно: при ALLOW_GUEST=false после reconnect нужно заново auth-token.
   if (authToken) {
     socket.emit('auth-token', { token: authToken }, res => {
       if (!res?.ok) {
@@ -81,15 +101,12 @@ socket.on('connect', () => {
       myAvatar = res.avatar || null;
       updateLobbyAvatarBtn?.();
 
-      // E2EE: проверим модули и дозальём prekeys после успешной ре-авторизации
       checkE2EEModulesSafe();
       ensureE2EEKeysSafe();
 
-      // восстановление текущего контекста
       if (currentRoomId && currentChatType === 'group') joinRoom(currentRoomId, currentPassword);
       if (currentChatId && currentChatType === 'private') socket.emit('private-chat-join', { chatId: currentChatId });
 
-      // обновим TURN
       if (typeof refreshIceServers === 'function') refreshIceServers().catch(() => {});
     });
   }
@@ -100,7 +117,7 @@ socket.on('disconnect', () => {
 });
 
 // ───────────────────────────────────────────────
-//  ВСЕ ОБРАБОТЧИКИ
+//  ОБРАБОТЧИКИ UI
 // ───────────────────────────────────────────────
 function initEventListeners() {
   // Auth
@@ -123,7 +140,7 @@ function initEventListeners() {
     });
   });
 
-  // OTP reset flow (без дублей)
+  // OTP reset flow
   $('btn-show-reset')?.addEventListener('click', () => {
     const s = $('reset-password-section');
     if (s) s.style.display = s.style.display === 'none' ? '' : 'none';
@@ -206,7 +223,7 @@ function initEventListeners() {
   $('profile-avatar-wrap')?.addEventListener('click', () => { $('avatar-input')?.click(); });
   $('avatar-input')?.addEventListener('change', () => {
     const ai = $('avatar-input');
-    const file = ai?.files[0];
+    const file = ai?.files?.[0];
     if (!file) return;
     if (ai) ai.value = '';
 
@@ -282,7 +299,7 @@ function initEventListeners() {
   $('room-photo-btn')?.addEventListener('click', () => $('room-photo-input')?.click());
   $('room-photo-input')?.addEventListener('change', () => {
     const rpi = $('room-photo-input');
-    const file = rpi?.files[0];
+    const file = rpi?.files?.[0];
     if (!file) return;
     if (rpi) rpi.value = '';
     if (file.size > 5 * 1024 * 1024) { alert('Фото слишком большое'); return; }
@@ -345,7 +362,7 @@ function initEventListeners() {
         if (currentRoomData) currentRoomData.name = name;
       } else {
         const re2 = $('rename-error');
-        if (re2) re2.textContent = res.error === 'not_owner' ? '❌ Нет прав' : '⚠️ Ошибка';
+        if (re2) re2.textContent = (res.error === 'not_owner' || res.error === 'not_allowed') ? '❌ Нет прав' : '⚠️ Ошибка';
       }
     });
   });
@@ -355,7 +372,7 @@ function initEventListeners() {
   $('btn-group-photo-change')?.addEventListener('click', () => $('group-photo-input')?.click());
   $('group-photo-input')?.addEventListener('change', () => {
     const gpi = $('group-photo-input');
-    const file = gpi?.files[0];
+    const file = gpi?.files?.[0];
     if (!file) return;
     if (gpi) gpi.value = '';
     if (file.size > 5 * 1024 * 1024) { showToast('⚠️ Фото слишком большое'); return; }
@@ -373,23 +390,70 @@ function initEventListeners() {
     r.readAsDataURL(file);
   });
 
+  // Обои группы из модалки участников
+  $('btn-group-wallpaper-change')?.addEventListener('click', () => $('group-wallpaper-input')?.click());
+  $('group-wallpaper-input')?.addEventListener('change', () => {
+    const inp = $('group-wallpaper-input');
+    const file = inp?.files?.[0];
+    if (!file) return;
+    if (inp) inp.value = '';
+    if (!file.type.startsWith('image/')) return showToast('⚠️ Нужна картинка');
+    if (file.size > 6 * 1024 * 1024) return showToast('⚠️ Обои слишком большие');
+
+    const r = new FileReader();
+    r.onload = e => {
+      const wallpaper = e.target.result;
+      socket.emit('room-set-wallpaper', { roomId: currentRoomId, wallpaper }, res => {
+        if (!res?.ok) return showToast('❌ Ошибка обоев');
+        if (currentRoomData) currentRoomData.wallpaper = res.wallpaper || wallpaper;
+        setChatWallpaperDataUrl(res.wallpaper || wallpaper);
+        showToast('✅ Обои группы обновлены');
+      });
+    };
+    r.readAsDataURL(file);
+  });
+
+  $('btn-save-group-description')?.addEventListener('click', () => {
+    const val = String($('group-description-input')?.value || '').trim().slice(0, 2000);
+    socket.emit('room-settings-update', { roomId: currentRoomId, descriptionText: val }, res => {
+      if (!res?.ok) return showToast('❌ Ошибка сохранения описания');
+      if (currentRoomData) currentRoomData.descriptionText = val;
+      showToast('✅ Описание группы сохранено');
+    });
+  });
+
   $('btn-save-group-settings')?.addEventListener('click', () => {
     const gad = $('group-autodelete-select');
     const gjm = $('group-joinmode-select');
+    const gve = $('group-voice-enabled-select');
 
     socket.emit('room-settings-update', {
       roomId: currentRoomId,
       autoDelete: gad ? gad.value : 'never',
-      joinMode: gjm ? gjm.value : 'open'
+      joinMode: gjm ? gjm.value : 'open',
+      voiceEnabled: gve ? gve.value === '1' : true
     }, res => {
       if (res.ok) {
         const ns = $('group-notif-select');
         if (ns && currentRoomId) setNotifSetting(currentRoomId, ns.value);
-        showToast('✅ Настройки сохранены');
+
         if (currentRoomData) {
           currentRoomData.autoDelete = gad?.value === 'never' ? null : parseInt(gad?.value, 10);
           currentRoomData.joinMode = gjm?.value || 'open';
+          currentRoomData.voiceEnabled = gve ? gve.value === '1' : true;
         }
+
+        // обновляем кнопки voice
+        if (currentChatType === 'group' && currentRoomData?.voiceEnabled === false) {
+          if (btnJoin) btnJoin.style.display = 'none';
+          if (btnMic) btnMic.style.display = 'none';
+          if (btnLeave) btnLeave.style.display = 'none';
+          showToast('🔇 Голосовой чат отключён админом');
+        } else if (currentChatType === 'group' && !joined) {
+          if (btnJoin) btnJoin.style.display = 'block';
+        }
+
+        showToast('✅ Настройки сохранены');
       } else showToast('⚠️ Ошибка сохранения');
     });
   });
@@ -453,9 +517,42 @@ function initEventListeners() {
     if (currentChatType === 'group' && currentRoomId) openMembersModal();
   });
 
+  // Обои чата (кнопка в хедере)
+  $('btn-chat-wallpaper')?.addEventListener('click', () => {
+    if (currentChatType === 'group') $('group-wallpaper-input')?.click();
+    else if (currentChatType === 'private') $('private-wallpaper-input')?.click();
+    else showToast('Сначала открой чат');
+  });
+
+  $('private-wallpaper-input')?.addEventListener('change', () => {
+    const inp = $('private-wallpaper-input');
+    const file = inp?.files?.[0];
+    if (!file) return;
+    if (inp) inp.value = '';
+    if (!file.type.startsWith('image/')) return showToast('⚠️ Нужна картинка');
+    if (file.size > 6 * 1024 * 1024) return showToast('⚠️ Обои слишком большие');
+    if (!currentChatId || currentChatType !== 'private') return;
+
+    const r = new FileReader();
+    r.onload = e => {
+      const wallpaper = e.target.result;
+      socket.emit('private-set-wallpaper', { chatId: currentChatId, wallpaper }, res => {
+        if (!res?.ok) return showToast('❌ Ошибка обоев');
+        setChatWallpaperDataUrl(res.wallpaper || wallpaper);
+        showToast('✅ Обои личного чата обновлены');
+      });
+    };
+    r.readAsDataURL(file);
+  });
+
   // Voice group
   $('btn-join')?.addEventListener('click', async () => {
     if (!currentRoomId || currentChatType !== 'group') return;
+    if (currentRoomData && currentRoomData.voiceEnabled === false) {
+      showToast('🔇 Голосовой чат отключён администратором');
+      return;
+    }
+
     try {
       const rawStream = await getMicStream();
       localStream = rawStream;
@@ -499,7 +596,7 @@ function initEventListeners() {
     hangUp();
     joined = false;
 
-    if (btnJoin) btnJoin.style.display = 'block';
+    if (btnJoin) btnJoin.style.display = (currentRoomData?.voiceEnabled === false) ? 'none' : 'block';
     if (btnLeave) btnLeave.style.display = 'none';
     if (btnMic) btnMic.style.display = 'none';
 
@@ -514,7 +611,6 @@ function initEventListeners() {
     micEnabled = !micEnabled;
     localStream.getAudioTracks().forEach(t => { t.enabled = micEnabled; });
     setMicStatus(micEnabled);
-
     if (btnMic) btnMic.textContent = micEnabled ? '🔇 Выключить микрофон' : '🎙️ Включить микрофон';
   });
 
@@ -537,8 +633,9 @@ function initEventListeners() {
     }
   });
 
+  // ✅ ВАЖНО: Enter = новая строка, Ctrl/Cmd+Enter = отправить
   $('chat-input')?.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       sendTextMessage();
     }
@@ -561,7 +658,7 @@ function initEventListeners() {
 
   $('file-input')?.addEventListener('change', async () => {
     const fi = $('file-input');
-    const file = fi?.files[0];
+    const file = fi?.files?.[0];
     if (!file) return;
     if (fi) fi.value = '';
 
@@ -891,7 +988,7 @@ function initEventListeners() {
   // Clear unread on focus
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
-      const id = currentChatType === 'private' ? currentChatId : currentRoomId;
+      const id = getCurrentChatEntityId();
       if (id) clearUnread(id);
     }
   });
@@ -948,10 +1045,73 @@ function initEventListeners() {
     window.checkUsernameInput = () => checkUsername(input.value);
     input.addEventListener('input', () => checkUsername(input.value));
   })();
+
+  // ── SOCKET-события для обоев/настроек
+  socket.on('room-wallpaper-updated', ({ roomId, wallpaper }) => {
+    if (currentChatType === 'group' && currentRoomId === roomId) {
+      setChatWallpaperDataUrl(wallpaper || null);
+      if (currentRoomData) currentRoomData.wallpaper = wallpaper || null;
+    }
+  });
+
+  socket.on('private-wallpaper-updated', ({ chatId, wallpaper }) => {
+    if (currentChatType === 'private' && currentChatId === chatId) {
+      setChatWallpaperDataUrl(wallpaper || null);
+    }
+  });
+
+  socket.on('room-settings-changed', payload => {
+    if (!payload || payload.roomId !== currentRoomId) return;
+
+    if (typeof payload.voiceEnabled !== 'undefined') {
+      if (!currentRoomData) currentRoomData = {};
+      currentRoomData.voiceEnabled = !!payload.voiceEnabled;
+
+      if (!currentRoomData.voiceEnabled) {
+        if (joined) {
+          socket.emit('voice-leave');
+          hangUp();
+          joined = false;
+        }
+        if (btnJoin) btnJoin.style.display = 'none';
+        if (btnMic) btnMic.style.display = 'none';
+        if (btnLeave) btnLeave.style.display = 'none';
+        showToast('🔇 Голосовой чат отключён админом');
+      } else if (!joined) {
+        if (btnJoin) btnJoin.style.display = 'block';
+      }
+    }
+
+    if (typeof payload.wallpaper !== 'undefined') {
+      if (!currentRoomData) currentRoomData = {};
+      currentRoomData.wallpaper = payload.wallpaper || null;
+      setChatWallpaperDataUrl(payload.wallpaper || null);
+    }
+
+    if (typeof payload.descriptionText !== 'undefined' && currentRoomData) {
+      currentRoomData.descriptionText = payload.descriptionText || '';
+      const descInput = $('group-description-input');
+      if (descInput && modalMembers?.classList.contains('open')) {
+        descInput.value = currentRoomData.descriptionText;
+      }
+    }
+  });
+
+  socket.on('voice-disabled', () => {
+    if (joined) {
+      socket.emit('voice-leave');
+      hangUp();
+      joined = false;
+    }
+    if (btnJoin) btnJoin.style.display = 'none';
+    if (btnMic) btnMic.style.display = 'none';
+    if (btnLeave) btnLeave.style.display = 'none';
+    showToast('🔇 Голосовой чат отключён администратором');
+  });
 }
 
 // ───────────────────────────────────────────────
-//  AUTH ACTIONS
+//  AUTH ACTIONS (override)
 // ───────────────────────────────────────────────
 function doLogin() {
   const nick = loginNick?.value.trim();
@@ -969,7 +1129,6 @@ function doLogin() {
       myAvatar   = res.avatar || null;
       try { localStorage.setItem('chat_token', authToken); } catch (_) {}
 
-      // E2EE: проверяем модули и инициализируем/пополняем prekeys после логина
       checkE2EEModulesSafe();
       ensureE2EEKeysSafe();
 
@@ -1020,7 +1179,6 @@ function doRegister() {
       myAvatar   = null;
       try { localStorage.setItem('chat_token', authToken); } catch (_) {}
 
-      // E2EE: проверяем модули и инициализируем/пополняем prekeys после регистрации
       checkE2EEModulesSafe();
       ensureE2EEKeysSafe();
 
