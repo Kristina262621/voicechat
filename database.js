@@ -29,6 +29,7 @@ if (USE_PG) {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.pragma('synchronous = NORMAL');
+  db.exec(`PRAGMA group_concat_max_len = 10000;`); // увеличиваем лимит для списков
   console.log('Используем SQLite (локально)');
 }
 
@@ -59,7 +60,8 @@ async function _runMigrations() {
 
       ALTER TABLE private_messages
         ADD COLUMN IF NOT EXISTS caption_encrypted TEXT DEFAULT NULL,
-        ADD COLUMN IF NOT EXISTS caption_iv TEXT DEFAULT NULL;
+        ADD COLUMN IF NOT EXISTS caption_iv TEXT DEFAULT NULL,
+        ADD COLUMN IF NOT EXISTS deleted SMALLINT DEFAULT 0;
     `);
   } else {
     await _sqliteAddColumnIfMissing('rooms', 'voice_enabled',   `voice_enabled INTEGER DEFAULT 1`);
@@ -73,6 +75,7 @@ async function _runMigrations() {
 
     await _sqliteAddColumnIfMissing('private_messages', 'caption_encrypted', `caption_encrypted TEXT DEFAULT NULL`);
     await _sqliteAddColumnIfMissing('private_messages', 'caption_iv',        `caption_iv TEXT DEFAULT NULL`);
+    await _sqliteAddColumnIfMissing('private_messages', 'deleted',           `deleted INTEGER DEFAULT 0`);
   }
 }
 
@@ -174,66 +177,6 @@ async function initDB() {
         nick_lower TEXT NOT NULL,
         PRIMARY KEY (msg_id, nick_lower)
       );
-
-      CREATE TABLE IF NOT EXISTS room_pinned_media (
-        room_id      TEXT NOT NULL,
-        msg_id       TEXT NOT NULL,
-        pinned_by    TEXT NOT NULL,
-        created_at   BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
-        kind         TEXT DEFAULT 'media',
-        PRIMARY KEY (room_id, msg_id)
-      );
-
-      CREATE TABLE IF NOT EXISTS private_chats (
-        chat_id    TEXT PRIMARY KEY,
-        member1    TEXT NOT NULL,
-        member2    TEXT NOT NULL,
-        wallpaper  TEXT DEFAULT NULL,
-        created_at BIGINT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS private_messages (
-        msg_id      TEXT PRIMARY KEY,
-        chat_id     TEXT NOT NULL,
-        from_lower  TEXT NOT NULL,
-        from_nick   TEXT NOT NULL,
-        from_avatar TEXT DEFAULT NULL,
-        encrypted   TEXT,
-        iv          TEXT,
-        caption_encrypted TEXT DEFAULT NULL,
-        caption_iv TEXT DEFAULT NULL,
-        type        TEXT DEFAULT 'text',
-        file_name   TEXT DEFAULT NULL,
-        file_size   BIGINT DEFAULT NULL,
-        mime_type   TEXT DEFAULT NULL,
-        duration    INTEGER DEFAULT 0,
-        seq         INTEGER,
-        status      TEXT DEFAULT 'sent',
-        edited      INTEGER DEFAULT 0,
-        timestamp   BIGINT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS private_msg_read_by (
-        msg_id     TEXT NOT NULL,
-        nick_lower TEXT NOT NULL,
-        PRIMARY KEY (msg_id, nick_lower)
-      );
-
-      CREATE TABLE IF NOT EXISTS private_msg_deleted_for (
-        msg_id     TEXT NOT NULL,
-        nick_lower TEXT NOT NULL,
-        PRIMARY KEY (msg_id, nick_lower)
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_room_messages_room     ON room_messages(room_id, timestamp);
-      CREATE INDEX IF NOT EXISTS idx_private_messages_chat  ON private_messages(chat_id, timestamp);
-      CREATE INDEX IF NOT EXISTS idx_auth_tokens_nick       ON auth_tokens(nick_lower);
-      CREATE INDEX IF NOT EXISTS idx_room_members_nick      ON room_members(nick_lower);
-      CREATE INDEX IF NOT EXISTS idx_private_chats_m1       ON private_chats(member1);
-      CREATE INDEX IF NOT EXISTS idx_private_chats_m2       ON private_chats(member2);
-      CREATE INDEX IF NOT EXISTS idx_room_roles_room        ON room_roles(room_id);
-      CREATE INDEX IF NOT EXISTS idx_room_roles_nick        ON room_roles(nick_lower);
-      CREATE INDEX IF NOT EXISTS idx_room_pinned_room       ON room_pinned_media(room_id, created_at DESC);
     `);
   } else {
     db.exec(`
@@ -332,7 +275,73 @@ async function initDB() {
         nick_lower TEXT NOT NULL,
         PRIMARY KEY (msg_id, nick_lower)
       );
+    `);
+  }
+    if (USE_PG) {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS room_pinned_media (
+        room_id      TEXT NOT NULL,
+        msg_id       TEXT NOT NULL,
+        pinned_by    TEXT NOT NULL,
+        created_at   BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
+        kind         TEXT DEFAULT 'media',
+        PRIMARY KEY (room_id, msg_id)
+      );
 
+      CREATE TABLE IF NOT EXISTS private_chats (
+        chat_id    TEXT PRIMARY KEY,
+        member1    TEXT NOT NULL,
+        member2    TEXT NOT NULL,
+        wallpaper  TEXT DEFAULT NULL,
+        created_at BIGINT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS private_messages (
+        msg_id      TEXT PRIMARY KEY,
+        chat_id     TEXT NOT NULL,
+        from_lower  TEXT NOT NULL,
+        from_nick   TEXT NOT NULL,
+        from_avatar TEXT DEFAULT NULL,
+        encrypted   TEXT,
+        iv          TEXT,
+        caption_encrypted TEXT DEFAULT NULL,
+        caption_iv TEXT DEFAULT NULL,
+        type        TEXT DEFAULT 'text',
+        file_name   TEXT DEFAULT NULL,
+        file_size   BIGINT DEFAULT NULL,
+        mime_type   TEXT DEFAULT NULL,
+        duration    INTEGER DEFAULT 0,
+        seq         INTEGER,
+        status      TEXT DEFAULT 'sent',
+        edited      INTEGER DEFAULT 0,
+        deleted     INTEGER DEFAULT 0,
+        timestamp   BIGINT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS private_msg_read_by (
+        msg_id     TEXT NOT NULL,
+        nick_lower TEXT NOT NULL,
+        PRIMARY KEY (msg_id, nick_lower)
+      );
+
+      CREATE TABLE IF NOT EXISTS private_msg_deleted_for (
+        msg_id     TEXT NOT NULL,
+        nick_lower TEXT NOT NULL,
+        PRIMARY KEY (msg_id, nick_lower)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_room_messages_room     ON room_messages(room_id, timestamp);
+      CREATE INDEX IF NOT EXISTS idx_private_messages_chat  ON private_messages(chat_id, timestamp);
+      CREATE INDEX IF NOT EXISTS idx_auth_tokens_nick       ON auth_tokens(nick_lower);
+      CREATE INDEX IF NOT EXISTS idx_room_members_nick      ON room_members(nick_lower);
+      CREATE INDEX IF NOT EXISTS idx_private_chats_m1       ON private_chats(member1);
+      CREATE INDEX IF NOT EXISTS idx_private_chats_m2       ON private_chats(member2);
+      CREATE INDEX IF NOT EXISTS idx_room_roles_room        ON room_roles(room_id);
+      CREATE INDEX IF NOT EXISTS idx_room_roles_nick        ON room_roles(nick_lower);
+      CREATE INDEX IF NOT EXISTS idx_room_pinned_room       ON room_pinned_media(room_id, created_at DESC);
+    `);
+  } else {
+    db.exec(`
       CREATE TABLE IF NOT EXISTS room_pinned_media (
         room_id      TEXT NOT NULL,
         msg_id       TEXT NOT NULL,
@@ -368,6 +377,7 @@ async function initDB() {
         seq         INTEGER,
         status      TEXT DEFAULT 'sent',
         edited      INTEGER DEFAULT 0,
+        deleted     INTEGER DEFAULT 0,
         timestamp   INTEGER NOT NULL
       );
 
@@ -664,7 +674,6 @@ const TokenDB = {
     await query(`DELETE FROM auth_tokens WHERE created_at < ?`, [cutoff]);
   }
 };
-
 // ════════════════════════════════════════════
 //  ГРУППЫ (КОМНАТЫ)
 // ════════════════════════════════════════════
@@ -1063,7 +1072,8 @@ const PrivateChatDB = {
   },
 
   async deleteMessage(msgId) {
-    await query(`DELETE FROM private_messages WHERE msg_id = ?`, [msgId]);
+    // мягкое удаление
+    await query(`UPDATE private_messages SET deleted = 1 WHERE msg_id = ?`, [msgId]);
   },
 
   async editMessage(msgId, encrypted, iv) {
