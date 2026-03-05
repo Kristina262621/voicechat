@@ -619,6 +619,41 @@
     .settings-item-value { font-size:13px; color:var(--accent2); }
     .settings-item-arrow { color:var(--sub); font-size:13px; opacity:0.5; }
 
+    /* Группы настроек */
+    .settings-group-title {
+      font-size:11px; color:var(--accent2); font-weight:700;
+      text-transform:uppercase; letter-spacing:1px;
+      margin:20px 0 8px; padding:0 4px;
+    }
+    .settings-group-title:first-child { margin-top:0; }
+
+    /* Переключатель */
+    .settings-switch {
+      position:relative; display:inline-block;
+      width:44px; height:24px; flex-shrink:0;
+    }
+    .settings-switch input {
+      opacity:0; width:0; height:0;
+    }
+    .settings-switch-slider {
+      position:absolute; cursor:pointer;
+      top:0; left:0; right:0; bottom:0;
+      background-color:rgba(255,255,255,0.1);
+      border-radius:24px; transition:.3s;
+    }
+    .settings-switch-slider:before {
+      position:absolute; content:"";
+      height:18px; width:18px; left:3px; bottom:3px;
+      background-color:white; border-radius:50%;
+      transition:.3s; box-shadow:0 2px 4px rgba(0,0,0,0.2);
+    }
+    .settings-switch input:checked + .settings-switch-slider {
+      background:linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+    }
+    .settings-switch input:checked + .settings-switch-slider:before {
+      transform:translateX(20px);
+    }
+
     /* ─── ДРУЗЬЯ / УЧАСТНИКИ ─── */
     .friend-item {
       display:flex; align-items:center; gap:12px;
@@ -1589,12 +1624,12 @@
           </div>
           <div class="field-group">
             <label class="field-label">
-              Номер телефона
+              Email (необязательно)
               <span style="color:var(--accent2);text-transform:none;letter-spacing:0;font-weight:600;font-size:10px"> — не обязательно</span>
             </label>
             <div class="field-input-wrap">
-              <input class="field-input" type="tel" id="reg-phone"
-                     placeholder="+7 900 000 00 00 (необязательно)" maxlength="20" autocomplete="tel"/>
+              <input class="field-input" type="email" id="reg-email"
+                     placeholder="example@domain.com (необязательно)" maxlength="100" autocomplete="email"/>
             </div>
             <div class="hint-text">🔒 Только для восстановления пароля. Не виден другим.</div>
           </div>
@@ -1717,11 +1752,25 @@
     <div class="modal-title">Мой профиль</div>
     <button class="modal-close" id="btn-close-profile">✕</button>
     <div class="profile-avatar-section">
-      <div class="profile-avatar-wrap" id="profile-avatar-wrap">
-        <div class="profile-avatar" id="profile-avatar-display">👤</div>
-        <div class="profile-avatar-edit">✏️</div>
+      <div style="display:flex; align-items:flex-start; gap:20px; width:100%;">
+        <!-- Аватар слева -->
+        <div class="profile-avatar-wrap" id="profile-avatar-wrap" style="flex-shrink:0;">
+          <div class="profile-avatar" id="profile-avatar-display">👤</div>
+          <div class="profile-avatar-edit">✏️</div>
+        </div>
+        <!-- Блок для фона и имени -->
+        <div style="flex:1; display:flex; flex-direction:column; gap:12px;">
+          <div class="profile-name" id="profile-name-display">—</div>
+          <!-- Кнопка установки фона -->
+          <div style="display:flex; align-items:center; gap:10px;">
+            <button id="btn-set-background" style="padding:10px 16px; border-radius:12px; background:var(--surface2); border:1px solid rgba(124,92,191,0.3); color:var(--text); font-size:14px; cursor:pointer; display:flex; align-items:center; gap:8px;">
+              <span style="font-size:18px">🖼️</span>
+              <span>Установить фон</span>
+            </button>
+            <div style="font-size:12px; color:var(--sub);">Фон будет отображаться рядом с аватаркой</div>
+          </div>
+        </div>
       </div>
-      <div class="profile-name" id="profile-name-display">—</div>
     </div>
     <div class="field-wrap">
       <div class="field-label">Имя / Никнейм</div>
@@ -1733,9 +1782,9 @@
         style="resize:none;padding:13px 16px;background:var(--bg2);border:1.5px solid rgba(255,255,255,0.07);border-radius:14px;color:var(--text);font-size:15px;outline:none;font-family:inherit;width:100%"></textarea>
     </div>
     <div class="field-wrap">
-      <div class="field-label">Номер телефона</div>
-      <input type="tel" id="profile-edit-phone" placeholder="+7 900 000 00 00" maxlength="20" autocomplete="tel"/>
-      <div style="font-size:11px;color:var(--sub);margin-top:5px">🔒 Виден только тебе</div>
+      <div class="field-label">Ваши любые контакты</div>
+      <input type="text" id="profile-edit-phone" placeholder="Телефон, email, соцсети…" maxlength="100" autocomplete="off"/>
+      <div style="font-size:11px;color:var(--sub);margin-top:5px">⚠️ Будет не конфиденциально (видно другим)</div>
     </div>
     <button class="btn-primary" id="btn-save-profile" style="margin-bottom:12px">💾 Сохранить</button>
     <div class="profile-section-title">Друзья</div>
@@ -1764,46 +1813,78 @@
     <div class="modal-handle"></div>
     <div class="modal-title">⚙️ Настройки</div>
     <button class="modal-close" id="btn-close-settings">✕</button>
+    
+    <!-- Аккаунт -->
+    <div class="settings-group-title">Аккаунт</div>
     <div class="settings-item" id="settings-go-profile">
-      <span class="settings-item-icon">👤</span>
+      <span class="settings-item-icon" style="background:linear-gradient(135deg, #667eea 0%, #764ba2 100%)">👤</span>
       <span class="settings-item-label">Профиль</span>
       <span class="settings-item-arrow">›</span>
     </div>
     <div class="settings-item" id="settings-go-privacy">
-      <span class="settings-item-icon">🔒</span>
+      <span class="settings-item-icon" style="background:linear-gradient(135deg, #f093fb 0%, #f5576c 100%)">🔒</span>
       <span class="settings-item-label">Конфиденциальность</span>
       <span class="settings-item-arrow">›</span>
     </div>
+    
+    <!-- Уведомления и звуки -->
+    <div class="settings-group-title">Уведомления и звуки</div>
     <div class="settings-item" id="settings-go-notifs">
-      <span class="settings-item-icon">🔔</span>
+      <span class="settings-item-icon" style="background:linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)">🔔</span>
       <span class="settings-item-label">Уведомления</span>
       <span class="settings-item-arrow">›</span>
     </div>
+    <div class="settings-item" id="settings-toggle-sounds">
+      <span class="settings-item-icon" style="background:linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)">🔊</span>
+      <span class="settings-item-label">Звуки сообщений</span>
+      <div class="settings-switch">
+        <input type="checkbox" id="toggle-message-sounds" checked>
+        <label for="toggle-message-sounds" class="settings-switch-slider"></label>
+      </div>
+    </div>
+    
+    <!-- Внешний вид -->
+    <div class="settings-group-title">Внешний вид</div>
+    <div class="settings-item" id="settings-go-chats">
+      <span class="settings-item-icon" style="background:linear-gradient(135deg, #fa709a 0%, #fee140 100%)">💬</span>
+      <span class="settings-item-label">Тема и оформление</span>
+      <span class="settings-item-arrow">›</span>
+    </div>
+    <div class="settings-item" id="settings-go-font-size">
+      <span class="settings-item-icon" style="background:linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)">🔤</span>
+      <span class="settings-item-label">Размер шрифта</span>
+      <span class="settings-item-value">Средний</span>
+      <span class="settings-item-arrow">›</span>
+    </div>
+    
+    <!-- Данные -->
+    <div class="settings-group-title">Данные</div>
     <div class="settings-item" id="settings-go-data">
-      <span class="settings-item-icon">💾</span>
+      <span class="settings-item-icon" style="background:linear-gradient(135deg, #d299c2 0%, #fef9d7 100%)">💾</span>
       <span class="settings-item-label">Данные и память</span>
       <span class="settings-item-arrow">›</span>
     </div>
     <div class="settings-item" id="settings-go-lang">
-      <span class="settings-item-icon">🌐</span>
+      <span class="settings-item-icon" style="background:linear-gradient(135deg, #89f7fe 0%, #66a6ff 100%)">🌐</span>
       <span class="settings-item-label">Язык</span>
       <span class="settings-item-value">Русский</span>
       <span class="settings-item-arrow">›</span>
     </div>
-    <div class="settings-item" id="settings-go-chats">
-      <span class="settings-item-icon">💬</span>
-      <span class="settings-item-label">Настройки чатов</span>
-      <span class="settings-item-arrow">›</span>
-    </div>
+    
+    <!-- О программе -->
+    <div class="settings-group-title">О программе</div>
     <div class="settings-item" id="settings-go-about">
-      <span class="settings-item-icon">ℹ️</span>
+      <span class="settings-item-icon" style="background:linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)">ℹ️</span>
       <span class="settings-item-label">О проекте</span>
       <span class="settings-item-arrow">›</span>
     </div>
-    <div class="drawer-divider" style="margin:10px 0"></div>
+    
+    <div class="drawer-divider" style="margin:20px 0 16px"></div>
+    
+    <!-- Выход -->
     <div class="settings-item" id="settings-go-logout">
-      <span class="settings-item-icon">🚪</span>
-      <span class="settings-item-label" style="color:var(--red)">Выйти</span>
+      <span class="settings-item-icon" style="background:linear-gradient(135deg, #ff9a9e 0%, #fad0c4 100%)">🚪</span>
+      <span class="settings-item-label" style="color:var(--red);font-weight:600">Выйти</span>
     </div>
   </div>
 </div>
