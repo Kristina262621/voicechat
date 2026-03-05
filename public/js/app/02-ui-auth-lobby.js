@@ -2084,10 +2084,12 @@ socket.on('typing-stop', ({ from }) => removeTypingUser(from));
 // ───────────────────────────────────────────────
 function buildStatusTicks(status, mine) {
   if (!mine) return '';
-  if (status==='sending')   return `<span class="msg-ticks sending" style="font-size:10px;color:rgba(255,255,255,0.4)">⏳</span>`;
-  if (status==='sent')      return `<span class="msg-ticks sent" style="font-size:10px;color:rgba(255,255,255,0.4)">✓</span>`;
-  if (status==='delivered') return `<span class="msg-ticks delivered" style="font-size:10px;color:rgba(255,255,255,0.5)">✓✓</span>`;
-  if (status==='read')      return `<span class="msg-ticks read" style="font-size:10px;color:#7c5cbf">✓✓</span>`;
+  
+  // Используем CSS-переменные для цветов, чтобы они адаптировались к теме
+  if (status==='sending')   return `<span class="msg-ticks sending" style="font-size:10px;opacity:0.6">⏳</span>`;
+  if (status==='sent')      return `<span class="msg-ticks sent" style="font-size:10px;opacity:0.7">✓</span>`;
+  if (status==='delivered') return `<span class="msg-ticks delivered" style="font-size:10px;opacity:0.8">✓✓</span>`;
+  if (status==='read')      return `<span class="msg-ticks read" style="font-size:10px;color:var(--accent)">✓✓</span>`;
   return '';
 }
 
@@ -2099,10 +2101,10 @@ function updateMsgStatus(msgId, status) {
 
   const ticks = el.querySelector('.msg-ticks');
   const colorMap = {
-    sending:'rgba(255,255,255,0.4)',
-    sent:'rgba(255,255,255,0.4)',
-    delivered:'rgba(255,255,255,0.5)',
-    read:'#7c5cbf'
+    sending: 'rgba(255,255,255,0.4)',
+    sent: 'rgba(255,255,255,0.4)',
+    delivered: 'rgba(255,255,255,0.5)',
+    read: 'var(--accent, #7c5cbf)'
   };
   const textMap = { sending:'⏳', sent:'✓', delivered:'✓✓', read:'✓✓' };
 
