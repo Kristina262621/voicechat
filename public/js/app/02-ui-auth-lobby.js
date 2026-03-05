@@ -293,7 +293,6 @@ function onAuthSuccess() {
   loadPrivateChatsList();
   requestNotifPermission();
 
-  // SECURITY: получаем временные ICE/TURN credentials с backend
   if (typeof refreshIceServers === 'function') {
     refreshIceServers().catch(() => {});
   }
@@ -608,12 +607,14 @@ function buildRoomCardHTML(room) {
     : `<span>👥 ${room.memberCount}</span>`;
   const joinBadge = room.joinMode === 'approval'
     ? `<span style="color:var(--orange);font-size:11px">📋</span>` : '';
+  const voiceBadge = room.voiceEnabled === false
+    ? `<span style="color:var(--red);font-size:11px">🔇</span>` : `<span style="color:var(--green);font-size:11px">🎙</span>`;
   return `
     <div class="room-card" data-id="${room.id}" data-has-pw="${room.hasPassword}" data-name="${escapeHtml(room.name)}" data-joinmode="${room.joinMode||'open'}" data-delete-at="${room.deleteAt||''}">
       <div class="room-avatar">${room.photo ? `<img src="${escapeHtml(room.photo)}" alt="">` : '🏠'}</div>
       <div class="room-info">
         <div class="room-name">${escapeHtml(room.name)}</div>
-        <div class="room-meta">${room.hasPassword ? '<span class="room-badge-lock">🔐</span>' : '<span>🌐</span>'} ${timerHtml} ${joinBadge} ${buildNotifIcon(room.id)}</div>
+        <div class="room-meta">${room.hasPassword ? '<span class="room-badge-lock">🔐</span>' : '<span>🌐</span>'} ${timerHtml} ${joinBadge} ${voiceBadge} ${buildNotifIcon(room.id)}</div>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">${buildUnreadBadge(room.id)}<div class="room-arrow">›</div></div>
     </div>`;
@@ -643,7 +644,7 @@ function buildPrivateCardHTML(c) {
     ? `<div style="position:absolute;bottom:2px;right:2px;width:10px;height:10px;border-radius:50%;background:var(--green);border:2px solid var(--surface)"></div>`
     : '';
   return `
-    <div class="pc-card" data-chatid="${c.chatId}" data-with="${escapeHtml(c.withNickname)}" data-avatar="${escapeHtml(c.withAvatar||'')}">
+    <div class="pc-card" data-chatid="${c.chatId}" data-with="${escapeHtml(c.withNickname)}" data-avatar="${escapeHtml(c.withAvatar||'')}" data-wallpaper="${escapeHtml(c.wallpaper||'')}">
       <div class="room-avatar" style="position:relative">
         ${c.withAvatar ? `<img src="${escapeHtml(c.withAvatar)}" alt="">` : '👤'}
         ${onlineDot}
@@ -661,7 +662,7 @@ function buildPrivateCardHTML(c) {
 
 function buildPrivateCardSmallHTML(c) {
   return `
-    <div class="pc-card" style="margin-bottom:4px" data-chatid="${c.chatId}" data-with="${escapeHtml(c.withNickname)}" data-avatar="${escapeHtml(c.withAvatar||'')}">
+    <div class="pc-card" style="margin-bottom:4px" data-chatid="${c.chatId}" data-with="${escapeHtml(c.withNickname)}" data-avatar="${escapeHtml(c.withAvatar||'')}" data-wallpaper="${escapeHtml(c.wallpaper||'')}">
       <div class="room-avatar" style="width:38px;height:38px;font-size:16px">${c.withAvatar ? `<img src="${escapeHtml(c.withAvatar)}" alt="">` : '👤'}</div>
       <div class="room-info"><div class="room-name" style="font-size:13px">${escapeHtml(c.withNickname)}</div><div class="room-meta" style="font-size:11px">💬 Личный</div></div>
       ${buildUnreadBadge(c.chatId)}
@@ -683,7 +684,7 @@ function bindPrivateCardEvents(container) {
   container.querySelectorAll('.pc-card[data-chatid]').forEach(card => {
     card.addEventListener('click', () => {
       closeAllModals();
-      enterPrivateChat(card.dataset.chatid, card.dataset.with, card.dataset.avatar || null);
+      enterPrivateChat(card.dataset.chatid, card.dataset.with, card.dataset.avatar || null, card.dataset.wallpaper || null);
     });
   });
 }
@@ -889,21 +890,12 @@ const privateHistoryStateByChat = new Map();
 
 function getPrivateHistoryState(chatId) {
   if (!privateHistoryStateByChat.has(chatId)) {
-    privateHistoryStateByChat.set(chatId, {
-      page: 1,
-      loading: false,
-      hasMore: true
-    });
+    privateHistoryStateByChat.set(chatId, { page: 1, loading: false, hasMore: true });
   }
   return privateHistoryStateByChat.get(chatId);
 }
-
 function resetPrivateHistoryState(chatId) {
-  privateHistoryStateByChat.set(chatId, {
-    page: 1,
-    loading: false,
-    hasMore: true
-  });
+  privateHistoryStateByChat.set(chatId, { page: 1, loading: false, hasMore: true });
 }
 
 function cacheRowToHistoryMsg(row) {
@@ -912,19 +904,17 @@ function cacheRowToHistoryMsg(row) {
     chatId: row.chatId,
     from: row.from,
     fromNick: row.fromNick,
+    type: row.type,
     encrypted: row.encrypted,
     iv: row.iv,
-    type: row.type,
+    mimeType: row.mimeType,
     fileName: row.fileName,
     fileSize: row.fileSize,
-    mimeType: row.mimeType,
     duration: row.duration || 0,
     status: row.status || 'sent',
     edited: !!row.edited,
     timestamp: Number(row.timestamp || Date.now()),
-    replyTo: row.replyTo || null,
-    readBy: [],
-    deletedFor: []
+    replyTo: row.replyTo || null
   };
 }
 
@@ -932,7 +922,7 @@ function openPrivateChatWith(nickname) {
   closeAllModals();
   socket.emit('private-chat-open', { withNickname: nickname }, res => {
     if (!res.ok) { showToast('❌ Пользователь не найден'); return; }
-    enterPrivateChat(res.chatId, res.withNickname, res.withAvatar);
+    enterPrivateChat(res.chatId, res.withNickname, res.withAvatar, null);
   });
 }
 
@@ -944,63 +934,46 @@ function startPrivateTyping() {
 }
 function stopPrivateTyping() {
   if (privateChatTypingTimer) { clearTimeout(privateChatTypingTimer); privateChatTypingTimer = null; }
-  if (currentChatId && currentChatType === 'private')
-    socket.emit('private-typing-stop', { chatId: currentChatId });
+  if (currentChatId && currentChatType === 'private') socket.emit('private-typing-stop', { chatId: currentChatId });
 }
 
 async function decryptPrivateHistoryText(peerId, encrypted, iv) {
   if (window.E2EESession?.decryptTextFromPeer && peerId) {
-    try {
-      return await window.E2EESession.decryptTextFromPeer(peerId, encrypted, iv);
-    } catch (_) {}
+    try { return await window.E2EESession.decryptTextFromPeer(peerId, encrypted, iv); } catch (_) {}
   }
   return Crypto.decryptText(encrypted, iv);
 }
-
 async function decryptPrivateHistoryBlob(peerId, encrypted, iv, mime) {
   if (window.E2EESession?.decryptBlobFromPeer && peerId) {
-    try {
-      return await window.E2EESession.decryptBlobFromPeer(peerId, encrypted, iv, mime);
-    } catch (_) {}
+    try { return await window.E2EESession.decryptBlobFromPeer(peerId, encrypted, iv, mime); } catch (_) {}
   }
   return Crypto.decryptBlob(encrypted, iv, mime || 'application/octet-stream');
 }
 
-// NEW: peer resolver (чтобы свои сообщения в истории дешифровать outbound-ключом)
 function resolvePrivateHistoryPeerId(chatId, myLower, mine, msg) {
   const parts = String(chatId || '').split('::');
   let peerFromChatId = '';
-  if (parts.length === 2) {
-    peerFromChatId = (parts[0] === myLower ? parts[1] : parts[0]);
-  } else {
-    peerFromChatId = String(currentChatWith || '').toLowerCase();
-  }
-
+  if (parts.length === 2) peerFromChatId = (parts[0] === myLower ? parts[1] : parts[0]);
+  else peerFromChatId = String(currentChatWith || '').toLowerCase();
   if (mine) return peerFromChatId;
   return (msg?.from || msg?.fromNick || peerFromChatId || '').toLowerCase();
 }
 
 async function decryptPrivateHistoryTextByDirection(peerId, mine, encrypted, iv) {
   if (mine && window.E2EESession?.decryptOwnTextForPeer && peerId) {
-    try {
-      return await window.E2EESession.decryptOwnTextForPeer(peerId, encrypted, iv);
-    } catch (_) {}
+    try { return await window.E2EESession.decryptOwnTextForPeer(peerId, encrypted, iv); } catch (_) {}
   }
   return decryptPrivateHistoryText(peerId, encrypted, iv);
 }
-
 async function decryptPrivateHistoryBlobByDirection(peerId, mine, encrypted, iv, mime) {
   if (mine && window.E2EESession?.decryptOwnBlobForPeer && peerId) {
-    try {
-      return await window.E2EESession.decryptOwnBlobForPeer(peerId, encrypted, iv, mime);
-    } catch (_) {}
+    try { return await window.E2EESession.decryptOwnBlobForPeer(peerId, encrypted, iv, mime); } catch (_) {}
   }
   return decryptPrivateHistoryBlob(peerId, encrypted, iv, mime);
 }
 
 function bindPrivateHistoryScroll(chatId) {
   if (!chatMessages) return;
-
   if (chatMessages._privateHistoryScrollHandler) {
     chatMessages.removeEventListener('scroll', chatMessages._privateHistoryScrollHandler);
   }
@@ -1018,12 +991,9 @@ function bindPrivateHistoryScroll(chatId) {
 
 async function renderPrivateHistoryMessages(chatId, messages, { replace = false } = {}) {
   if (!Array.isArray(messages)) return;
-
   const myLower = myNickname.toLowerCase();
 
-  if (replace) {
-    clearChat();
-  }
+  if (replace) clearChat();
 
   for (const msg of messages) {
     const mine = msg.from === myLower;
@@ -1050,14 +1020,8 @@ async function renderPrivateHistoryMessages(chatId, messages, { replace = false 
         if (msg.id && mine) msgIdToDomId.set(msg.id, domId);
       } catch (_) {
         appendMessage({
-          id: msg.id,
-          nickname: msg.fromNick,
-          text: '[зашифровано]',
-          type: 'text',
-          timestamp: msg.timestamp,
-          mine,
-          status: 'error',
-          peerId
+          id: msg.id, nickname: msg.fromNick, text: '[зашифровано]',
+          type: 'text', timestamp: msg.timestamp, mine, status: 'error'
         });
       }
       continue;
@@ -1065,13 +1029,7 @@ async function renderPrivateHistoryMessages(chatId, messages, { replace = false 
 
     if (msg.type === 'voice') {
       try {
-        const blob = await decryptPrivateHistoryBlobByDirection(
-          peerId,
-          mine,
-          msg.encrypted,
-          msg.iv,
-          msg.mimeType || 'audio/webm'
-        );
+        const blob = await decryptPrivateHistoryBlobByDirection(peerId, mine, msg.encrypted, msg.iv, msg.mimeType || 'audio/webm');
         const localUrl = URL.createObjectURL(blob);
         const domId = appendMessage({
           id: msg.id,
@@ -1107,7 +1065,6 @@ async function renderPrivateHistoryMessages(chatId, messages, { replace = false 
       continue;
     }
 
-    // image / video / file
     const domId = appendMessage({
       id: msg.id,
       nickname: msg.fromNick,
@@ -1136,7 +1093,7 @@ async function renderPrivateHistoryMessages(chatId, messages, { replace = false 
   markChatAsRead(chatId, messages);
 }
 
-async function enterPrivateChat(chatId, withNickname, withAvatar) {
+async function enterPrivateChat(chatId, withNickname, withAvatar, wallpaper = null) {
   if (currentRoomId) {
     socket.emit('leave-room');
     if (joined) { socket.emit('voice-leave'); hangUp(); joined = false; }
@@ -1164,6 +1121,11 @@ async function enterPrivateChat(chatId, withNickname, withAvatar) {
     if (subEl) subEl.innerHTML = `<span style="color:var(--sub)">был(а) недавно</span>`;
   }
 
+  if (typeof setChatWallpaperDataUrl === 'function') {
+    if (wallpaper) setChatWallpaperDataUrl(wallpaper);
+    else socket.emit('private-get-wallpaper', { chatId }, r => setChatWallpaperDataUrl(r?.ok ? (r.wallpaper || null) : null));
+  }
+
   clearChat();
   clearAllTyping();
 
@@ -1189,17 +1151,13 @@ async function loadPrivateChatHistory(chatId, { reset = false, loadMore = false 
   if (reset) {
     state.page = 1;
     state.hasMore = true;
-  } else if (loadMore) {
-    state.page += 1;
-  }
+  } else if (loadMore) state.page += 1;
 
   const limit = Math.max(PRIVATE_HISTORY_PAGE_SIZE, state.page * PRIVATE_HISTORY_PAGE_SIZE);
   state.loading = true;
-
   let renderedFromCache = false;
 
   try {
-    // 1) local-first (не очищаем чат, если кэш пустой)
     if (reset && window.PrivateCache?.getPrivateMessages) {
       try {
         const cachedRows = await window.PrivateCache.getPrivateMessages(chatId, PRIVATE_HISTORY_PAGE_SIZE);
@@ -1213,12 +1171,10 @@ async function loadPrivateChatHistory(chatId, { reset = false, loadMore = false 
       }
     }
 
-    // 2) новый запрос (с limit)
     let res = await new Promise(resolve => {
       socket.emit('private-chat-history', { chatId, limit }, resolve);
     });
 
-    // 3) fallback на старый формат запроса (без limit)
     if (!res?.ok) {
       res = await new Promise(resolve => {
         socket.emit('private-chat-history', { chatId }, resolve);
@@ -1231,7 +1187,6 @@ async function loadPrivateChatHistory(chatId, { reset = false, loadMore = false 
       return;
     }
 
-    // ВАЖНО: если сервер вернул пусто, но кэш уже показан — не затираем экран
     if (res.messages.length > 0 || !renderedFromCache) {
       await renderPrivateHistoryMessages(chatId, res.messages, { replace: true });
     }
@@ -1240,13 +1195,9 @@ async function loadPrivateChatHistory(chatId, { reset = false, loadMore = false 
       ? res.hasMore
       : (res.messages.length >= PRIVATE_HISTORY_PAGE_SIZE);
 
-    // 4) пишем в кэш
     if (window.PrivateCache?.putPrivateMessagesBulk && res.messages.length) {
-      try {
-        await window.PrivateCache.putPrivateMessagesBulk(chatId, res.messages);
-      } catch (e) {
-        console.warn('[PrivateCache] write fail', e);
-      }
+      try { await window.PrivateCache.putPrivateMessagesBulk(chatId, res.messages); }
+      catch (e) { console.warn('[PrivateCache] write fail', e); }
     }
   } finally {
     state.loading = false;
@@ -1349,8 +1300,18 @@ socket.on('room-deleted', ({ roomId, roomName }) => {
     showScreen('lobby');
   }
 });
-socket.on('room-settings-changed', ({ roomId }) => {
-  if (currentRoomId === roomId) appendSystemMsg('⚙️ Настройки обновлены');
+socket.on('room-settings-changed', ({ roomId, voiceEnabled, wallpaper, descriptionText }) => {
+  if (currentRoomId === roomId) {
+    appendSystemMsg('⚙️ Настройки обновлены');
+    if (currentRoomData) {
+      if (typeof voiceEnabled !== 'undefined') currentRoomData.voiceEnabled = !!voiceEnabled;
+      if (typeof wallpaper !== 'undefined') currentRoomData.wallpaper = wallpaper || null;
+      if (typeof descriptionText !== 'undefined') currentRoomData.descriptionText = descriptionText || '';
+    }
+    if (typeof setChatWallpaperDataUrl === 'function' && typeof wallpaper !== 'undefined') {
+      setChatWallpaperDataUrl(wallpaper || null);
+    }
+  }
 });
 socket.on('room-photo-updated', ({ roomId, photo }) => {
   if (currentRoomId === roomId) {
@@ -1360,6 +1321,24 @@ socket.on('room-photo-updated', ({ roomId, photo }) => {
 });
 socket.on('room-member-left', ({ roomId, nickname }) => {
   if (currentRoomId === roomId) appendSystemMsg(`👋 ${escapeHtml(nickname)} покинул группу`);
+});
+socket.on('room-role-updated', ({ roomId, nickLower, role }) => {
+  if (currentRoomId === roomId) {
+    appendSystemMsg(`🛡 Роль обновлена: ${nickLower} → ${role}`);
+    if (modalMembers?.classList.contains('open')) openMembersModal();
+  }
+});
+socket.on('room-kicked', ({ roomId }) => {
+  if (currentRoomId === roomId) {
+    showToast('🚫 Вы исключены из группы');
+    leaveCurrentRoom();
+    showScreen('lobby');
+  }
+});
+socket.on('room-pinned-media-updated', ({ roomId, pinned }) => {
+  if (currentRoomId === roomId && modalMembers?.classList.contains('open')) {
+    renderPinnedMediaList(pinned || []);
+  }
 });
 
 // ───────────────────────────────────────────────
@@ -1499,9 +1478,7 @@ function renderJoinRequests(requests, roomId) {
   joinRequestsList.querySelectorAll('[data-action]').forEach(btn => {
     btn.addEventListener('click', () => {
       const accept = btn.dataset.action === 'accept';
-      socket.emit('room-request-respond', {
-        roomId, nickLower: btn.dataset.nick, accept
-      }, res => {
+      socket.emit('room-request-respond', { roomId, nickLower: btn.dataset.nick, accept }, res => {
         if (res.ok) {
           showToast(accept ? '✅ Принята' : 'Отклонено');
           loadJoinRequests(roomId);
@@ -1529,13 +1506,19 @@ function joinRoom(roomId, password, cb) {
       outgoingSeq = 0;
 
       if (chatRoomName) chatRoomName.textContent = res.room.name;
-      if (userCount) userCount.textContent = res.room.members.length + 1;
-      memberCount = res.room.members.length + 1;
+      if (userCount) userCount.textContent = String((res.room.members?.length || 0) + 1);
+      memberCount = (res.room.members?.length || 0) + 1;
       if (chatRoomAvatar) chatRoomAvatar.innerHTML = res.room.photo ? `<img src="${escapeHtml(res.room.photo)}" alt="">` : '💬';
 
-      if (btnJoin) btnJoin.style.display = 'block';
+      if (typeof setChatWallpaperDataUrl === 'function') {
+        setChatWallpaperDataUrl(res.room.wallpaper || null);
+      }
+
+      const voiceAllowed = res.room.voiceEnabled !== false;
+      if (btnJoin) btnJoin.style.display = voiceAllowed ? 'block' : 'none';
       if (btnLeave) btnLeave.style.display = 'none';
       if (btnMic) btnMic.style.display = 'none';
+      if (!voiceAllowed) showToast('🔇 Голосовой чат отключён администратором');
 
       clearChat();
       clearAllTyping();
@@ -1626,46 +1609,219 @@ function clearChat() {
 // ───────────────────────────────────────────────
 //  УЧАСТНИКИ / НАСТРОЙКИ ГРУППЫ
 // ───────────────────────────────────────────────
+function roleLabel(role) {
+  if (role === 'owner') return '👑 Владелец';
+  if (role === 'admin') return '🛡 Админ';
+  if (role === 'moderator') return '🔧 Модератор';
+  return '👤 Участник';
+}
+
+function openRoleMenuForMember(member, myRole) {
+  if (!member || member.role === 'owner') return;
+  if (myRole !== 'owner') return;
+
+  const sheet = document.createElement('div');
+  sheet.style.cssText = 'position:fixed;inset:0;z-index:2500;background:rgba(0,0,0,0.78);display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(6px)';
+  sheet.innerHTML = `
+    <div style="width:100%;max-width:520px;background:var(--surface);border-radius:24px 24px 0 0;padding:14px 14px 26px;border-top:1px solid rgba(124,92,191,0.2)">
+      <div style="width:36px;height:4px;border-radius:2px;background:rgba(255,255,255,0.18);margin:8px auto 12px"></div>
+      <div style="text-align:center;font-size:16px;font-weight:700;margin-bottom:12px">${escapeHtml(member.nickname)}</div>
+      <button class="role-action" data-role="admin" style="width:100%;padding:12px;margin-bottom:8px;border:none;border-radius:12px;background:rgba(124,92,191,0.12);color:var(--accent2);font-weight:700;cursor:pointer">Сделать админом</button>
+      <button class="role-action" data-role="moderator" style="width:100%;padding:12px;margin-bottom:8px;border:none;border-radius:12px;background:rgba(124,92,191,0.12);color:var(--accent2);font-weight:700;cursor:pointer">Сделать модератором</button>
+      <button class="role-action" data-role="member" style="width:100%;padding:12px;margin-bottom:8px;border:none;border-radius:12px;background:rgba(255,255,255,0.08);color:var(--text);font-weight:700;cursor:pointer">Снять роль</button>
+      <button id="role-kick" style="width:100%;padding:12px;margin-bottom:8px;border:none;border-radius:12px;background:rgba(224,82,82,0.12);color:var(--red);font-weight:700;cursor:pointer">Исключить из группы</button>
+      <button id="role-cancel" style="width:100%;padding:12px;border:none;border-radius:12px;background:rgba(255,255,255,0.06);color:var(--sub);cursor:pointer">Отмена</button>
+    </div>
+  `;
+  document.body.appendChild(sheet);
+
+  const close = () => sheet.remove();
+  sheet.addEventListener('click', e => { if (e.target === sheet) close(); });
+  sheet.querySelector('#role-cancel')?.addEventListener('click', close);
+
+  sheet.querySelectorAll('.role-action').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const role = btn.dataset.role;
+      socket.emit('room-set-role', { roomId: currentRoomId, nickLower: member.nickLower, role }, res => {
+        if (!res?.ok) return showToast('❌ Ошибка роли');
+        showToast('✅ Роль обновлена');
+        close();
+        openMembersModal();
+      });
+    });
+  });
+
+  sheet.querySelector('#role-kick')?.addEventListener('click', () => {
+    if (!confirm(`Исключить ${member.nickname} из группы?`)) return;
+    socket.emit('room-kick', { roomId: currentRoomId, nickLower: member.nickLower }, res => {
+      if (!res?.ok) return showToast('❌ Ошибка исключения');
+      showToast('✅ Участник исключён');
+      close();
+      openMembersModal();
+    });
+  });
+}
+
+function renderMembersAll(list, myRole) {
+  if (!membersListContainer) return;
+  if (!list.length) {
+    membersListContainer.innerHTML = '<div class="empty-list">Пусто</div>';
+    return;
+  }
+
+  membersListContainer.innerHTML = list.map(m => `
+    <div class="member-item" data-member-lower="${escapeHtml(m.nickLower)}">
+      <div class="member-avatar">${avatarHtml(m.avatar,'👤')}</div>
+      <div class="member-info">
+        <div class="member-name">${escapeHtml(m.nickname)}${m.nickLower === myNickname.toLowerCase() ? ' (Вы)' : ''}</div>
+        <div class="member-badge">${roleLabel(m.role)}</div>
+      </div>
+      <div style="font-size:11px;color:${m.online?'var(--green)':'var(--sub)'}">${m.online ? '● онлайн' : 'офлайн'}</div>
+    </div>
+  `).join('');
+
+  if (myRole === 'owner') {
+    membersListContainer.querySelectorAll('.member-item').forEach(row => {
+      row.addEventListener('click', () => {
+        const lower = row.dataset.memberLower;
+        const member = list.find(x => x.nickLower === lower);
+        if (!member) return;
+        if (member.nickLower === myNickname.toLowerCase()) return;
+        openRoleMenuForMember(member, myRole);
+      });
+    });
+  }
+}
+
+function renderMembersOnline(list) {
+  const c = $('members-online-container');
+  if (!c) return;
+  if (!list.length) {
+    c.innerHTML = '<div class="empty-list">Никого онлайн</div>';
+    return;
+  }
+
+  c.innerHTML = list.map(m => `
+    <div class="member-item">
+      <div class="member-avatar">${avatarHtml(m.avatar,'👤')}</div>
+      <div class="member-info">
+        <div class="member-name">${escapeHtml(m.nickname)}</div>
+        <div style="font-size:11px;color:var(--green)">● онлайн</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderPinnedMediaList(pinned) {
+  const wrap = $('group-pinned-media-list');
+  if (!wrap) return;
+  if (!pinned || !pinned.length) {
+    wrap.innerHTML = '<div class="empty-list">Пока пусто</div>';
+    return;
+  }
+
+  wrap.innerHTML = pinned.map(p => {
+    const m = p.msg || {};
+    const title = m.fileName || m.type || 'media';
+    return `
+      <div class="friend-item">
+        <div class="friend-avatar">📎</div>
+        <div class="friend-info">
+          <div class="friend-name">${escapeHtml(title)}</div>
+          <div style="font-size:11px;color:var(--sub)">#${escapeHtml(p.msgId)}</div>
+        </div>
+        <div class="friend-actions">
+          <button class="btn-sm red" data-unpin="${escapeHtml(p.msgId)}">✕</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  wrap.querySelectorAll('[data-unpin]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      socket.emit('room-unpin-media', { roomId: currentRoomId, msgId: btn.dataset.unpin }, res => {
+        if (!res?.ok) return showToast('❌ Ошибка');
+        renderPinnedMediaList(res.pinned || []);
+      });
+    });
+  });
+}
+
 function openMembersModal() {
   if (!currentRoomId || !modalMembers) return;
+
+  // owner/admin видят секции настроек
+  const myLower = myNickname.toLowerCase();
+  let myRole = isRoomOwner ? 'owner' : 'member';
 
   if (renameSection) renameSection.style.display = isRoomOwner ? '' : 'none';
   if (groupSettingsSection) groupSettingsSection.style.display = isRoomOwner ? '' : 'none';
   if (joinRequestsSection) joinRequestsSection.style.display = isRoomOwner ? '' : 'none';
+
   const gps = $('group-photo-section');
   if (gps) gps.style.display = isRoomOwner ? '' : 'none';
+
+  const gws = $('group-wallpaper-section');
+  if (gws) gws.style.display = isRoomOwner ? '' : 'none';
+
+  const gds = $('group-desc-section');
+  if (gds) gds.style.display = isRoomOwner ? '' : 'none';
 
   if (isRoomOwner && currentRoomData) {
     if (renameInput) renameInput.value = currentRoomData.name || '';
     if (groupAutodelSelect) groupAutodelSelect.value = currentRoomData.autoDelete ? String(currentRoomData.autoDelete) : 'never';
     if (groupJoinmodeSelect) groupJoinmodeSelect.value = currentRoomData.joinMode || 'open';
+
     const ns = $('group-notif-select');
     if (ns) ns.value = getNotifSetting(currentRoomId);
+
+    const gv = $('group-voice-enabled-select');
+    if (gv) gv.value = currentRoomData.voiceEnabled === false ? '0' : '1';
+
+    const gd = $('group-description-input');
+    if (gd) gd.value = currentRoomData.descriptionText || '';
   }
 
   if (membersListContainer) membersListContainer.innerHTML = '<div class="empty-list">Загрузка…</div>';
+  const mo = $('members-online-container');
+  if (mo) mo.innerHTML = '<div class="empty-list">Загрузка…</div>';
+
   modalMembers.classList.add('open');
 
   socket.emit('room-members', { roomId: currentRoomId }, res => {
-    if (!membersListContainer) return;
-    if (!res.ok) { membersListContainer.innerHTML = '<div class="empty-list">Ошибка</div>'; return; }
-    if (!res.members.length) { membersListContainer.innerHTML = '<div class="empty-list">Пусто</div>'; return; }
+    if (!res?.ok) {
+      if (membersListContainer) membersListContainer.innerHTML = '<div class="empty-list">Ошибка</div>';
+      if (mo) mo.innerHTML = '<div class="empty-list">Ошибка</div>';
+      return;
+    }
 
-    membersListContainer.innerHTML = res.members.map(m => `
-      <div class="member-item">
-        <div class="member-avatar">${avatarHtml(m.avatar,'👤')}</div>
-        <div class="member-info">
-          <div class="member-name">${escapeHtml(m.nickname)}${m.id === socket.id ? ' (Вы)' : ''}</div>
-          ${m.isOwner ? '<div class="member-badge">👑 Создатель</div>' : ''}
-        </div>
-      </div>`).join('');
+    myRole = res.meRole || myRole;
+    const canManage = myRole === 'owner' || myRole === 'admin';
+    const canSettings = myRole === 'owner';
 
-    if (isRoomOwner) renderJoinRequests(res.pendingRequests || [], currentRoomId);
+    if (renameSection) renameSection.style.display = canSettings ? '' : 'none';
+    if (groupSettingsSection) groupSettingsSection.style.display = canSettings ? '' : 'none';
+    if (joinRequestsSection) joinRequestsSection.style.display = canManage ? '' : 'none';
+    if (gps) gps.style.display = canSettings ? '' : 'none';
+    if (gws) gws.style.display = canSettings ? '' : 'none';
+    if (gds) gds.style.display = canSettings ? '' : 'none';
+
+    const allMembers = Array.isArray(res.members) ? res.members : [];
+    const onlineMembers = allMembers.filter(m => m.online);
+
+    renderMembersOnline(onlineMembers);
+    renderMembersAll(allMembers, myRole);
+
+    if (canManage) renderJoinRequests(res.pendingRequests || [], currentRoomId);
+    else if (joinRequestsSection) joinRequestsSection.style.display = 'none';
+  });
+
+  socket.emit('room-pinned-media', { roomId: currentRoomId }, res => {
+    if (res?.ok) renderPinnedMediaList(res.pinned || []);
   });
 
   document.getElementById('btn-leave-group-modal-wrap')?.remove();
-
-  if (!isRoomOwner) {
+  if (myRole !== 'owner') {
     setTimeout(() => {
       const sheet = modalMembers.querySelector('.modal-sheet');
       if (!sheet || document.getElementById('btn-leave-group-modal-wrap')) return;
@@ -1748,9 +1904,9 @@ socket.on('room-invite', ({ fromNick, roomId, roomName, hasPassword, joinMode })
 //  НАЗАД / ВЫХОД
 // ───────────────────────────────────────────────
 function leaveCurrentRoom() {
-  stopMyTyping();
-  stopPrivateTyping();
-  stopVoiceRecording();
+  stopMyTyping?.();
+  stopPrivateTyping?.();
+  stopVoiceRecording?.();
 
   if (currentChatType === 'group' && currentRoomId) {
     socket.emit('leave-room');
@@ -1766,7 +1922,7 @@ function leaveCurrentRoom() {
   if (btnLeave) btnLeave.style.display = 'none';
   if (btnMic) btnMic.style.display = 'none';
 
-  clearAllTyping();
+  clearAllTyping?.();
   Crypto.clearAllKeys();
   ecdhExchanged.clear();
   outgoingSeq = 0;
@@ -1778,6 +1934,8 @@ function leaveCurrentRoom() {
   currentChatId = null;
   currentChatWith = null;
   isRoomOwner = false;
+
+  if (typeof setChatWallpaperDataUrl === 'function') setChatWallpaperDataUrl(null);
 }
 
 function closeAllModals() {
@@ -1873,7 +2031,7 @@ socket.on('typing-start', ({ from, nickname }) => {
 socket.on('typing-stop', ({ from }) => removeTypingUser(from));
 
 // ───────────────────────────────────────────────
-//  СТАТУСЫ В ЛИЧКЕ (для 03)
+//  СТАТУСЫ В ЛИЧКЕ
 // ───────────────────────────────────────────────
 function buildStatusTicks(status, mine) {
   if (!mine) return '';
