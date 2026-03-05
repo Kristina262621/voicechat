@@ -294,46 +294,100 @@ function initLobbySearchBar() {
   lobbySidebar.insertBefore(bar, lobbyTabs);
   let timer = null;
   const input = bar.querySelector('#lobby-search-input');
+
+  // Функция для определения активной вкладки
+  function getActiveTabType() {
+    const activeTab = document.querySelector('.lobby-tab.active');
+    if (!activeTab) return 'all';
+    const id = activeTab.id;
+    if (id === 'lobby-tab-groups') return 'groups';
+    if (id === 'lobby-tab-private') return 'private';
+    return 'all'; // lobby-tab-all или по умолчанию
+  }
+
+  // Функция для обновления placeholder в зависимости от активной вкладки
+  function updateSearchPlaceholder() {
+    const type = getActiveTabType();
+    const placeholders = {
+      all: '🔍 Поиск чатов и пользователей…',
+      groups: '🔍 Поиск групп…',
+      private: '🔍 Поиск пользователей…'
+    };
+    input.placeholder = placeholders[type];
+  }
+
+  // Инициализируем placeholder
+  updateSearchPlaceholder();
+
+  // Обновляем placeholder при переключении вкладок
+  const observer = new MutationObserver(updateSearchPlaceholder);
+  const tabsContainer = document.querySelector('.lobby-tabs');
+  if (tabsContainer) {
+    observer.observe(tabsContainer, { attributes: true, attributeFilter: ['class'], subtree: true });
+  }
+
   input.addEventListener('input', () => {
     clearTimeout(timer);
     const q = input.value.trim();
-    if (!q) { renderUnifiedList(); return; }
+    if (!q) {
+      // Если строка поиска пуста, показываем обычный список в зависимости от вкладки
+      const type = getActiveTabType();
+      if (type === 'groups') {
+        if (typeof renderRoomList === 'function') renderRoomList(cachedRoomList, roomsList);
+      } else if (type === 'private') {
+        if (typeof renderPrivateList === 'function') renderPrivateList(cachedPrivateList, privateList);
+      } else {
+        if (typeof renderUnifiedList === 'function') renderUnifiedList();
+      }
+      return;
+    }
     timer = setTimeout(() => {
       socket.emit('search-chats', { query: q }, res => {
         if (!res.ok) return;
-        const ul = document.getElementById('unified-list');
-        if (!ul) return;
+        const type = getActiveTabType();
+        // Определяем, какой список нужно обновить
+        let targetList = null;
+        if (type === 'groups') targetList = roomsList;
+        else if (type === 'private') targetList = privateList;
+        else targetList = unifiedList;
+        if (!targetList) targetList = unifiedList; // fallback
+
         let html = '';
-        if (res.rooms && res.rooms.length) {
-          html += '<div class="chat-list-section-title">👥 Группы</div>';
-          html += res.rooms.map(r => `
-            <div class="room-card search-result-room" data-id="${r.id}"
-                 data-has-pw="${r.hasPassword||false}" data-joinmode="${r.joinMode||'open'}"
-                 data-name="${escapeHtml(r.name)}" style="cursor:pointer;">
-              <div class="room-avatar">${r.photo?`<img src="${escapeHtml(r.photo)}" alt="">`:'🏠'}</div>
-              <div class="room-info">
-                <div class="room-name">${escapeHtml(r.name)}</div>
-                <div class="room-meta">👥 ${r.memberCount} участников</div>
-              </div>
-            </div>`).join('');
+        // Фильтруем результаты в зависимости от вкладки
+        if (type === 'all' || type === 'groups') {
+          if (res.rooms && res.rooms.length) {
+            html += '<div class="chat-list-section-title">👥 Группы</div>';
+            html += res.rooms.map(r => `
+              <div class="room-card search-result-room" data-id="${r.id}"
+                   data-has-pw="${r.hasPassword||false}" data-joinmode="${r.joinMode||'open'}"
+                   data-name="${escapeHtml(r.name)}" style="cursor:pointer;">
+                <div class="room-avatar">${r.photo?`<img src="${escapeHtml(r.photo)}" alt="">`:'🏠'}</div>
+                <div class="room-info">
+                  <div class="room-name">${escapeHtml(r.name)}</div>
+                  <div class="room-meta">👥 ${r.memberCount} участников</div>
+                </div>
+              </div>`).join('');
+          }
         }
-        if (res.users && res.users.length) {
-          html += '<div class="chat-list-section-title">👤 Пользователи</div>';
-          html += res.users.map(u => `
-            <div class="pc-card search-result-user" data-nick="${escapeHtml(u.nickname)}" style="cursor:pointer;">
-              <div class="room-avatar">👤</div>
-              <div class="room-info">
-                <div class="room-name">${escapeHtml(u.nickname)}</div>
-                <div class="room-meta">@${escapeHtml(u.lower)}</div>
-              </div>
-            </div>`).join('');
+        if (type === 'all' || type === 'private') {
+          if (res.users && res.users.length) {
+            html += '<div class="chat-list-section-title">👤 Пользователи</div>';
+            html += res.users.map(u => `
+              <div class="pc-card search-result-user" data-nick="${escapeHtml(u.nickname)}" style="cursor:pointer;">
+                <div class="room-avatar">👤</div>
+                <div class="room-info">
+                  <div class="room-name">${escapeHtml(u.nickname)}</div>
+                  <div class="room-meta">@${escapeHtml(u.lower)}</div>
+                </div>
+              </div>`).join('');
+          }
         }
         if (!html) html = '<div class="rooms-empty"><div class="rooms-empty-icon">🔍</div><div>Ничего не найдено</div></div>';
-        ul.innerHTML = html;
-        ul.querySelectorAll('.search-result-room').forEach(card => {
+        targetList.innerHTML = html;
+        targetList.querySelectorAll('.search-result-room').forEach(card => {
           card.addEventListener('click', () => { if (typeof joinRoom === 'function') joinRoom(card.dataset.id, ''); });
         });
-        ul.querySelectorAll('.search-result-user').forEach(card => {
+        targetList.querySelectorAll('.search-result-user').forEach(card => {
           card.addEventListener('click', () => { if (typeof openPrivateChatWith === 'function') openPrivateChatWith(card.dataset.nick); });
         });
       });
@@ -432,7 +486,18 @@ function openChatSettings() {
   const sheet = document.createElement('div');
   sheet.style.cssText = 'position:fixed;inset:0;z-index:2000;background:var(--bg);overflow-y:auto;display:flex;flex-direction:column;transform:translateX(100%);transition:transform 0.32s cubic-bezier(0.4,0,0.2,1)';
 
-  const isLight = currentTheme === 'light';
+  // Функция для получения названия и иконки темы
+  function getThemeInfo(theme) {
+    switch(theme) {
+      case 'dark': return { name: 'Тёмная', icon: '🌙', isLight: false };
+      case 'light': return { name: 'Светлая', icon: '☀️', isLight: true };
+      case 'dark-beautiful': return { name: 'Красивая тёмная', icon: '🌟', isLight: false };
+      case 'light-beautiful': return { name: 'Красивая светлая', icon: '✨', isLight: true };
+      default: return { name: 'Тёмная', icon: '🌙', isLight: false };
+    }
+  }
+
+  const themeInfo = getThemeInfo(currentTheme);
 
   sheet.innerHTML = `
     <div style="position:sticky;top:0;background:var(--surface);border-bottom:1px solid var(--divider);
@@ -455,16 +520,16 @@ function openChatSettings() {
         <div class="theme-switch-row" style="padding:16px;border-bottom:1px solid var(--divider)">
           <div class="theme-switch-left">
             <div class="theme-switch-icon">
-              <span id="theme-icon-display">${isLight ? '☀️' : '🌙'}</span>
+              <span id="theme-icon-display">${themeInfo.icon}</span>
             </div>
             <div>
               <div class="theme-switch-label">Тема оформления</div>
               <div style="font-size:12px;color:var(--sub);margin-top:2px" id="theme-name-display">
-                ${isLight ? 'Светлая' : 'Тёмная'}
+                ${themeInfo.name}
               </div>
             </div>
           </div>
-          <button id="theme-toggle-btn" class="theme-toggle-track ${isLight ? 'light-on' : 'dark-on'}"
+          <button id="theme-toggle-btn" class="theme-toggle-track ${themeInfo.isLight ? 'light-on' : 'dark-on'}"
             title="Переключить тему" type="button">
             <div class="theme-toggle-thumb"></div>
           </button>
@@ -512,16 +577,20 @@ function openChatSettings() {
     toggleTheme(); // вызываем глобальную функцию из core.js
 
     // Обновляем UI внутри шторки
-    const nowLight = currentTheme === 'light';
-    if (nowLight) {
+    const newThemeInfo = getThemeInfo(currentTheme);
+    
+    // Обновляем классы кнопки
+    if (newThemeInfo.isLight) {
       toggleBtn.classList.add('light-on');
       toggleBtn.classList.remove('dark-on');
     } else {
       toggleBtn.classList.add('dark-on');
       toggleBtn.classList.remove('light-on');
     }
-    if (iconEl) iconEl.textContent = nowLight ? '☀️' : '🌙';
-    if (nameEl) nameEl.textContent = nowLight ? 'Светлая' : 'Тёмная';
+    
+    // Обновляем иконку и название
+    if (iconEl) iconEl.textContent = newThemeInfo.icon;
+    if (nameEl) nameEl.textContent = newThemeInfo.name;
   });
 
   // свайп назад
@@ -638,7 +707,22 @@ function initUI() {
   document.getElementById('settings-go-data')?.addEventListener('click',  () => showToast('💾 Кэш очищен'));
   document.getElementById('settings-go-lang')?.addEventListener('click',  () => showToast('🌐 Язык: Русский'));
 
-  // ── Настройки чатов — открывает шторку с переключателем темы ──
+  // Переключатель звуков сообщений
+  document.getElementById('settings-toggle-sounds')?.addEventListener('click', (e) => {
+    e.stopPropagation(); // предотвращаем срабатывание родительского элемента
+  });
+  document.getElementById('toggle-message-sounds')?.addEventListener('change', function(e) {
+    const enabled = this.checked;
+    localStorage.setItem('messageSounds', enabled ? '1' : '0');
+    showToast(enabled ? '🔊 Звуки сообщений включены' : '🔇 Звуки сообщений выключены');
+  });
+
+  // Размер шрифта
+  document.getElementById('settings-go-font-size')?.addEventListener('click', () => {
+    showToast('🔤 Размер шрифта: можно выбрать маленький, средний или большой');
+  });
+
+  // ── Тема и оформление — открывает шторку с переключателем темы ──
   document.getElementById('settings-go-chats')?.addEventListener('click', () => {
     document.getElementById('modal-settings')?.classList.remove('open');
     openChatSettings();
