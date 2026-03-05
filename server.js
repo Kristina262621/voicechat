@@ -662,13 +662,17 @@ const io = new Server(server, {
     }
   }
 });
-
 // ════════════════════════════════════════════
 //  RUNTIME
 // ════════════════════════════════════════════
 const clients = new Map(); // socketId -> {nickname,nickLower,roomId,authed,lastSeen}
 const rooms = new Map();   // roomId -> runtime object
 const onlineUsers = new Map(); // nickLower -> socketId
+
+// rate limit для сообщений
+const msgRateMap = new Map(); // nickLower -> { count, resetTime }
+const MSG_RATE_LIMIT = 30; // сообщений в минуту
+const MSG_RATE_WINDOW = 60000; // 60 секунд
 
 const MAX_STORED_MESSAGES = 200;
 const MAX_ENCRYPTED_B64_LEN = 35 * 1024 * 1024;
@@ -1361,8 +1365,7 @@ io.on('connection', (socket) => {
     await UserDB.unblock(client.nickLower, to);
     cb({ ok: true });
   });
-
-  safeOn('friend-request', async ({ toNickname }, cb) => {
+    safeOn('friend-request', async ({ toNickname }, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
 
@@ -1372,6 +1375,13 @@ io.on('connection', (socket) => {
     if (toLower === client.nickLower) return cb({ ok: false, error: 'self' });
     if (await UserDB.areFriends(client.nickLower, toLower)) return cb({ ok: false, error: 'already_friends' });
     if (await UserDB.hasRequest(toLower, client.nickLower)) return cb({ ok: false, error: 'already_sent' });
+
+    // Проверка блокировки
+    const blockedByMe = (await UserDB.getBlocked(client.nickLower)).includes(toLower);
+    const blockedByPeer = (await UserDB.getBlocked(toLower)).includes(client.nickLower);
+    if (blockedByMe || blockedByPeer) {
+      return cb({ ok: false, error: 'blocked' });
+    }
 
     await UserDB.addRequest(toLower, client.nickLower);
 
@@ -1441,6 +1451,9 @@ io.on('connection', (socket) => {
 
     const queryStr = String(q || '').trim().toLowerCase();
     if (!queryStr) return cb({ ok: true, rooms: [], users: [] });
+    if (queryStr.length > 100) {
+      return cb({ ok: true, rooms: [], users: [] });
+    }
 
     const roomsOut = [];
     for (const [id, room] of rooms.entries()) {
@@ -1499,6 +1512,13 @@ io.on('connection', (socket) => {
 
     if (!withUser) return cb({ ok: false, error: 'not_found' });
     if (realLower === client.nickLower) return cb({ ok: false, error: 'self' });
+
+    // Проверка блокировки
+    const blockedByMe = (await UserDB.getBlocked(client.nickLower)).includes(realLower);
+    const blockedByPeer = (await UserDB.getBlocked(realLower)).includes(client.nickLower);
+    if (blockedByMe || blockedByPeer) {
+      return cb({ ok: false, error: 'blocked' });
+    }
 
     const chatId = generateChatId(client.nickLower, realLower);
     await PrivateChatDB.create(chatId, client.nickLower, realLower);
@@ -1620,9 +1640,27 @@ io.on('connection', (socket) => {
       const chat = await PrivateChatDB.get(chatId);
       if (!chat) return cb?.({ ok: false, error: 'chat_not_found' });
 
-      const fromUser = await UserDB.get(client.nickLower);
+      // Проверка блокировки
       const peerLower = chat.member1 === client.nickLower ? chat.member2 : chat.member1;
+      const blockedByPeer = (await UserDB.getBlocked(peerLower)).includes(client.nickLower);
+      const blockedByMe = (await UserDB.getBlocked(client.nickLower)).includes(peerLower);
+      if (blockedByPeer || blockedByMe) {
+        return cb?.({ ok: false, error: 'blocked' });
+      }
 
+      // Rate limit
+      const now = Date.now();
+      let rate = msgRateMap.get(client.nickLower);
+      if (!rate || now > rate.resetTime) {
+        rate = { count: 0, resetTime: now + MSG_RATE_WINDOW };
+      }
+      rate.count++;
+      if (rate.count > MSG_RATE_LIMIT) {
+        return cb?.({ ok: false, error: 'rate_limited' });
+      }
+      msgRateMap.set(client.nickLower, rate);
+
+      const fromUser = await UserDB.get(client.nickLower);
       const msgId = generateMsgId();
       const timestamp = Date.now();
 
@@ -1649,7 +1687,7 @@ io.on('connection', (socket) => {
       };
 
       await PrivateChatDB.saveMessage(msg);
-      await PrivateChatDB.markRead(msgId, client.nickLower);
+      // Не помечаем как прочитанное для отправителя
 
       cb?.({ ok: true, msgId, timestamp });
       socket.emit('chat-msg-id', { chatId, seq: Number(seq) || 0, msgId });
@@ -1781,7 +1819,7 @@ io.on('connection', (socket) => {
 
     if (deleteFor === 'all') {
       if (!mine) return cb({ ok: false, error: 'not_allowed' });
-      await PrivateChatDB.deleteMessage(msgId);
+      await PrivateChatDB.deleteMessage(msgId); // мягкое удаление
       messageReactions.delete(msgId);
       io.to('pc:' + chatId).emit('private-msg-deleted', { chatId, msgId, deleteFor: 'all' });
       return cb({ ok: true });
@@ -2106,6 +2144,24 @@ io.on('connection', (socket) => {
     });
   });
 
+  // Публичная информация о группе для неучастников (для кнопки "Вступить")
+  safeOn('room-public-info', async ({ roomId }, cb) => {
+    const client = requireAuthed(cb);
+    if (!client) return;
+
+    const room = rooms.get(roomId);
+    if (!room) return cb({ ok: false, error: 'not_found' });
+
+    cb({
+      ok: true,
+      name: room.name,
+      photo: room.photo || null,
+      memberCount: room.permanentMembers.size,
+      joinMode: room.joinMode || 'open',
+      hasPassword: !!room.passwordHash
+    });
+  });
+
   safeOn('room-roles', async ({ roomId }, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
@@ -2146,8 +2202,7 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('room-role-updated', { roomId, nickLower: target, role: normRole });
     cb({ ok: true });
   });
-
-  safeOn('room-kick', async ({ roomId, nickLower }, cb) => {
+    safeOn('room-kick', async ({ roomId, nickLower }, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
     const room = rooms.get(roomId);
@@ -2201,6 +2256,13 @@ io.on('connection', (socket) => {
     if (room.joinMode !== 'approval') return cb({ ok: false, error: 'not_approval_mode' });
 
     if (room.permanentMembers.has(client.nickLower)) return cb({ ok: true, autoAccepted: true });
+
+    // Проверка блокировки
+    const blockedByMe = (await UserDB.getBlocked(client.nickLower)).includes(room.ownerNick);
+    const blockedByPeer = (await UserDB.getBlocked(room.ownerNick)).includes(client.nickLower);
+    if (blockedByMe || blockedByPeer) {
+      return cb({ ok: false, error: 'blocked' });
+    }
 
     const exists = room.pendingRequests.find(r => r.nickLower === client.nickLower);
     if (exists) return cb({ ok: false, error: 'already_requested' });
@@ -2268,6 +2330,13 @@ io.on('connection', (socket) => {
     if (!canInvite) return cb({ ok: false, error: 'not_member' });
 
     const toLower = String(toNickname || '').trim().toLowerCase();
+
+    // Проверка блокировки
+    const blockedByMe = (await UserDB.getBlocked(client.nickLower)).includes(toLower);
+    const blockedByPeer = (await UserDB.getBlocked(toLower)).includes(client.nickLower);
+    if (blockedByMe || blockedByPeer) {
+      return cb({ ok: true, online: false }); // просто не отправляем приглашение
+    }
 
     let sent = false;
     for (const [sid, cl] of clients.entries()) {
@@ -2418,6 +2487,18 @@ io.on('connection', (socket) => {
 
     const v = validateMessagePayload(data || {});
     if (!v.ok) return cb?.({ ok: false, error: v.error });
+
+    // Rate limit для групповых сообщений
+    const now = Date.now();
+    let rate = msgRateMap.get(client.nickLower);
+    if (!rate || now > rate.resetTime) {
+      rate = { count: 0, resetTime: now + MSG_RATE_WINDOW };
+    }
+    rate.count++;
+    if (rate.count > MSG_RATE_LIMIT) {
+      return cb?.({ ok: false, error: 'rate_limited' });
+    }
+    msgRateMap.set(client.nickLower, rate);
 
     const msgId = generateMsgId();
     const msg = {
