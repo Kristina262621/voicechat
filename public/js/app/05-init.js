@@ -671,11 +671,11 @@ function initEventListeners() {
     const isVideo = file.type.startsWith('video/');
 
     if (isImage) {
-      MediaEditor.openPhoto(file, async (b, mt, fn) => await sendMediaBlob(b, mt, fn, 'image'), () => {});
+      MediaEditor.openPhoto(file, async (b, mt, fn, caption) => await sendMediaBlob(b, mt, fn, 'image', caption), () => {});
       return;
     }
     if (isVideo) {
-      MediaEditor.openVideo(file, async (b, mt, fn) => await sendMediaBlob(b, mt, fn, 'video'), () => {});
+      MediaEditor.openVideo(file, async (b, mt, fn, caption) => await sendMediaBlob(b, mt, fn, 'video', caption), () => {});
       return;
     }
 
