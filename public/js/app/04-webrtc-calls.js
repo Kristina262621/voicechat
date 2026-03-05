@@ -274,7 +274,10 @@ async function getMicStream() {
         channelCount:     { ideal: 1 }
       }
     });
-  } catch (_) {
+  } catch (err) {
+    // Re-throw permission errors immediately — fallback call would bypass Android permission dialog
+    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') throw err;
+    // For constraint/hardware errors try simpler constraints
     return await navigator.mediaDevices.getUserMedia({
       video: false,
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
@@ -1327,7 +1330,11 @@ document.addEventListener('visibilitychange', async () => {
       stopVolumeAnalysis(socket.id);
       startVolumeAnalysis(socket.id, localStream);
       newTrack.enabled = micEnabled;
-    } catch (_) {}
+    } catch (err) {
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        showToast('❌ Нет доступа к микрофону');
+      }
+    }
   } else {
     tracks.forEach(t => { t.enabled = micEnabled; });
   }
