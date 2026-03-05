@@ -100,7 +100,7 @@
       256
     );
 
-    let combined = new Uint8Array(bits1);
+    let combinedBits = bits1;
     if (peerBundle.oneTimePreKey) {
       const peerOnePub = await importEcdhRawPublic(peerBundle.oneTimePreKey.publicKey);
       const bits2 = await crypto.subtle.deriveBits(
@@ -108,18 +108,17 @@
         myIdentityDhPriv,
         256
       );
-      combined = new Uint8Array(bits1.byteLength + bits2.byteLength);
-      combined.set(new Uint8Array(bits1), 0);
-      combined.set(new Uint8Array(bits2), bits1.byteLength);
+      const tmp = new Uint8Array(bits1.byteLength + bits2.byteLength);
+      tmp.set(new Uint8Array(bits1), 0);
+      tmp.set(new Uint8Array(bits2), bits1.byteLength);
+      combinedBits = tmp.buffer;
     }
 
-    const hash = await crypto.subtle.digest('SHA-256', combined);
-    return hkdfAes(hash);
+    return hkdfAes(combinedBits);
   }
 
   async function deriveInboundKey(peerId) {
-    const peerBundle = await fetchBundle(peerId, 0); // для inbound не потребляем
-    // Для inbound используем свой signed private и peer identity public
+    const peerBundle = await fetchBundle(peerId, 0); // не потребляем
     const mySignedPriv = await window.E2EEKeys.dbGet('signedPre.private');
     if (!mySignedPriv) throw new Error('signedPre.private_missing');
 
