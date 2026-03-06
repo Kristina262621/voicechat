@@ -5,6 +5,10 @@
   const cache = new Map(); // peerId -> { outboundKey, inboundKey }
   const messageCounts = new Map(); // peerId -> count
 
+  function normalizePeerId(peerId) {
+    return String(peerId).trim().toLowerCase();
+  }
+
   function b64ToBytes(b64) {
     const s = atob(b64);
     const out = new Uint8Array(s.length);
@@ -181,8 +185,9 @@
   }
 
   async function ensurePeer(peerId) {
-    if (!cache.has(peerId)) cache.set(peerId, {});
-    const s = cache.get(peerId);
+    const normalized = normalizePeerId(peerId);
+    if (!cache.has(normalized)) cache.set(normalized, {});
+    const s = cache.get(normalized);
 
     if (!s.outboundKey) s.outboundKey = await deriveOutboundKey(peerId);
     if (!s.inboundKey) s.inboundKey = await deriveInboundKey(peerId);
@@ -191,10 +196,11 @@
   }
 
   async function rotateKeysIfNeeded(peerId, direction) {
-    const count = (messageCounts.get(peerId) || 0) + 1;
-    messageCounts.set(peerId, count);
+    const normalized = normalizePeerId(peerId);
+    const count = (messageCounts.get(normalized) || 0) + 1;
+    messageCounts.set(normalized, count);
     if (count % 50 === 0) {
-      const s = cache.get(peerId);
+      const s = cache.get(normalized);
       if (!s) return;
       if (direction === 'outbound') {
         s.outboundKey = await deriveOutboundKey(peerId);
@@ -392,8 +398,9 @@
   }
 
   function clearPeer(peerId) {
-    cache.delete(peerId);
-    messageCounts.delete(peerId);
+    const normalized = normalizePeerId(peerId);
+    cache.delete(normalized);
+    messageCounts.delete(normalized);
   }
 
   window.E2EESession = {
