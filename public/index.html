@@ -48,41 +48,20 @@
       --bottom-h:  120px;
     }
 
-    html {
-      height:100%;
-      overflow:hidden;
-      position:fixed;
-      width:100%;
-      /* iOS Safari safe area */
-      padding-top: env(safe-area-inset-top);
-      padding-bottom: env(safe-area-inset-bottom);
-      padding-left: env(safe-area-inset-left);
-      padding-right: env(safe-area-inset-right);
-    }
+    html { height:100%; overflow:hidden; position:fixed; width:100%; }
     body {
-      height:100%;
-      width:100%;
+      height:100%; width:100%;
       font-family: -apple-system,'SF Pro Display','Segoe UI',Roboto,sans-serif;
-      background:var(--bg);
-      color:var(--text);
+      background:var(--bg); color:var(--text);
       overflow:hidden;
       -webkit-font-smoothing:antialiased;
       -webkit-text-size-adjust:100%;
-      /* Ensure content fits within safe area */
-      min-height: 100%;
-      box-sizing: border-box;
     }
 
     .screen {
-      position:fixed;
-      inset:0;
-      display:none;
-      flex-direction:column;
-      background:var(--bg);
+      position:fixed; inset:0; display:none;
+      flex-direction:column; background:var(--bg);
       padding-top:env(safe-area-inset-top);
-      padding-bottom:env(safe-area-inset-bottom);
-      /* Ensure content doesn't overflow */
-      box-sizing: border-box;
     }
     .screen.active { display:flex; }
 
@@ -168,8 +147,7 @@
 
     /* ─── AUTH ─── */
     #screen-auth {
-      align-items:center;
-      justify-content:center;
+      align-items:center; justify-content:flex-start;
       background:var(--bg);
       background-image:
         radial-gradient(ellipse at 30% 20%,rgba(124,92,191,0.15) 0%,transparent 55%),
@@ -177,9 +155,6 @@
       overflow-y:auto;
       -webkit-overflow-scrolling:touch;
       padding:0;
-      /* Ensure it fills the screen */
-      min-height: 100%;
-      box-sizing: border-box;
     }
     .auth-scroll-inner {
       width:100%; min-height:100%;
@@ -367,19 +342,17 @@
 /* ─── СТРОКА ПОИСКА ─── */
 #lobby-search-bar {
   display:flex; align-items:center;
-  flex:1;
-  margin:0 10px;
-  height:100%;
+  padding:8px 12px 6px;
+  background:var(--bg);
+  border-bottom:1px solid var(--divider);
+  flex-shrink:0;
 }
 #lobby-search-bar input {
-  flex:1;
-  padding:8px 16px;
+  flex:1; padding:9px 16px;
   background:var(--surface2);
-  border:none; border-radius:20px;
+  border:none; border-radius:24px;
   color:var(--text); font-size:15px;
   outline:none; font-family:inherit;
-  height:36px;
-  box-sizing:border-box;
 }
 #lobby-search-bar input::placeholder { color:var(--sub); }
 
@@ -645,41 +618,6 @@
     .settings-item-label { flex:1; font-size:15px; font-weight:500; }
     .settings-item-value { font-size:13px; color:var(--accent2); }
     .settings-item-arrow { color:var(--sub); font-size:13px; opacity:0.5; }
-
-    /* Группы настроек */
-    .settings-group-title {
-      font-size:11px; color:var(--accent2); font-weight:700;
-      text-transform:uppercase; letter-spacing:1px;
-      margin:20px 0 8px; padding:0 4px;
-    }
-    .settings-group-title:first-child { margin-top:0; }
-
-    /* Переключатель */
-    .settings-switch {
-      position:relative; display:inline-block;
-      width:44px; height:24px; flex-shrink:0;
-    }
-    .settings-switch input {
-      opacity:0; width:0; height:0;
-    }
-    .settings-switch-slider {
-      position:absolute; cursor:pointer;
-      top:0; left:0; right:0; bottom:0;
-      background-color:rgba(255,255,255,0.1);
-      border-radius:24px; transition:.3s;
-    }
-    .settings-switch-slider:before {
-      position:absolute; content:"";
-      height:18px; width:18px; left:3px; bottom:3px;
-      background-color:white; border-radius:50%;
-      transition:.3s; box-shadow:0 2px 4px rgba(0,0,0,0.2);
-    }
-    .settings-switch input:checked + .settings-switch-slider {
-      background:linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
-    }
-    .settings-switch input:checked + .settings-switch-slider:before {
-      transform:translateX(20px);
-    }
 
     /* ─── ДРУЗЬЯ / УЧАСТНИКИ ─── */
     .friend-item {
@@ -1019,7 +957,7 @@
       font-size:10px; color:rgba(255,255,255,0.28);
       text-align:right; margin-top:5px;
     }
-    .msg-content { word-break:break-word; white-space:pre-wrap; }
+    .msg-content { word-break:break-word; }
     .msg-decrypt-status { font-size:10px; color:rgba(255,255,255,0.22); margin-top:2px; }
     .msg-decrypt-status.ok  { color:rgba(160,125,224,0.55); }
     .msg-decrypt-status.err { color:var(--red); }
@@ -1239,7 +1177,7 @@
     ::-webkit-scrollbar { width:3px; }
     ::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.07); border-radius:2px; }
     #keep-alive-audio,#hidden-audios,#file-input,
-    #room-photo-input,#avatar-input,#group-wallpaper-input,#private-wallpaper-input { display:none !important; }
+    #room-photo-input,#avatar-input { display:none !important; }
 
     @keyframes shake {
       0%,100%{transform:translateX(0);}
@@ -1651,12 +1589,12 @@
           </div>
           <div class="field-group">
             <label class="field-label">
-              Email (необязательно)
+              Номер телефона
               <span style="color:var(--accent2);text-transform:none;letter-spacing:0;font-weight:600;font-size:10px"> — не обязательно</span>
             </label>
             <div class="field-input-wrap">
-              <input class="field-input" type="email" id="reg-email"
-                     placeholder="example@domain.com (необязательно)" maxlength="100" autocomplete="email"/>
+              <input class="field-input" type="tel" id="reg-phone"
+                     placeholder="+7 900 000 00 00 (необязательно)" maxlength="20" autocomplete="tel"/>
             </div>
             <div class="hint-text">🔒 Только для восстановления пароля. Не виден другим.</div>
           </div>
@@ -1679,74 +1617,17 @@
   </div>
 </div>
 
-<!-- ═══ ВЫБОР ТЕМЫ (ШАРИК) ═══ -->
-<div class="modal-overlay" id="modal-theme-selector">
-  <div class="modal-sheet" style="max-width: 400px;">
-    <div class="modal-handle"></div>
-    <div class="modal-title">🎨 Выбор темы</div>
-    <button class="modal-close" id="btn-close-theme-selector">✕</button>
-    
-    <div class="theme-selector-description" style="text-align: center; color: var(--sub); margin-bottom: 24px; font-size: 14px;">
-      Нажми на шарик для выбора темы
-    </div>
-    
-    <div class="theme-balls-container" style="display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; margin-bottom: 30px;">
-      <div class="theme-ball" data-theme="dark" style="width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, #0a0a0f, #16161f); display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.3); transition: transform 0.2s;">
-        <div style="color: #e8e8f0; font-size: 24px;">🌙</div>
-      </div>
-      <div class="theme-ball" data-theme="light" style="width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, #f0f2f5, #ffffff); display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.1); transition: transform 0.2s;">
-        <div style="color: #111b21; font-size: 24px;">☀️</div>
-      </div>
-      <div class="theme-ball" data-theme="dark-beautiful" style="width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, #0f0a1f, #221c3c); display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 12px rgba(160,125,224,0.3); transition: transform 0.2s;">
-        <div style="color: #e8e0ff; font-size: 24px;">🌟</div>
-      </div>
-      <div class="theme-ball" data-theme="light-beautiful" style="width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, #f9f5ff, #ffffff); display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 12px rgba(157,123,255,0.2); transition: transform 0.2s;">
-        <div style="color: #2d1b69; font-size: 24px;">✨</div>
-      </div>
-    </div>
-    
-    <!-- Вторая строка шариков для новых тем -->
-    <div class="theme-balls-container" style="display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; margin-bottom: 30px;">
-      <div class="theme-ball" data-theme="telegram-dark" style="width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, #17212b, #2b5278); display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 12px rgba(82,136,193,0.3); transition: transform 0.2s;">
-        <div style="color: #ffffff; font-size: 24px;">📱</div>
-      </div>
-      <div class="theme-ball" data-theme="whatsapp-green" style="width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, #f0f2f5, #00a884); display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 12px rgba(0,168,132,0.2); transition: transform 0.2s;">
-        <div style="color: #ffffff; font-size: 24px;">💚</div>
-      </div>
-      <div class="theme-ball" data-theme="blue-dark" style="width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, #0d1b2a, #415a77); display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 12px rgba(76,201,240,0.3); transition: transform 0.2s;">
-        <div style="color: #e0e1dd; font-size: 24px;">🔵</div>
-      </div>
-      <div class="theme-ball" data-theme="amber" style="width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, #fff8e1, #ffd54f); display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 12px rgba(255,152,0,0.2); transition: transform 0.2s;">
-        <div style="color: #5d4037; font-size: 24px;">🟠</div>
-      </div>
-    </div>
-    
-    <div class="theme-names" style="display: flex; justify-content: center; gap: 20px; margin-bottom: 30px; text-align: center;">
-      <div style="width: 80px; font-size: 12px; color: var(--text2);">Ночная</div>
-      <div style="width: 80px; font-size: 12px; color: var(--text2);">Дневная</div>
-      <div style="width: 80px; font-size: 12px; color: var(--text2);">Фиолетовая</div>
-      <div style="width: 80px; font-size: 12px; color: var(--text2);">Пастельная</div>
-      <div style="width: 80px; font-size: 12px; color: var(--text2);">Telegram</div>
-      <div style="width: 80px; font-size: 12px; color: var(--text2);">WhatsApp</div>
-      <div style="width: 80px; font-size: 12px; color: var(--text2);">Синяя</div>
-      <div style="width: 80px; font-size: 12px; color: var(--text2);">Янтарная</div>
-    </div>
-    
-    <div style="text-align: center;">
-      <button class="btn-secondary" id="btn-close-theme-selector-2" style="margin-top: 10px;">Закрыть</button>
-    </div>
-  </div>
-</div>
-
 <!-- ═══ ЭКРАН ЛОББИ ═══ -->
 <div id="screen-lobby" class="screen">
   <div class="lobby-sidebar">
+
+    <!-- ХЕДЕР -->
     <div class="lobby-header">
       <button class="lobby-menu-btn" id="btn-open-drawer">☰</button>
-      <div id="lobby-search-bar" style="flex:1; margin:0 10px;">
-        <input type="text" placeholder="Поиск чатов..." maxlength="50" style="width:100%;">
-      </div>
-      <!-- Иконки плюсик и профиль убраны по требованию -->
+      <div class="lobby-header-title">Чаты</div>
+      <div style="flex:1"></div>
+      <button class="lobby-avatar-btn" id="btn-open-profile">👤</button>
+      <button id="btn-create-room" title="Новый чат">＋</button>
     </div>
 
     <div class="lobby-tabs">
@@ -1771,7 +1652,7 @@
 <div class="modal-overlay" id="modal-create-room">
   <div class="modal-sheet">
     <div class="modal-handle"></div>
-    <div class="modal-title" id="create-room-title">✨ Новая группа</div>
+    <div class="modal-title">✨ Новая группа</div>
     <button class="modal-close" id="btn-close-create">✕</button>
     <div class="room-photo-picker">
       <div class="room-photo-btn" id="room-photo-btn">
@@ -1781,13 +1662,6 @@
     <div class="field-wrap">
       <div class="field-label">Название</div>
       <input type="text" id="create-room-name" placeholder="Название группы…" maxlength="50"/>
-    </div>
-    <div class="field-wrap">
-      <div class="field-label">Тип чата</div>
-      <select id="create-room-type">
-        <option value="group" selected>👥 Группа</option>
-        <option value="channel">📢 Канал</option>
-      </select>
     </div>
     <div class="field-wrap">
       <div class="field-label">Пароль (необязательно)</div>
@@ -1845,26 +1719,11 @@
     <div class="modal-title">Мой профиль</div>
     <button class="modal-close" id="btn-close-profile">✕</button>
     <div class="profile-avatar-section">
-      <div style="display:flex; align-items:flex-start; gap:20px; width:100%;">
-        <!-- Аватар слева -->
-        <div class="profile-avatar-wrap" id="profile-avatar-wrap" style="flex-shrink:0;">
-          <div class="profile-avatar" id="profile-avatar-display">👤</div>
-          <div class="profile-avatar-edit">✏️</div>
-        </div>
-        <!-- Блок для фона и имени -->
-        <div style="flex:1; display:flex; flex-direction:column; gap:12px;">
-          <div class="profile-name" id="profile-name-display">—</div>
-          <!-- Кнопка установки фона -->
-          <div style="display:flex; align-items:center; gap:10px;">
-            <button id="btn-set-background" style="padding:10px 16px; border-radius:12px; background:var(--surface2); border:1px solid rgba(124,92,191,0.3); color:var(--text); font-size:14px; cursor:pointer; display:flex; align-items:center; gap:8px;">
-              <span style="font-size:18px">🖼️</span>
-              <span>Установить фон</span>
-            </button>
-            <input type="file" id="profile-background-input" accept="image/*" style="display:none">
-            <div style="font-size:12px; color:var(--sub);">Фон будет отображаться рядом с аватаркой</div>
-          </div>
-        </div>
+      <div class="profile-avatar-wrap" id="profile-avatar-wrap">
+        <div class="profile-avatar" id="profile-avatar-display">👤</div>
+        <div class="profile-avatar-edit">✏️</div>
       </div>
+      <div class="profile-name" id="profile-name-display">—</div>
     </div>
     <div class="field-wrap">
       <div class="field-label">Имя / Никнейм</div>
@@ -1876,9 +1735,9 @@
         style="resize:none;padding:13px 16px;background:var(--bg2);border:1.5px solid rgba(255,255,255,0.07);border-radius:14px;color:var(--text);font-size:15px;outline:none;font-family:inherit;width:100%"></textarea>
     </div>
     <div class="field-wrap">
-      <div class="field-label">Ваши любые контакты</div>
-      <input type="text" id="profile-edit-phone" placeholder="Телефон, email, соцсети…" maxlength="100" autocomplete="off"/>
-      <div style="font-size:11px;color:var(--sub);margin-top:5px">⚠️ Будет не конфиденциально (видно другим)</div>
+      <div class="field-label">Номер телефона</div>
+      <input type="tel" id="profile-edit-phone" placeholder="+7 900 000 00 00" maxlength="20" autocomplete="tel"/>
+      <div style="font-size:11px;color:var(--sub);margin-top:5px">🔒 Виден только тебе</div>
     </div>
     <button class="btn-primary" id="btn-save-profile" style="margin-bottom:12px">💾 Сохранить</button>
     <div class="profile-section-title">Друзья</div>
@@ -1907,102 +1766,46 @@
     <div class="modal-handle"></div>
     <div class="modal-title">⚙️ Настройки</div>
     <button class="modal-close" id="btn-close-settings">✕</button>
-    
-    <!-- Аккаунт -->
-    <div class="settings-group-title">Аккаунт</div>
     <div class="settings-item" id="settings-go-profile">
-      <span class="settings-item-icon" style="background:linear-gradient(135deg, #667eea 0%, #764ba2 100%)">👤</span>
+      <span class="settings-item-icon">👤</span>
       <span class="settings-item-label">Профиль</span>
       <span class="settings-item-arrow">›</span>
     </div>
     <div class="settings-item" id="settings-go-privacy">
-      <span class="settings-item-icon" style="background:linear-gradient(135deg, #f093fb 0%, #f5576c 100%)">🔒</span>
+      <span class="settings-item-icon">🔒</span>
       <span class="settings-item-label">Конфиденциальность</span>
       <span class="settings-item-arrow">›</span>
     </div>
-    
-    <!-- Уведомления и звуки -->
-    <div class="settings-group-title">Уведомления и звуки</div>
     <div class="settings-item" id="settings-go-notifs">
-      <span class="settings-item-icon" style="background:linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)">🔔</span>
+      <span class="settings-item-icon">🔔</span>
       <span class="settings-item-label">Уведомления</span>
       <span class="settings-item-arrow">›</span>
     </div>
-    <div class="settings-item" id="settings-toggle-sounds">
-      <span class="settings-item-icon" style="background:linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)">🔊</span>
-      <span class="settings-item-label">Звуки сообщений</span>
-      <div class="settings-switch">
-        <input type="checkbox" id="toggle-message-sounds" checked>
-        <label for="toggle-message-sounds" class="settings-switch-slider"></label>
-      </div>
-    </div>
-    
-    <!-- Внешний вид -->
-    <div class="settings-group-title">Внешний вид</div>
-    <div class="settings-item" id="settings-go-chats">
-      <span class="settings-item-icon" style="background:linear-gradient(135deg, #fa709a 0%, #fee140 100%)">💬</span>
-      <span class="settings-item-label">Тема и оформление</span>
-      <span class="settings-item-arrow">›</span>
-    </div>
-    <div class="settings-item" id="settings-go-font-size">
-      <span class="settings-item-icon" style="background:linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)">🔤</span>
-      <span class="settings-item-label">Размер шрифта</span>
-      <span class="settings-item-value">Средний</span>
-      <span class="settings-item-arrow">›</span>
-    </div>
-    
-    <!-- Данные -->
-    <div class="settings-group-title">Данные</div>
     <div class="settings-item" id="settings-go-data">
-      <span class="settings-item-icon" style="background:linear-gradient(135deg, #d299c2 0%, #fef9d7 100%)">💾</span>
+      <span class="settings-item-icon">💾</span>
       <span class="settings-item-label">Данные и память</span>
       <span class="settings-item-arrow">›</span>
     </div>
     <div class="settings-item" id="settings-go-lang">
-      <span class="settings-item-icon" style="background:linear-gradient(135deg, #89f7fe 0%, #66a6ff 100%)">🌐</span>
+      <span class="settings-item-icon">🌐</span>
       <span class="settings-item-label">Язык</span>
       <span class="settings-item-value">Русский</span>
       <span class="settings-item-arrow">›</span>
     </div>
-    
-    <!-- Каналы -->
-    <div class="settings-group-title">Каналы</div>
-    <div class="settings-item" id="settings-channels-manage">
-      <span class="settings-item-icon" style="background:linear-gradient(135deg, #667eea 0%, #764ba2 100%)">📢</span>
-      <span class="settings-item-label">Мои каналы</span>
+    <div class="settings-item" id="settings-go-chats">
+      <span class="settings-item-icon">💬</span>
+      <span class="settings-item-label">Настройки чатов</span>
       <span class="settings-item-arrow">›</span>
     </div>
-    <div class="settings-item" id="settings-channels-notifications">
-      <span class="settings-item-icon" style="background:linear-gradient(135deg, #f093fb 0%, #f5576c 100%)">🔔</span>
-      <span class="settings-item-label">Уведомления каналов</span>
-      <div class="settings-switch">
-        <input type="checkbox" id="toggle-channel-notifications" checked>
-        <label for="toggle-channel-notifications" class="settings-switch-slider"></label>
-      </div>
-    </div>
-    <div class="settings-item" id="settings-channels-autojoin">
-      <span class="settings-item-icon" style="background:linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)">🤖</span>
-      <span class="settings-item-label">Автоподписка на каналы</span>
-      <div class="settings-switch">
-        <input type="checkbox" id="toggle-channel-autojoin">
-        <label for="toggle-channel-autojoin" class="settings-switch-slider"></label>
-      </div>
-    </div>
-    
-    <!-- О программе -->
-    <div class="settings-group-title">О программе</div>
     <div class="settings-item" id="settings-go-about">
-      <span class="settings-item-icon" style="background:linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)">ℹ️</span>
+      <span class="settings-item-icon">ℹ️</span>
       <span class="settings-item-label">О проекте</span>
       <span class="settings-item-arrow">›</span>
     </div>
-    
-    <div class="drawer-divider" style="margin:20px 0 16px"></div>
-    
-    <!-- Выход -->
+    <div class="drawer-divider" style="margin:10px 0"></div>
     <div class="settings-item" id="settings-go-logout">
-      <span class="settings-item-icon" style="background:linear-gradient(135deg, #ff9a9e 0%, #fad0c4 100%)">🚪</span>
-      <span class="settings-item-label" style="color:var(--red);font-weight:600">Выйти</span>
+      <span class="settings-item-icon">🚪</span>
+      <span class="settings-item-label" style="color:var(--red)">Выйти</span>
     </div>
   </div>
 </div>
@@ -2031,9 +1834,8 @@
 <div class="modal-overlay" id="modal-members">
   <div class="modal-sheet">
     <div class="modal-handle"></div>
-    <div class="modal-title" id="members-modal-title">Участники и настройки</div>
+    <div class="modal-title" id="members-modal-title">Участники</div>
     <button class="modal-close" id="btn-close-members">✕</button>
-
     <div id="group-photo-section" style="display:none;margin-bottom:4px">
       <div class="profile-section-title">Фото группы</div>
       <button class="group-photo-change-btn" id="btn-group-photo-change">
@@ -2042,15 +1844,6 @@
       </button>
       <input type="file" id="group-photo-input" accept="image/*" style="display:none">
     </div>
-
-    <div id="group-wallpaper-section" style="display:none">
-      <div class="profile-section-title">Обои группы</div>
-      <button class="group-photo-change-btn" id="btn-group-wallpaper-change">
-        <span style="font-size:20px">🧩</span>
-        <span>Установить обои чата группы</span>
-      </button>
-    </div>
-
     <div id="rename-section" style="display:none">
       <div class="profile-section-title">Переименовать</div>
       <div class="rename-row">
@@ -2059,18 +1852,8 @@
       </div>
       <div class="field-error" id="rename-error"></div>
     </div>
-
-    <div id="group-desc-section" style="display:none">
-      <div class="profile-section-title">Описание группы</div>
-      <div class="field-wrap">
-        <textarea id="group-description-input" placeholder="Описание группы…" maxlength="2000" rows="4" style="resize:none"></textarea>
-      </div>
-      <button class="btn-primary" id="btn-save-group-description" style="margin-bottom:8px">💾 Сохранить описание</button>
-    </div>
-
     <div id="group-settings-section" style="display:none">
       <div class="profile-section-title">Настройки группы</div>
-
       <div class="field-wrap">
         <div class="field-label">Автоудаление</div>
         <select id="group-autodelete-select">
@@ -2080,7 +1863,6 @@
           <option value="never">Не удалять</option>
         </select>
       </div>
-
       <div class="field-wrap">
         <div class="field-label">Вступление</div>
         <select id="group-joinmode-select">
@@ -2088,15 +1870,6 @@
           <option value="approval">По заявке</option>
         </select>
       </div>
-
-      <div class="field-wrap">
-        <div class="field-label">Голосовой чат</div>
-        <select id="group-voice-enabled-select">
-          <option value="1">🎙 Включён</option>
-          <option value="0">🔇 Отключён администратором</option>
-        </select>
-      </div>
-
       <div class="field-wrap">
         <div class="field-label">Уведомления группы</div>
         <select id="group-notif-select">
@@ -2105,28 +1878,17 @@
           <option value="none">🔕 Выключить</option>
         </select>
       </div>
-
       <button class="btn-primary" id="btn-save-group-settings" style="margin-bottom:8px">💾 Сохранить</button>
       <button class="btn-danger" id="btn-delete-group">🗑 Удалить группу</button>
     </div>
-
     <div id="join-requests-section" style="display:none">
       <div class="profile-section-title">
         Заявки <span id="join-requests-count" style="color:var(--orange)"></span>
       </div>
       <div id="join-requests-list"><div class="empty-list">Нет заявок</div></div>
     </div>
-
-    <div class="profile-section-title">Участники онлайн</div>
-    <div id="members-online-container"><div class="empty-list">Загрузка…</div></div>
-
-    <div class="profile-section-title">Все участники</div>
+    <div class="profile-section-title">Онлайн</div>
     <div id="members-list-container"><div class="empty-list">Загрузка…</div></div>
-
-    <div id="group-pinned-media-section">
-      <div class="profile-section-title">Медиа в описании группы</div>
-      <div id="group-pinned-media-list"><div class="empty-list">Пока пусто</div></div>
-    </div>
   </div>
 </div>
 
@@ -2173,10 +1935,10 @@
       <div class="tg-header-btns">
         <button class="header-icon-btn" id="btn-private-call"
                 title="Позвонить" style="display:none;color:var(--green)">📞</button>
-        <!-- Кнопка меню чата (три черточки) -->
-        <button class="header-icon-btn" id="btn-chat-menu"
-                title="Меню чата">☰</button>
-        <!-- Кнопки темы и колокольчик убраны -->
+        <button class="header-icon-btn" id="btn-notif-settings"
+                title="Уведомления чата">🔔</button>
+        <button class="header-icon-btn" id="btn-room-members"
+                title="Участники и настройки" style="display:none">⚙️</button>
       </div>
     </div>
 
@@ -2219,10 +1981,10 @@
           <span id="voice-record-time">0:00</span>
           <span style="font-size:11px;color:var(--sub);margin-left:4px">← свайп для отмены</span>
         </div>
-        <textarea id="chat-input" placeholder="Сообщение… (Enter — новая строка, Ctrl+Enter — отправить)" rows="1"></textarea>
+        <textarea id="chat-input" placeholder="Сообщение…" rows="1"></textarea>
         <button class="voice-record-btn" id="btn-voice-record"
                 title="Удержи для записи голосового">🎤</button>
-        <button id="btn-send" title="Отправить">
+        <button id="btn-send">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
             <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
           </svg>
@@ -2297,84 +2059,8 @@
 <input type="file" id="file-input"       accept="*/*">
 <input type="file" id="room-photo-input" accept="image/*">
 <input type="file" id="avatar-input"     accept="image/*">
-<input type="file" id="group-wallpaper-input" accept="image/*">
-<input type="file" id="private-wallpaper-input" accept="image/*">
 <audio id="keep-alive-audio" loop playsinline></audio>
 <div id="hidden-audios"></div>
-
-<!-- ═══ МЕНЮ ЧАТА ═══ -->
-<div class="modal-overlay" id="modal-chat-menu">
-  <div class="modal-sheet">
-    <div class="modal-handle"></div>
-    <div class="modal-title">Настройки чата</div>
-    <button class="modal-close" id="btn-close-chat-menu">✕</button>
-    
-    <div class="settings-group-title">Основные</div>
-    <div class="settings-item" id="chat-menu-notifications">
-      <span class="settings-item-icon">🔔</span>
-      <span class="settings-item-label">Уведомления</span>
-      <span class="settings-item-arrow">›</span>
-    </div>
-    <div class="settings-item" id="chat-menu-wallpaper">
-      <span class="settings-item-icon">🧩</span>
-      <span class="settings-item-label">Обои чата</span>
-      <span class="settings-item-arrow">›</span>
-    </div>
-    <div class="settings-item" id="chat-menu-theme">
-      <span class="settings-item-icon">🎨</span>
-      <span class="settings-item-label">Тема чата</span>
-      <span class="settings-item-arrow">›</span>
-    </div>
-    
-    <div class="settings-group-title">Безопасность</div>
-    <div class="settings-item" id="chat-menu-encryption">
-      <span class="settings-item-icon">🔐</span>
-      <span class="settings-item-label">Шифрование</span>
-      <span class="settings-item-value">AES-256-GCM</span>
-    </div>
-    <div class="settings-item" id="chat-menu-self-destruct">
-      <span class="settings-item-icon">⏱️</span>
-      <span class="settings-item-label">Самоуничтожение сообщений</span>
-      <span class="settings-item-arrow">›</span>
-    </div>
-    
-    <div class="settings-group-title">Управление</div>
-    <div class="settings-item" id="chat-menu-clear-history">
-      <span class="settings-item-icon">🗑️</span>
-      <span class="settings-item-label">Очистить историю</span>
-      <span class="settings-item-arrow">›</span>
-    </div>
-    <div class="settings-item" id="chat-menu-export-chat">
-      <span class="settings-item-icon">📤</span>
-      <span class="settings-item-label">Экспорт чата</span>
-      <span class="settings-item-arrow">›</span>
-    </div>
-    <div class="settings-item" id="chat-menu-block-user">
-      <span class="settings-item-icon">🚫</span>
-      <span class="settings-item-label">Заблокировать пользователя</span>
-      <span class="settings-item-arrow">›</span>
-    </div>
-    
-    <div class="settings-group-title">Информация</div>
-    <div class="settings-item" id="chat-menu-info">
-      <span class="settings-item-icon">ℹ️</span>
-      <span class="settings-item-label">Информация о чате</span>
-      <span class="settings-item-arrow">›</span>
-    </div>
-    <div class="settings-item" id="chat-menu-share-contact">
-      <span class="settings-item-icon">📇</span>
-      <span class="settings-item-label">Поделиться контактом</span>
-      <span class="settings-item-arrow">›</span>
-    </div>
-    
-    <div class="drawer-divider" style="margin:20px 0 16px"></div>
-    
-    <div class="settings-item" id="chat-menu-close-chat">
-      <span class="settings-item-icon">❌</span>
-      <span class="settings-item-label" style="color:var(--red)">Закрыть чат</span>
-    </div>
-  </div>
-</div>
 
 <!-- ═══ СКРИПТЫ ═══ -->
 <script src="/socket.io/socket.io.js"></script>
@@ -2385,8 +2071,6 @@
 <script src="js/status.js"></script>
 <script src="js/invitelink.js"></script>
 <script src="js/06-e2ee-keys.js"></script>
-<script src="js/07-e2ee-session.js"></script>
-<script src="js/08-private-cache.js"></script>
 <script src="app.js"></script>
 
 <script>
@@ -2547,297 +2231,17 @@ document.getElementById('call-mini-hangup')?.addEventListener('click', e => {
   if (typeof endPrivateCall === 'function') endPrivateCall(true);
 });
 
-// ─── Утилита для предотвращения дублирования обработчиков ───
-const eventHandlerRegistry = new WeakMap();
-
-function addEventListenerOnce(element, event, handler, options) {
-  if (!element || !handler) return;
-  
-  // Проверяем, не добавлен ли уже этот обработчик
-  const elementHandlers = eventHandlerRegistry.get(element) || {};
-  const eventHandlers = elementHandlers[event] || [];
-  
-  // Проверяем, не добавлен ли уже этот конкретный обработчик
-  const isAlreadyAdded = eventHandlers.some(h =>
-    h.handler === handler || h.handler.toString() === handler.toString()
-  );
-  
-  if (!isAlreadyAdded) {
-    element.addEventListener(event, handler, options);
-    eventHandlers.push({ handler, options });
-    elementHandlers[event] = eventHandlers;
-    eventHandlerRegistry.set(element, elementHandlers);
-  }
-}
-
 // ─── Кнопки в заголовке чата ───
-addEventListenerOnce(document.getElementById('btn-chat-menu'), 'click', () => {
-  const modal = document.getElementById('modal-chat-menu');
-  if (modal) modal.classList.add('open');
+document.getElementById('btn-notif-settings')?.addEventListener('click', () => {
+  const id   = (typeof currentChatType !== 'undefined' && currentChatType === 'private')
+    ? currentChatId : currentRoomId;
+  const name = document.getElementById('chat-room-name')?.textContent || '?';
+  if (id && typeof openChatNotifSettings === 'function') openChatNotifSettings(id, name);
 });
 
-addEventListenerOnce(document.getElementById('btn-close-chat-menu'), 'click', () => {
-  const modal = document.getElementById('modal-chat-menu');
-  if (modal) modal.classList.remove('open');
-});
-
-// Обработчики для пунктов меню (заглушки)
-document.querySelectorAll('#modal-chat-menu .settings-item').forEach(item => {
-  addEventListenerOnce(item, 'click', () => {
-    const id = item.id;
-    alert('Функция "' + item.querySelector('.settings-item-label').textContent + '" в разработке');
-  });
-});
-
-addEventListenerOnce(document.getElementById('btn-room-members'), 'click', () => {
+document.getElementById('btn-room-members')?.addEventListener('click', () => {
   if (typeof openMembersModal === 'function') openMembersModal();
 });
-
-// Установка фона профиля
-addEventListenerOnce(document.getElementById('btn-set-background'), 'click', () => {
-  document.getElementById('profile-background-input').click();
-});
-addEventListenerOnce(document.getElementById('profile-background-input'), 'change', function(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = function(event) {
-    const url = event.target.result;
-    // Здесь можно сохранить URL в localStorage или отправить на сервер
-    alert('Фон профиля установлен! (в демо-режиме сохранено локально)');
-    // Пример: сохраняем в localStorage
-    localStorage.setItem('profileBackground', url);
-    // Можно также отобразить фон где-нибудь на UI
-  };
-  reader.readAsDataURL(file);
-});
-
-// Свайп между вкладками чатов
-(function() {
-  const tabsContainer = document.querySelector('.lobby-tabs');
-  if (!tabsContainer) return;
-  
-  const tabs = Array.from(tabsContainer.querySelectorAll('.lobby-tab'));
-  const tabIds = tabs.map(tab => tab.id);
-  let startX = 0;
-  let startY = 0;
-  let isSwiping = false;
-  
-  tabsContainer.addEventListener('touchstart', e => {
-    startX = e.touches[0].clientX;
-    startY = e.touches[0].clientY;
-    isSwiping = true;
-  }, { passive: true });
-  
-  tabsContainer.addEventListener('touchmove', e => {
-    if (!isSwiping) return;
-    const deltaX = e.touches[0].clientX - startX;
-    const deltaY = e.touches[0].clientY - startY;
-    // Если вертикальный свайп преобладает, отменяем
-    if (Math.abs(deltaY) > Math.abs(deltaX)) {
-      isSwiping = false;
-      return;
-    }
-    e.preventDefault();
-  }, { passive: false });
-  
-  tabsContainer.addEventListener('touchend', e => {
-    if (!isSwiping) return;
-    const deltaX = e.changedTouches[0].clientX - startX;
-    const threshold = 50;
-    
-    if (Math.abs(deltaX) > threshold) {
-      const currentIndex = tabs.findIndex(tab => tab.classList.contains('active'));
-      let nextIndex;
-      if (deltaX > 0) {
-        // Свайп вправо -> предыдущая вкладка
-        nextIndex = currentIndex > 0 ? currentIndex - 1 : tabs.length - 1;
-      } else {
-        // Свайп влево -> следующая вкладка
-        nextIndex = currentIndex < tabs.length - 1 ? currentIndex + 1 : 0;
-      }
-      // Активируем вкладку
-      tabs.forEach(tab => tab.classList.remove('active'));
-      tabs[nextIndex].classList.add('active');
-      // Вызываем клик для обновления контента
-      tabs[nextIndex].click();
-    }
-    isSwiping = false;
-  }, { passive: true });
-})();
-
-// Обработка выбора типа чата (группа/канал)
-(function() {
-  const roomTypeSelect = document.getElementById('create-room-type');
-  const roomTitle = document.getElementById('create-room-title');
-  const submitButton = document.getElementById('btn-submit-create');
-  const roomNameInput = document.getElementById('create-room-name');
-  
-  if (!roomTypeSelect || !roomTitle || !submitButton || !roomNameInput) return;
-  
-  function updateUIForRoomType() {
-    const isChannel = roomTypeSelect.value === 'channel';
-    
-    // Обновляем заголовок
-    roomTitle.textContent = isChannel ? '📢 Новый канал' : '✨ Новая группа';
-    
-    // Обновляем текст кнопки
-    submitButton.textContent = isChannel ? 'Создать канал' : 'Создать группу';
-    
-    // Обновляем placeholder поля названия
-    roomNameInput.placeholder = isChannel ? 'Название канала…' : 'Название группы…';
-    
-    // Для каналов можно скрыть/показать определенные поля
-    const joinModeSelect = document.getElementById('create-room-joinmode');
-    if (joinModeSelect) {
-      // Для каналов обычно только администраторы пишут, поэтому меняем опции
-      if (isChannel) {
-        // Ищем опцию "Свободное" и меняем её
-        const openOption = Array.from(joinModeSelect.options).find(opt => opt.value === 'open');
-        if (openOption) {
-          openOption.textContent = 'Только чтение (канал)';
-        }
-        // Добавляем опцию "Администраторы пишут"
-        if (!Array.from(joinModeSelect.options).find(opt => opt.value === 'admin-only')) {
-          const newOption = document.createElement('option');
-          newOption.value = 'admin-only';
-          newOption.textContent = 'Администраторы пишут';
-          joinModeSelect.appendChild(newOption);
-        }
-      } else {
-        // Для групп возвращаем стандартные опции
-        const openOption = Array.from(joinModeSelect.options).find(opt => opt.value === 'open');
-        if (openOption) {
-          openOption.textContent = 'Свободное';
-        }
-        // Удаляем опцию "Администраторы пишут" если она есть
-        const adminOption = Array.from(joinModeSelect.options).find(opt => opt.value === 'admin-only');
-        if (adminOption) {
-          joinModeSelect.removeChild(adminOption);
-        }
-      }
-    }
-  }
-  
-  // Инициализация при загрузке
-  updateUIForRoomType();
-  
-  // Обработка изменения выбора
-  roomTypeSelect.addEventListener('change', updateUIForRoomType);
-})();
-
-// ─── ВЫБОР ТЕМЫ ЧЕРЕЗ ШАРИКИ ───
-(function() {
-  const themeSelectorModal = document.getElementById('modal-theme-selector');
-  const btnDrawerTheme = document.getElementById('btn-drawer-theme');
-  const btnCloseThemeSelector = document.getElementById('btn-close-theme-selector');
-  const btnCloseThemeSelector2 = document.getElementById('btn-close-theme-selector-2');
-  const themeBalls = document.querySelectorAll('.theme-ball');
-  
-  if (!themeSelectorModal || !btnDrawerTheme) return;
-  
-  // Открытие модального окна при клике на кнопку темы
-  addEventListenerOnce(btnDrawerTheme, 'click', () => {
-    themeSelectorModal.classList.add('open');
-  });
-  
-  // Закрытие модального окна
-  if (btnCloseThemeSelector) {
-    addEventListenerOnce(btnCloseThemeSelector, 'click', () => {
-      themeSelectorModal.classList.remove('open');
-    });
-  }
-  
-  if (btnCloseThemeSelector2) {
-    addEventListenerOnce(btnCloseThemeSelector2, 'click', () => {
-      themeSelectorModal.classList.remove('open');
-    });
-  }
-  
-  // Закрытие при клике на оверлей
-  themeSelectorModal.addEventListener('click', (e) => {
-    if (e.target === themeSelectorModal) {
-      themeSelectorModal.classList.remove('open');
-    }
-  });
-  
-  // Обработка выбора темы через шарики
-  themeBalls.forEach(ball => {
-    addEventListenerOnce(ball, 'click', () => {
-      const theme = ball.getAttribute('data-theme');
-      if (theme && typeof applyTheme === 'function') {
-        applyTheme(theme);
-        // Закрываем модальное окно после выбора
-        themeSelectorModal.classList.remove('open');
-        // Показываем уведомление о смене темы
-        showThemeChangeNotification(theme);
-      }
-    });
-    
-    // Эффект при наведении
-    ball.addEventListener('mouseenter', () => {
-      ball.style.transform = 'scale(1.1)';
-    });
-    
-    ball.addEventListener('mouseleave', () => {
-      ball.style.transform = 'scale(1)';
-    });
-  });
-  
-  // Функция показа уведомления о смене темы
-  function showThemeChangeNotification(theme) {
-    const themeNames = {
-      'dark': 'Ночная',
-      'light': 'Дневная',
-      'dark-beautiful': 'Фиолетовая',
-      'light-beautiful': 'Пастельная'
-    };
-    
-    const name = themeNames[theme] || theme;
-    
-    // Создаем временное уведомление
-    const notification = document.createElement('div');
-    notification.style.cssText = `
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      background: var(--surface);
-      color: var(--text);
-      padding: 12px 20px;
-      border-radius: 12px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
-      z-index: 9999;
-      font-size: 14px;
-      border: 1px solid var(--divider);
-      animation: fadeInOut 3s ease;
-    `;
-    
-    // Добавляем стили для анимации
-    const style = document.createElement('style');
-    style.textContent = `
-      @keyframes fadeInOut {
-        0% { opacity: 0; transform: translateY(-10px); }
-        10% { opacity: 1; transform: translateY(0); }
-        90% { opacity: 1; transform: translateY(0); }
-        100% { opacity: 0; transform: translateY(-10px); }
-      }
-    `;
-    document.head.appendChild(style);
-    
-    notification.textContent = `Тема изменена: ${name}`;
-    document.body.appendChild(notification);
-    
-    // Удаляем уведомление через 3 секунды
-    setTimeout(() => {
-      if (notification.parentNode) {
-        notification.parentNode.removeChild(notification);
-      }
-      if (style.parentNode) {
-        style.parentNode.removeChild(style);
-      }
-    }, 3000);
-  }
-})();
 </script>
 </body>
 </html>
