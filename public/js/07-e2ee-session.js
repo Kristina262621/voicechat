@@ -275,6 +275,21 @@
           return td.decode(pt);
         } catch (retryError) {
           console.error('[E2EE] Retry also failed:', retryError);
+          // Попробуем использовать outboundKey, если inboundKey не сработал
+          if (retryError.name === 'OperationError') {
+            console.log('[E2EE] Trying fallback decryption with outboundKey');
+            try {
+              const s = await ensurePeer(peerId);
+              const iv = b64ToBytes(ivB64);
+              const ct = b64ToBytes(encryptedB64);
+              const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, s.outboundKey, ct);
+              await rotateKeysIfNeeded(peerId, 'outbound');
+              return td.decode(pt);
+            } catch (outboundError) {
+              console.error('[E2EE] Fallback decryption with outboundKey also failed:', outboundError);
+              throw outboundError;
+            }
+          }
           throw retryError;
         }
       }
@@ -291,6 +306,21 @@
           return td.decode(pt);
         } catch (retryError) {
           console.error('[E2EE] Retry also failed:', retryError);
+          // Попробуем использовать outboundKey, если inboundKey не сработал
+          if (retryError.name === 'OperationError') {
+            console.log('[E2EE] Trying fallback decryption with outboundKey');
+            try {
+              const s = await ensurePeer(peerId);
+              const iv = b64ToBytes(ivB64);
+              const ct = b64ToBytes(encryptedB64);
+              const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, s.outboundKey, ct);
+              await rotateKeysIfNeeded(peerId, 'outbound');
+              return td.decode(pt);
+            } catch (outboundError) {
+              console.error('[E2EE] Fallback decryption with outboundKey also failed:', outboundError);
+              throw outboundError;
+            }
+          }
           throw retryError;
         }
       }
