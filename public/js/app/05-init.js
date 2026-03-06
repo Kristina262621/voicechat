@@ -53,18 +53,50 @@ async function ensureE2EEKeysSafe() {
       return;
     }
     
-    // Проверяем, есть ли локальные ключи
-    const hasLocalKeys = await window.E2EEKeys.dbGet('identityDh.private') !== null;
+    // Проверяем, есть ли все необходимые локальные ключи
+    const requiredKeys = ['identityDh.private', 'identitySign.private', 'signedPre.private'];
+    let hasAllLocalKeys = true;
     
-    if (!hasLocalKeys) {
-      console.log('[E2EE] No local keys found, generating...');
+    for (const key of requiredKeys) {
+      const value = await window.E2EEKeys.dbGet(key);
+      if (!value) {
+        console.warn(`[E2EE] Missing local key: ${key}`);
+        hasAllLocalKeys = false;
+        break;
+      }
+    }
+    
+    if (!hasAllLocalKeys) {
+      console.log('[E2EE] Missing one or more local keys, regenerating...');
       try {
+        // Сначала пытаемся удалить старые ключи на сервере (если есть)
+        // чтобы избежать конфликта при загрузке новых
+        const token = localStorage.getItem('chat_token');
+        if (token) {
+          try {
+            // Проверяем, есть ли ключи на сервере
+            const r = await fetch('/api/signal/keys/prekeys/count', {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            const j = await r.json();
+            if (j?.count && j.count > 0) {
+              console.log('[E2EE] Server has existing keys, but local keys are missing. Need to regenerate.');
+            }
+          } catch (e) {
+            // Игнорируем ошибку проверки
+          }
+        }
+        
+        // Генерируем и загружаем новые ключи
         await window.E2EEKeys.generateAndUpload({ oneTimeCount: 20 });
-        console.log('[E2EE] Keys generated and uploaded successfully');
+        console.log('[E2EE] New keys generated and uploaded successfully');
       } catch (genError) {
         console.error('[E2EE] Failed to generate keys:', genError);
-        // Продолжаем, возможно ключи уже есть на сервере
+        // Не продолжаем, так как без ключей E2EE не будет работать
+        throw new Error('E2EE key generation failed: ' + genError.message);
       }
+    } else {
+      console.log('[E2EE] All local keys present');
     }
     
     // Проверяем и пополняем prekeys на сервере
@@ -74,6 +106,10 @@ async function ensureE2EEKeysSafe() {
     }
   } catch (e) {
     console.error('[E2EE init error]', e);
+    // Показываем пользователю предупреждение
+    if (typeof showToast === 'function') {
+      showToast('⚠️ Ошибка инициализации шифрования. Перезагрузите страницу.', 5000);
+    }
   }
 }
 
@@ -998,6 +1034,7 @@ function initEventListeners() {
 
   // Long press menu
   initLongPress();
+
   // Friend events
   socket.on('friend-request-incoming', ({ fromNick }) => {
     showToast(`👋 ${fromNick} хочет добавить тебя в друзья`, 6000, () => {
