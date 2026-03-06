@@ -295,46 +295,73 @@ function hideChatUploadStatus() {
 //  E2EE helper для private (text+bytes)
 // ───────────────────────────────────────────────
 async function encryptPrivateTextE2EE(peerId, text) {
-  // Приводим peerId к нижнему регистру для consistency
-  const normalizedPeerId = peerId ? String(peerId).toLowerCase().trim() : '';
+  const normalizedPeerId = normalizePeerId(peerId);
+  console.log('[E2EE] encryptPrivateTextE2EE called, peerId:', peerId, 'normalized:', normalizedPeerId, 'text length:', text?.length);
   
   // Пробуем E2EE сессию
   if (window.E2EESession?.encryptTextForPeer && normalizedPeerId) {
     try {
-      return await window.E2EESession.encryptTextForPeer(normalizedPeerId, text);
+      const result = await window.E2EESession.encryptTextForPeer(normalizedPeerId, text);
+      console.log('[E2EE] encryptTextForPeer succeeded');
+      return result;
     } catch (e) {
       console.warn('[E2EE] encryptTextForPeer failed for peer', normalizedPeerId, e);
       // Fallback на обычное шифрование
     }
+  } else {
+    console.warn('[E2EE] E2EESession or peerId missing for encryption:', {
+      hasE2EESession: !!window.E2EESession,
+      hasEncryptTextForPeer: !!(window.E2EESession?.encryptTextForPeer),
+      normalizedPeerId
+    });
   }
   
   // Fallback на обычное шифрование
+  console.log('[E2EE] Falling back to Crypto.encrypt');
   return Crypto.encrypt(text);
 }
 
+// Нормализация peerId для consistency
+function normalizePeerId(peerId) {
+  if (!peerId) return '';
+  // Приводим к строке, обрезаем пробелы, приводим к нижнему регистру
+  return String(peerId).trim().toLowerCase();
+}
+
 async function decryptPrivateTextE2EE(peerId, encrypted, iv) {
-  // Приводим peerId к нижнему регистру для consistency
-  const normalizedPeerId = peerId ? String(peerId).toLowerCase().trim() : '';
+  const normalizedPeerId = normalizePeerId(peerId);
+  console.log('[E2EE] decryptPrivateTextE2EE called, peerId:', peerId, 'normalized:', normalizedPeerId);
   
   // Сначала пробуем E2EE сессию
   if (window.E2EESession?.decryptTextFromPeer && normalizedPeerId) {
     try {
-      return await window.E2EESession.decryptTextFromPeer(normalizedPeerId, encrypted, iv);
+      const result = await window.E2EESession.decryptTextFromPeer(normalizedPeerId, encrypted, iv);
+      console.log('[E2EE] decryptTextFromPeer succeeded');
+      return result;
     } catch (e) {
       console.warn('[E2EE] decryptTextFromPeer failed for peer', normalizedPeerId, e);
       // Пробуем расшифровать своими ключами (для своих сообщений)
       if (window.E2EESession?.decryptOwnTextForPeer) {
         try {
-          return await window.E2EESession.decryptOwnTextForPeer(normalizedPeerId, encrypted, iv);
+          const result = await window.E2EESession.decryptOwnTextForPeer(normalizedPeerId, encrypted, iv);
+          console.log('[E2EE] decryptOwnTextForPeer succeeded (own message)');
+          return result;
         } catch (e2) {
           console.warn('[E2EE] decryptOwnTextForPeer also failed', e2);
         }
       }
     }
+  } else {
+    console.warn('[E2EE] E2EESession or peerId missing:', {
+      hasE2EESession: !!window.E2EESession,
+      hasDecryptTextFromPeer: !!(window.E2EESession?.decryptTextFromPeer),
+      normalizedPeerId
+    });
   }
   
   // Fallback на обычное шифрование
   try {
+    console.log('[E2EE] Falling back to Crypto.decryptText');
     return await Crypto.decryptText(encrypted, iv);
   } catch (e) {
     console.error('[Crypto] decryptText failed', e);
