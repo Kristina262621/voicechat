@@ -12,7 +12,7 @@ try {
   PgPool = null;
 }
 
-const { UserDB, TokenDB, RoomDB, PrivateChatDB, initDB, query, queryOne } = require('./database');
+const { UserDB, TokenDB, RoomDB, PrivateChatDB, initDB, queryOne } = require('./database');
 
 const app = express();
 
@@ -43,7 +43,7 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .map(s => s.trim())
   .filter(Boolean);
 
-// ════════════════════════════════════════════
+  // ════════════════════════════════════════════
 //  SIGNAL (Postgres store for libsignal public/prekeys)
 // ════════════════════════════════════════════
 let signalPool = null;
@@ -58,15 +58,12 @@ if (PgPool && process.env.DATABASE_URL) {
 
 async function ensureSignalSchema() {
   if (!signalPool || signalSchemaReady) return;
-
   await signalPool.query(`
     CREATE TABLE IF NOT EXISTS signal_device_keys (
       user_id TEXT NOT NULL,
       device_id INTEGER NOT NULL DEFAULT 1,
       registration_id INTEGER NOT NULL,
-
       identity_key_public BYTEA NOT NULL,
-      identity_sign_public BYTEA NULL,
 
       signed_prekey_id INTEGER NOT NULL,
       signed_prekey_public BYTEA NOT NULL,
@@ -79,9 +76,6 @@ async function ensureSignalSchema() {
       uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       PRIMARY KEY (user_id, device_id)
     );
-
-    ALTER TABLE signal_device_keys
-      ADD COLUMN IF NOT EXISTS identity_sign_public BYTEA;
 
     CREATE TABLE IF NOT EXISTS signal_one_time_prekeys (
       user_id TEXT NOT NULL,
@@ -99,7 +93,6 @@ async function ensureSignalSchema() {
     CREATE INDEX IF NOT EXISTS idx_signal_prekeys_available
       ON signal_one_time_prekeys (user_id, device_id, is_used);
   `);
-
   signalSchemaReady = true;
 }
 
@@ -139,7 +132,7 @@ async function requireHttpAuth(req, res, next) {
 }
 
 // ════════════════════════════════════════════
-//  ERROR HANDLERS
+//  ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК
 // ════════════════════════════════════════════
 process.on('uncaughtException', (err) => {
   console.error('[UNCAUGHT EXCEPTION]', err.stack || err);
@@ -154,6 +147,8 @@ app.set('trust proxy', 1);
 //  SECURITY HEADERS
 // ════════════════════════════════════════════
 app.use((req, res, next) => {
+  // NOTE: 'unsafe-inline' в script-src оставлен временно
+  // из-за inline-скриптов в текущем index.html.
   const wsOrigins = ALLOWED_ORIGINS.map(o => o.replace(/^http:/, 'ws:').replace(/^https:/, 'wss:'));
   const connectSrc = ["'self'", ...wsOrigins].join(' ');
 
@@ -171,10 +166,7 @@ app.use((req, res, next) => {
   ].join('; ');
 
   res.setHeader('Content-Security-Policy', csp);
-
-  // FIX: разрешаем микрофон/камеру для self
-  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(self), camera=(self)');
-
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
@@ -201,14 +193,25 @@ function getClientIp(socket) {
     || socket.handshake.address
     || 'unknown';
 }
-function shortId(id) { return id ? id.slice(0, 6) : '??'; }
-function generateRoomId() { return nodeCrypto.randomBytes(3).toString('hex').toUpperCase(); }
-function generateToken() { return nodeCrypto.randomBytes(32).toString('hex'); }
-function generateChatId(a, b) { return [a, b].sort().join('::'); }
-function generateMsgId() { return nodeCrypto.randomBytes(8).toString('hex'); }
+
+function shortId(id) {
+  return id ? id.slice(0, 6) : '??';
+}
+function generateRoomId() {
+  return nodeCrypto.randomBytes(3).toString('hex').toUpperCase();
+}
+function generateToken() {
+  return nodeCrypto.randomBytes(32).toString('hex');
+}
+function generateChatId(a, b) {
+  return [a, b].sort().join('::');
+}
+function generateMsgId() {
+  return nodeCrypto.randomBytes(8).toString('hex');
+}
 
 // ════════════════════════════════════════════
-//  PASSWORD HASH
+//  PASSWORD POLICY + HASH
 // ════════════════════════════════════════════
 function validatePassword(pw) {
   if (typeof pw !== 'string') return 'invalid';
@@ -219,15 +222,18 @@ function validatePassword(pw) {
   if (!/[^A-Za-z0-9]/.test(pw)) return 'need_special';
   return null;
 }
+
 function legacyHashPassword(pw) {
   const salt = 'voicechat-pw-salt-v2-' + pw.slice(0, 2);
   return nodeCrypto.pbkdf2Sync(pw, salt, 100000, 32, 'sha256').toString('hex');
 }
+
 function hashPassword(pw) {
   const salt = nodeCrypto.randomBytes(16).toString('hex');
   const hash = nodeCrypto.pbkdf2Sync(pw, salt, 310000, 32, 'sha256').toString('hex');
   return `pbkdf2$${salt}$${hash}`;
 }
+
 function verifyPassword(pw, stored) {
   if (!stored) return false;
   if (stored.startsWith('pbkdf2$')) {
@@ -238,13 +244,15 @@ function verifyPassword(pw, stored) {
     const calc = nodeCrypto.pbkdf2Sync(pw, salt, 310000, 32, 'sha256').toString('hex');
     return nodeCrypto.timingSafeEqual(Buffer.from(calc, 'hex'), Buffer.from(hash, 'hex'));
   }
+  // fallback для старых записей
   return stored === legacyHashPassword(pw);
 }
 
 // ════════════════════════════════════════════
-//  HINT ENCRYPTION
+//  HINT ENCRYPTION (оставлено как было)
 // ════════════════════════════════════════════
 const HINT_SECRET = 'privchat-hint-encryption-key-v2';
+
 function encryptHint(text) {
   if (!text) return '';
   try {
@@ -253,8 +261,11 @@ function encryptHint(text) {
     const cipher = nodeCrypto.createCipheriv('aes-256-cbc', key, iv);
     const encrypted = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
     return iv.toString('hex') + ':' + encrypted.toString('hex');
-  } catch { return ''; }
+  } catch {
+    return '';
+  }
 }
+
 function decryptHint(encrypted) {
   if (!encrypted) return '';
   try {
@@ -265,11 +276,13 @@ function decryptHint(encrypted) {
     const data = Buffer.from(dataHex, 'hex');
     const decipher = nodeCrypto.createDecipheriv('aes-256-cbc', key, iv);
     return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
-  } catch { return ''; }
+  } catch {
+    return '';
+  }
 }
 
 // ════════════════════════════════════════════
-//  RATE LIMIT
+//  RATE LIMITING (bruteforce)
 // ════════════════════════════════════════════
 const bruteForceMap = new Map();
 const BRUTE_MAX_ATTEMPTS = 7;
@@ -284,6 +297,7 @@ function checkBruteForce(key) {
   }
   return { blocked: false };
 }
+
 function recordFailedAttempt(key) {
   const now = Date.now();
   const entry = bruteForceMap.get(key) || { attempts: 0, firstAttempt: now, blockedUntil: null };
@@ -293,12 +307,16 @@ function recordFailedAttempt(key) {
     entry.blockedUntil = null;
   }
   entry.attempts++;
-  if (entry.attempts >= BRUTE_MAX_ATTEMPTS) entry.blockedUntil = now + BRUTE_BLOCK_MS;
+  if (entry.attempts >= BRUTE_MAX_ATTEMPTS) {
+    entry.blockedUntil = now + BRUTE_BLOCK_MS;
+  }
   bruteForceMap.set(key, entry);
 }
+
 function recordSuccessAttempt(key) {
   bruteForceMap.delete(key);
 }
+
 setInterval(() => {
   const now = Date.now();
   for (const [k, entry] of bruteForceMap) {
@@ -310,16 +328,21 @@ setInterval(() => {
 // ════════════════════════════════════════════
 //  OTP RESET
 // ════════════════════════════════════════════
-const otpStore = new Map();
+const otpStore = new Map(); // phone -> { codeHash, expiresAt, attempts, cooldownUntil, nickLower }
+
 function otpHash(code) {
   return nodeCrypto.createHash('sha256').update(String(code)).digest('hex');
 }
+
 function sendOtp(phone, code) {
-  if (OTP_PROVIDER === 'console') console.log(`[OTP DEV] ${phone}: ${code}`);
+  if (OTP_PROVIDER === 'console') {
+    console.log(`[OTP DEV] ${phone}: ${code}`);
+  }
+  // здесь подключается SMS/email провайдер
 }
 
 // ════════════════════════════════════════════
-//  INVITE PAGE
+//  HTTP ENDPOINT — INVITE PAGE
 // ════════════════════════════════════════════
 app.get('/invite/:roomId', async (req, res) => {
   try {
@@ -356,7 +379,7 @@ app.get('/invite/:roomId', async (req, res) => {
 });
 
 // ════════════════════════════════════════════
-//  TURN CREDENTIALS
+//  TURN CREDENTIALS (ephemeral)
 // ════════════════════════════════════════════
 app.get('/api/turn-credentials', async (req, res) => {
   try {
@@ -368,7 +391,10 @@ app.get('/api/turn-credentials', async (req, res) => {
     if (!nickLower) return res.status(401).json({ ok: false, error: 'unauthorized' });
 
     if (!TURN_SECRET || !TURN_URLS.length) {
-      return res.json({ ok: true, iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+      return res.json({
+        ok: true,
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      });
     }
 
     const unix = Math.floor(Date.now() / 1000) + TURN_TTL_SEC;
@@ -391,31 +417,33 @@ app.get('/api/turn-credentials', async (req, res) => {
 // ════════════════════════════════════════════
 //  SIGNAL HTTP API
 // ════════════════════════════════════════════
+
+// Загрузка публичных ключей устройства + one-time prekeys
 app.post('/api/signal/keys/upload', requireHttpAuth, async (req, res) => {
   try {
-    if (!signalPool) return res.status(500).json({ ok: false, error: 'signal_db_unavailable' });
+    if (!signalPool) {
+      return res.status(500).json({ ok: false, error: 'signal_db_unavailable' });
+    }
     await ensureSignalSchema();
 
     const userId = req.auth.nickLower;
     const {
       deviceId = 1,
       registrationId,
-      identitySignPublic,
-      identityDhPublic,
       identityKeyPublic,
       signedPreKey,
       kyberPreKey,
       oneTimePreKeys = []
     } = req.body || {};
 
-    const dhPub = identityDhPublic || identityKeyPublic;
-
     if (
       !registrationId ||
-      !dhPub ||
+      !identityKeyPublic ||
       !signedPreKey?.id || !signedPreKey?.publicKey || !signedPreKey?.signature ||
       !kyberPreKey?.id || !kyberPreKey?.publicKey || !kyberPreKey?.signature
-    ) return res.status(400).json({ ok: false, error: 'bad_request' });
+    ) {
+      return res.status(400).json({ ok: false, error: 'bad_request' });
+    }
 
     const client = await signalPool.connect();
     try {
@@ -425,16 +453,15 @@ app.post('/api/signal/keys/upload', requireHttpAuth, async (req, res) => {
         `
         INSERT INTO signal_device_keys (
           user_id, device_id, registration_id,
-          identity_key_public, identity_sign_public,
+          identity_key_public,
           signed_prekey_id, signed_prekey_public, signed_prekey_signature,
           kyber_prekey_id, kyber_prekey_public, kyber_prekey_signature,
           uploaded_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now())
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())
         ON CONFLICT (user_id, device_id)
         DO UPDATE SET
           registration_id = EXCLUDED.registration_id,
           identity_key_public = EXCLUDED.identity_key_public,
-          identity_sign_public = EXCLUDED.identity_sign_public,
           signed_prekey_id = EXCLUDED.signed_prekey_id,
           signed_prekey_public = EXCLUDED.signed_prekey_public,
           signed_prekey_signature = EXCLUDED.signed_prekey_signature,
@@ -444,11 +471,16 @@ app.post('/api/signal/keys/upload', requireHttpAuth, async (req, res) => {
           uploaded_at = now()
         `,
         [
-          userId, Number(deviceId), Number(registrationId),
-          b64ToBuf(dhPub),
-          identitySignPublic ? b64ToBuf(identitySignPublic) : null,
-          Number(signedPreKey.id), b64ToBuf(signedPreKey.publicKey), b64ToBuf(signedPreKey.signature),
-          Number(kyberPreKey.id), b64ToBuf(kyberPreKey.publicKey), b64ToBuf(kyberPreKey.signature)
+          userId,
+          Number(deviceId),
+          Number(registrationId),
+          b64ToBuf(identityKeyPublic),
+          Number(signedPreKey.id),
+          b64ToBuf(signedPreKey.publicKey),
+          b64ToBuf(signedPreKey.signature),
+          Number(kyberPreKey.id),
+          b64ToBuf(kyberPreKey.publicKey),
+          b64ToBuf(kyberPreKey.signature)
         ]
       );
 
@@ -456,8 +488,9 @@ app.post('/api/signal/keys/upload', requireHttpAuth, async (req, res) => {
         if (!pk || typeof pk.id === 'undefined' || !pk.publicKey) continue;
         await client.query(
           `
-          INSERT INTO signal_one_time_prekeys (user_id, device_id, prekey_id, prekey_public, is_used, created_at)
-          VALUES ($1,$2,$3,$4,false,now())
+          INSERT INTO signal_one_time_prekeys (
+            user_id, device_id, prekey_id, prekey_public, is_used, created_at
+          ) VALUES ($1,$2,$3,$4,false,now())
           ON CONFLICT (user_id, device_id, prekey_id) DO NOTHING
           `,
           [userId, Number(deviceId), Number(pk.id), b64ToBuf(pk.publicKey)]
@@ -479,16 +512,19 @@ app.post('/api/signal/keys/upload', requireHttpAuth, async (req, res) => {
   }
 });
 
+// Получить bundle пользователя (и зарезервировать 1 one-time prekey)
 app.get('/api/signal/keys/bundle/:userId', requireHttpAuth, async (req, res) => {
   try {
-    if (!signalPool) return res.status(500).json({ ok: false, error: 'signal_db_unavailable' });
+    if (!signalPool) {
+      return res.status(500).json({ ok: false, error: 'signal_db_unavailable' });
+    }
     await ensureSignalSchema();
 
     const raw = String(req.params.userId || '').trim().toLowerCase();
     const deviceId = Number(req.query.deviceId || 1);
-    const consume = String(req.query.consume || '1') !== '0';
     if (!raw) return res.status(400).json({ ok: false, error: 'bad_request' });
 
+    // Разрешаем искать и по username, и по nickLower
     let targetLower = raw;
     let targetUser = await UserDB.get(raw);
     if (!targetUser) {
@@ -507,9 +543,15 @@ app.get('/api/signal/keys/bundle/:userId', requireHttpAuth, async (req, res) => 
 
       const dev = await client.query(
         `
-        SELECT registration_id, identity_key_public, identity_sign_public,
-               signed_prekey_id, signed_prekey_public, signed_prekey_signature,
-               kyber_prekey_id, kyber_prekey_public, kyber_prekey_signature
+        SELECT
+          registration_id,
+          identity_key_public,
+          signed_prekey_id,
+          signed_prekey_public,
+          signed_prekey_signature,
+          kyber_prekey_id,
+          kyber_prekey_public,
+          kyber_prekey_signature
         FROM signal_device_keys
         WHERE user_id = $1 AND device_id = $2
         LIMIT 1
@@ -522,54 +564,40 @@ app.get('/api/signal/keys/bundle/:userId', requireHttpAuth, async (req, res) => 
         return res.status(404).json({ ok: false, error: 'bundle_not_found' });
       }
 
-      let one = null;
-      if (consume) {
-        const pick = await client.query(
-          `
-          WITH picked AS (
-            SELECT user_id, device_id, prekey_id
-            FROM signal_one_time_prekeys
-            WHERE user_id = $1 AND device_id = $2 AND is_used = false
-            ORDER BY prekey_id
-            LIMIT 1
-            FOR UPDATE SKIP LOCKED
-          )
-          UPDATE signal_one_time_prekeys s
-          SET is_used = true, used_at = now()
-          FROM picked
-          WHERE s.user_id = picked.user_id
-            AND s.device_id = picked.device_id
-            AND s.prekey_id = picked.prekey_id
-          RETURNING s.prekey_id, s.prekey_public
-          `,
-          [targetLower, deviceId]
-        );
-        one = pick.rows[0] || null;
-      } else {
-        const peek = await client.query(
-          `
-          SELECT prekey_id, prekey_public
+      const pick = await client.query(
+        `
+        WITH picked AS (
+          SELECT user_id, device_id, prekey_id
           FROM signal_one_time_prekeys
-          WHERE user_id = $1 AND device_id = $2 AND is_used = false
+          WHERE user_id = $1
+            AND device_id = $2
+            AND is_used = false
           ORDER BY prekey_id
           LIMIT 1
-          `,
-          [targetLower, deviceId]
-        );
-        one = peek.rows[0] || null;
-      }
+          FOR UPDATE SKIP LOCKED
+        )
+        UPDATE signal_one_time_prekeys s
+        SET is_used = true, used_at = now()
+        FROM picked
+        WHERE s.user_id = picked.user_id
+          AND s.device_id = picked.device_id
+          AND s.prekey_id = picked.prekey_id
+        RETURNING s.prekey_id, s.prekey_public
+        `,
+        [targetLower, deviceId]
+      );
 
       await client.query('COMMIT');
 
       const row = dev.rows[0];
+      const one = pick.rows[0] || null;
+
       res.json({
         ok: true,
         bundle: {
           userId: targetLower,
           deviceId,
           registrationId: Number(row.registration_id),
-          identitySignPublic: bufToB64(row.identity_sign_public),
-          identityDhPublic: bufToB64(row.identity_key_public),
           identityKeyPublic: bufToB64(row.identity_key_public),
           signedPreKey: {
             id: Number(row.signed_prekey_id),
@@ -581,7 +609,9 @@ app.get('/api/signal/keys/bundle/:userId', requireHttpAuth, async (req, res) => 
             publicKey: bufToB64(row.kyber_prekey_public),
             signature: bufToB64(row.kyber_prekey_signature)
           },
-          oneTimePreKey: one ? { id: Number(one.prekey_id), publicKey: bufToB64(one.prekey_public) } : null
+          oneTimePreKey: one
+            ? { id: Number(one.prekey_id), publicKey: bufToB64(one.prekey_public) }
+            : null
         }
       });
     } catch (e) {
@@ -597,18 +627,23 @@ app.get('/api/signal/keys/bundle/:userId', requireHttpAuth, async (req, res) => 
   }
 });
 
+// Для контроля запаса prekeys у текущего пользователя
 app.get('/api/signal/keys/prekeys/count', requireHttpAuth, async (req, res) => {
   try {
-    if (!signalPool) return res.status(500).json({ ok: false, error: 'signal_db_unavailable' });
+    if (!signalPool) {
+      return res.status(500).json({ ok: false, error: 'signal_db_unavailable' });
+    }
     await ensureSignalSchema();
 
     const userId = req.auth.nickLower;
     const deviceId = Number(req.query.deviceId || 1);
 
     const r = await signalPool.query(
-      `SELECT COUNT(*)::int AS count
-       FROM signal_one_time_prekeys
-       WHERE user_id = $1 AND device_id = $2 AND is_used = false`,
+      `
+      SELECT COUNT(*)::int AS count
+      FROM signal_one_time_prekeys
+      WHERE user_id = $1 AND device_id = $2 AND is_used = false
+      `,
       [userId, deviceId]
     );
 
@@ -620,7 +655,7 @@ app.get('/api/signal/keys/prekeys/count', requireHttpAuth, async (req, res) => {
 });
 
 // ════════════════════════════════════════════
-//  GLOBAL HTTP ERROR
+//  ГЛОБАЛЬНЫЙ HTTP ERROR HANDLER
 // ════════════════════════════════════════════
 app.use((err, req, res, next) => {
   console.error('[HTTP ERROR]', err.stack || err);
@@ -654,6 +689,7 @@ const io = new Server(server, {
     origin: (origin, cb) => {
       if (!origin) return cb(null, true);
       if (!ALLOWED_ORIGINS.length) {
+        // Если список пуст, безопаснее закрыть в production
         if (NODE_ENV === 'production') return cb(new Error('CORS blocked'));
         return cb(null, true);
       }
@@ -662,21 +698,16 @@ const io = new Server(server, {
     }
   }
 });
-// ════════════════════════════════════════════
-//  RUNTIME
-// ════════════════════════════════════════════
-const clients = new Map(); // socketId -> {nickname,nickLower,roomId,authed,lastSeen}
-const rooms = new Map();   // roomId -> runtime object
-const onlineUsers = new Map(); // nickLower -> socketId
 
-// rate limit для сообщений
-const msgRateMap = new Map(); // nickLower -> { count, resetTime }
-const MSG_RATE_LIMIT = 30; // сообщений в минуту
-const MSG_RATE_WINDOW = 60000; // 60 секунд
+// ════════════════════════════════════════════
+//  RUNTIME STORE
+// ════════════════════════════════════════════
+const clients = new Map(); // socketId -> { nickname, nickLower, roomId, authed }
+const rooms = new Map();   // roomId   -> room object
+const onlineUsers = new Map(); // nickLower -> Set<socketId>
 
 const MAX_STORED_MESSAGES = 200;
 const MAX_ENCRYPTED_B64_LEN = 35 * 1024 * 1024;
-const MAX_CAPTION_B64_LEN = 200 * 1024;
 
 const FILE_LIMITS = {
   image: 10 * 1024 * 1024,
@@ -688,17 +719,15 @@ const FILE_LIMITS = {
 function validateMessagePayload(data) {
   const type = String(data?.type || 'text');
   const encrypted = data?.encrypted ? String(data.encrypted) : '';
-  if (!encrypted || encrypted.length > MAX_ENCRYPTED_B64_LEN) return { ok: false, error: 'payload_too_large' };
-
-  const capEnc = data?.captionEncrypted ? String(data.captionEncrypted) : '';
-  const capIv = data?.captionIv ? String(data.captionIv) : '';
-  if (capEnc && capEnc.length > MAX_CAPTION_B64_LEN) return { ok: false, error: 'caption_too_large' };
-  if (capEnc && !capIv) return { ok: false, error: 'caption_bad_iv' };
+  if (!encrypted || encrypted.length > MAX_ENCRYPTED_B64_LEN) {
+    return { ok: false, error: 'payload_too_large' };
+  }
 
   if (type === 'text') return { ok: true };
 
   const fileSize = Number(data?.fileSize || 0);
   if (!Number.isFinite(fileSize) || fileSize <= 0) return { ok: false, error: 'bad_size' };
+
   const limit = FILE_LIMITS[type] || FILE_LIMITS.file;
   if (fileSize > limit) return { ok: false, error: 'file_too_large' };
 
@@ -710,42 +739,31 @@ function validateMessagePayload(data) {
   return { ok: true };
 }
 
-function isOnline(nickLower) {
-  return onlineUsers.has(nickLower);
-}
-
-function emitOnline(nickLower) {
+// ════════════════════════════════════════════
+//  ONLINE STATUS
+// ════════════════════════════════════════════
+function setOnline(nickLower, socketId) {
+  if (!onlineUsers.has(nickLower)) onlineUsers.set(nickLower, new Set());
+  onlineUsers.get(nickLower).add(socketId);
   io.emit('user-online', { nickLower });
 }
-function emitOffline(nickLower, lastSeen) {
-  io.emit('user-offline', { nickLower, lastSeen });
-}
-
-function setOnline(nickLower, socketId) {
-  const wasOnline = onlineUsers.has(nickLower);
-  onlineUsers.set(nickLower, socketId);
-  if (!wasOnline) emitOnline(nickLower);
-}
-
 function setOffline(nickLower, socketId) {
-  const current = onlineUsers.get(nickLower);
-  if (current && current !== socketId) return;
-
-  for (const [sid, c] of clients.entries()) {
-    if (sid !== socketId && c?.authed && c?.nickLower === nickLower) {
-      onlineUsers.set(nickLower, sid);
-      return;
-    }
+  const set = onlineUsers.get(nickLower);
+  if (!set) return;
+  set.delete(socketId);
+  if (set.size === 0) {
+    onlineUsers.delete(nickLower);
+    io.emit('user-offline', { nickLower, lastSeen: Date.now() });
   }
-
-  const existed = onlineUsers.delete(nickLower);
-  if (existed) emitOffline(nickLower, Date.now());
+}
+function isOnline(nickLower) {
+  return onlineUsers.has(nickLower) && onlineUsers.get(nickLower).size > 0;
 }
 
 // ════════════════════════════════════════════
-//  REACTIONS (runtime)
+//  REACTIONS
 // ════════════════════════════════════════════
-const messageReactions = new Map(); // msgId -> Map(emoji -> Set(nickLower))
+const messageReactions = new Map(); // msgId -> Map<emoji, Set<nickLower>>
 
 function getReactions(msgId) {
   const map = messageReactions.get(msgId);
@@ -773,26 +791,8 @@ function removeReaction(msgId, emoji, nickLower) {
 }
 
 // ════════════════════════════════════════════
-//  ROOM HELPERS
+//  ROOM LIST (personalized)
 // ════════════════════════════════════════════
-function canManageRoom(room, nickLower) {
-  if (!room || !nickLower) return false;
-  if (room.ownerNick === nickLower) return true;
-  const role = room.roles?.get(nickLower);
-  return role === 'admin';
-}
-function canModerateRoom(room, nickLower) {
-  if (!room || !nickLower) return false;
-  if (room.ownerNick === nickLower) return true;
-  const role = room.roles?.get(nickLower);
-  return role === 'admin' || role === 'moderator';
-}
-function getRoomRole(room, nickLower) {
-  if (!room || !nickLower) return null;
-  if (room.ownerNick === nickLower) return 'owner';
-  return room.roles?.get(nickLower) || null;
-}
-
 function getRoomList(nickLower) {
   const list = [];
   for (const [id, room] of rooms.entries()) {
@@ -800,25 +800,17 @@ function getRoomList(nickLower) {
     const isOwner = room.ownerNick === nickLower;
     if (!isMember && !isOwner) continue;
 
-    const totalMembers = room.permanentMembers?.size || 0;
-    const onlineCount = [...(room.permanentMembers || [])].filter(m => isOnline(m)).length;
-
     const entry = {
       id,
       name: room.name,
       hasPassword: !!room.passwordHash,
       photo: room.photo || null,
-      memberCount: totalMembers,
-      onlineCount,
+      memberCount: room.members.size,
       createdAt: room.createdAt,
-      ownerId: room.ownerNick,
+      ownerId: null,
       autoDelete: room.autoDelete || null,
-      joinMode: room.joinMode || 'open',
-      voiceEnabled: room.voiceEnabled !== false,
-      wallpaper: room.wallpaper || null,
-      descriptionText: room.descriptionText || ''
+      joinMode: room.joinMode || 'open'
     };
-
     if (room.members.size === 0 && room.emptyAt && room.autoDelete) {
       entry.deleteAt = room.emptyAt + room.autoDelete;
     }
@@ -839,16 +831,14 @@ function broadcastRoomList() {
 function scheduleRoomDelete(roomId) {
   const room = rooms.get(roomId);
   if (!room) return;
-
   if (!room.autoDelete) {
     room.emptyAt = Date.now();
     broadcastRoomList();
     return;
   }
-
   if (room.emptyTimer) return;
-  room.emptyAt = Date.now();
 
+  room.emptyAt = Date.now();
   room.emptyTimer = setTimeout(async () => {
     const r = rooms.get(roomId);
     if (r && r.members.size === 0) {
@@ -877,29 +867,19 @@ function cancelRoomDelete(roomId) {
 // ════════════════════════════════════════════
 async function loadRoomsFromDB() {
   const dbRooms = await RoomDB.getAll();
-
   for (const room of dbRooms) {
     const members = await RoomDB.getMembers(room.id);
-    const roles = await RoomDB.getRoles(room.id);
-
-    const roleMap = new Map();
-    for (const r of roles) roleMap.set(r.nickLower, r.role);
-
-    if (!roleMap.has(room.ownerNick)) roleMap.set(room.ownerNick, 'owner');
-
     rooms.set(room.id, {
       ...room,
-      members: new Set(), // online sockets in room
+      members: new Set(), // online sockets only
       permanentMembers: new Set(members),
       pendingRequests: [],
       emptyTimer: null,
       emptyAt: null,
       lastSeq: new Map(),
-      messages: [],
-      roles: roleMap
+      messages: []
     });
   }
-
   console.log(`Loaded ${dbRooms.length} rooms from DB`);
 }
 
@@ -935,7 +915,7 @@ setInterval(async () => {
 // ════════════════════════════════════════════
 io.on('connection', (socket) => {
   console.log('Connected:', socket.id);
-  clients.set(socket.id, { nickname: '', nickLower: '', roomId: null, authed: false, lastSeen: Date.now() });
+  clients.set(socket.id, { nickname: '', nickLower: '', roomId: null, authed: false });
   const clientIp = getClientIp(socket);
 
   socket.emit('room-list', []);
@@ -963,6 +943,10 @@ io.on('connection', (socket) => {
     return c;
   }
 
+  function isRoomOwner(client, room) {
+    return !!client && !!room && client.nickLower === room.ownerNick;
+  }
+
   function leaveRoom(sock, roomId) {
     const room = rooms.get(roomId);
     const client = clients.get(sock.id);
@@ -982,10 +966,13 @@ io.on('connection', (socket) => {
     if (client) client.roomId = null;
   }
 
-  // AUTH REGISTER
+  // ════════════════════════════
+  //  AUTH
+  // ════════════════════════════
   safeOn('auth-register', async ({ nickname, password, hint, phone, username }, cb) => {
     const nick = String(nickname || '').trim().slice(0, 32);
     const lower = nick.toLowerCase();
+
     if (!nick || nick.length < 2) return cb({ ok: false, error: 'nick_short' });
 
     const pwErr = validatePassword(String(password || ''));
@@ -996,10 +983,9 @@ io.on('connection', (socket) => {
       .slice(0, 32)
       .toLowerCase()
       .replace(/[^a-z0-9_]/g, '');
-    if (!uname || uname.length < 2) return cb({ ok: false, error: 'username_invalid' });
 
-    // Разрешаем одинаковые имена пользователей (nickname), уникальным должен быть только username
-    // if (await UserDB.has(lower)) return cb({ ok: false, error: 'nick_taken' });
+    if (!uname || uname.length < 2) return cb({ ok: false, error: 'username_invalid' });
+    if (await UserDB.has(lower)) return cb({ ok: false, error: 'nick_taken' });
     if (await UserDB.hasUsername(uname)) return cb({ ok: false, error: 'username_taken' });
 
     await UserDB.create(lower, {
@@ -1030,15 +1016,19 @@ io.on('connection', (socket) => {
     client.nickname = nick;
     client.nickLower = lower;
     client.authed = true;
-    client.lastSeen = Date.now();
 
     setOnline(lower, socket.id);
     socket.emit('room-list', getRoomList(lower));
 
-    cb({ ok: true, token, nickname: nick, username: uname, avatar: null });
+    cb({
+      ok: true,
+      token,
+      nickname: nick,
+      username: uname,
+      avatar: null
+    });
   });
 
-  // AUTH LOGIN
   safeOn('auth-login', async ({ nickname, password }, cb) => {
     const login = String(nickname || '').trim().toLowerCase();
     const key = `${clientIp}:login`;
@@ -1052,6 +1042,7 @@ io.on('connection', (socket) => {
       const byUsername = await UserDB.getByUsername(login);
       if (byUsername) {
         user = byUsername;
+        // userLower = username? нужен настоящий nickLower
         const row = await queryOne('SELECT nick_lower FROM users WHERE username = ?', [login]);
         if (row?.nick_lower) userLower = row.nick_lower;
       }
@@ -1062,11 +1053,19 @@ io.on('connection', (socket) => {
       return setTimeout(() => cb({ ok: false, error: 'wrong_creds' }), 700);
     }
 
+    // если зашли по никнейму — userLower должен быть login
+    if (!userLower || userLower === login) {
+      const row = await queryOne('SELECT nick_lower FROM users WHERE nickname = ? OR nick_lower = ?', [user.nickname, login]);
+      if (row?.nick_lower) userLower = row.nick_lower;
+    }
+    if (!userLower) userLower = login;
+
     if (!verifyPassword(password, user.passwordHash)) {
       recordFailedAttempt(key);
       return setTimeout(() => cb({ ok: false, error: 'wrong_creds' }), 700);
     }
 
+    // Миграция legacy hash -> pbkdf2$
     if (user.passwordHash && !String(user.passwordHash).startsWith('pbkdf2$')) {
       await UserDB.update(userLower, { passwordHash: hashPassword(password) });
     }
@@ -1080,15 +1079,16 @@ io.on('connection', (socket) => {
     client.nickname = user.nickname;
     client.nickLower = userLower;
     client.authed = true;
-    client.lastSeen = Date.now();
 
     setOnline(userLower, socket.id);
 
+    // join user group rooms
     const myRooms = await RoomDB.getUserRooms(userLower);
     for (const roomId of myRooms) {
       if (rooms.has(roomId)) socket.join(roomId);
     }
 
+    // join private rooms
     const privateRows = await PrivateChatDB.getUserChats(userLower);
     for (const row of privateRows) socket.join('pc:' + row.chat_id);
 
@@ -1104,7 +1104,6 @@ io.on('connection', (socket) => {
     });
   });
 
-  // AUTH TOKEN
   safeOn('auth-token', async ({ token }, cb) => {
     const lower = await TokenDB.get(token);
     if (!lower) return cb({ ok: false, error: 'invalid_token' });
@@ -1116,12 +1115,13 @@ io.on('connection', (socket) => {
     client.nickname = user.nickname;
     client.nickLower = lower;
     client.authed = true;
-    client.lastSeen = Date.now();
 
     setOnline(lower, socket.id);
 
     const myRooms = await RoomDB.getUserRooms(lower);
-    for (const roomId of myRooms) if (rooms.has(roomId)) socket.join(roomId);
+    for (const roomId of myRooms) {
+      if (rooms.has(roomId)) socket.join(roomId);
+    }
 
     const privateRows = await PrivateChatDB.getUserChats(lower);
     for (const row of privateRows) socket.join('pc:' + row.chat_id);
@@ -1139,11 +1139,9 @@ io.on('connection', (socket) => {
 
   safeOn('auth-logout', async ({ token }, cb) => {
     if (token) await TokenDB.delete(token);
+
     const client = clients.get(socket.id);
-    if (client?.nickLower) {
-      client.lastSeen = Date.now();
-      setOffline(client.nickLower, socket.id);
-    }
+    if (client?.nickLower) setOffline(client.nickLower, socket.id);
 
     if (client) {
       client.authed = false;
@@ -1151,7 +1149,8 @@ io.on('connection', (socket) => {
       client.nickLower = '';
       client.roomId = null;
     }
-    cb?.({ ok: true });
+
+    cb && cb({ ok: true });
   });
 
   safeOn('auth-get-hint', async ({ nickname }, cb) => {
@@ -1159,6 +1158,7 @@ io.on('connection', (socket) => {
     let user = await UserDB.get(lower);
     if (!user) user = await UserDB.getByUsername(lower);
     if (!user) return cb({ ok: false, error: 'not_found' });
+
     cb({ ok: true, hint: decryptHint(user.hint) || '' });
   });
 
@@ -1167,14 +1167,18 @@ io.on('connection', (socket) => {
     const cleanPhone = String(phone || '').trim().slice(0, 20);
     const key = `${clientIp}:reset-start`;
     const bf = checkBruteForce(key);
-    if (bf.blocked) return cb({ ok: true });
+    if (bf.blocked) return cb({ ok: true }); // anti-enumeration
+
     if (!cleanPhone) return cb({ ok: true });
 
     const now = Date.now();
     const existing = otpStore.get(cleanPhone);
-    if (existing?.cooldownUntil && now < existing.cooldownUntil) return cb({ ok: true });
+    if (existing?.cooldownUntil && now < existing.cooldownUntil) {
+      return cb({ ok: true }); // anti-enumeration
+    }
 
     const row = await queryOne('SELECT nick_lower FROM users WHERE phone = ?', [cleanPhone]);
+
     if (row?.nick_lower) {
       const code = String(Math.floor(100000 + Math.random() * 900000));
       otpStore.set(cleanPhone, {
@@ -1210,27 +1214,23 @@ io.on('connection', (socket) => {
     }
 
     entry.attempts += 1;
-    if (otpHash(cleanCode) !== entry.codeHash) return cb({ ok: false, error: 'otp_invalid' });
+    if (otpHash(cleanCode) !== entry.codeHash) {
+      return cb({ ok: false, error: 'otp_invalid' });
+    }
 
     await UserDB.update(entry.nickLower, { passwordHash: hashPassword(newPassword) });
     otpStore.delete(cleanPhone);
     cb({ ok: true });
   });
 
-  safeOn('auth-reset-password', async (_data, cb) => cb({ ok: false, error: 'use_otp_reset' }));
-
-  // compatibility with frontend
-  safeOn('set-nickname', async (nickname, cb) => {
-    const client = clients.get(socket.id);
-    if (!client?.authed) return cb?.({ ok: false, error: 'not_authed' });
-    const nn = String(nickname || '').trim().slice(0, 32);
-    if (!nn) return cb?.({ ok: false, error: 'bad_nickname' });
-    client.nickname = nn;
-    await UserDB.update(client.nickLower, { nickname: nn });
-    cb?.({ ok: true });
+  // Legacy reset disabled
+  safeOn('auth-reset-password', async (_data, cb) => {
+    cb({ ok: false, error: 'use_otp_reset' });
   });
 
-  // PROFILE / PRIVACY
+  // ════════════════════════════
+  //  PROFILE / PRIVACY
+  // ════════════════════════════
   safeOn('profile-get', async (cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
@@ -1309,8 +1309,10 @@ io.on('connection', (socket) => {
   safeOn('privacy-get', async (cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
+
     const user = await UserDB.get(client.nickLower);
     if (!user) return cb({ ok: false, error: 'not_found' });
+
     cb({ ok: true, privacy: user.privacy || {} });
   });
 
@@ -1346,10 +1348,12 @@ io.on('connection', (socket) => {
   safeOn('get-online-status', async ({ nicknames }, cb) => {
     const out = {};
     for (const n of (nicknames || [])) out[String(n).toLowerCase()] = isOnline(String(n).toLowerCase());
-    cb?.({ ok: true, statuses: out });
+    cb && cb({ ok: true, statuses: out });
   });
 
-  // BLOCK / FRIENDS
+  // ════════════════════════════
+  //  BLOCK / FRIENDS
+  // ════════════════════════════
   safeOn('user-block', async ({ nickname }, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
@@ -1366,7 +1370,8 @@ io.on('connection', (socket) => {
     await UserDB.unblock(client.nickLower, to);
     cb({ ok: true });
   });
-    safeOn('friend-request', async ({ toNickname }, cb) => {
+
+  safeOn('friend-request', async ({ toNickname }, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
 
@@ -1376,13 +1381,6 @@ io.on('connection', (socket) => {
     if (toLower === client.nickLower) return cb({ ok: false, error: 'self' });
     if (await UserDB.areFriends(client.nickLower, toLower)) return cb({ ok: false, error: 'already_friends' });
     if (await UserDB.hasRequest(toLower, client.nickLower)) return cb({ ok: false, error: 'already_sent' });
-
-    // Проверка блокировки
-    const blockedByMe = (await UserDB.getBlocked(client.nickLower)).includes(toLower);
-    const blockedByPeer = (await UserDB.getBlocked(toLower)).includes(client.nickLower);
-    if (blockedByMe || blockedByPeer) {
-      return cb({ ok: false, error: 'blocked' });
-    }
 
     await UserDB.addRequest(toLower, client.nickLower);
 
@@ -1438,6 +1436,7 @@ io.on('connection', (socket) => {
   safeOn('friends-list', async (cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
+
     cb({
       ok: true,
       friends: await UserDB.getFriends(client.nickLower),
@@ -1445,55 +1444,9 @@ io.on('connection', (socket) => {
     });
   });
 
-  // SEARCH
-  safeOn('search-chats', async ({ query: q }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
-
-    const queryStr = String(q || '').trim().toLowerCase();
-    if (!queryStr) return cb({ ok: true, rooms: [], users: [] });
-    if (queryStr.length > 100) {
-      return cb({ ok: true, rooms: [], users: [] });
-    }
-
-    const roomsOut = [];
-    for (const [id, room] of rooms.entries()) {
-      const canSee = room.permanentMembers.has(client.nickLower) || room.ownerNick === client.nickLower;
-      if (!canSee) continue;
-      if (!room.name.toLowerCase().includes(queryStr)) continue;
-      roomsOut.push({
-        id,
-        name: room.name,
-        hasPassword: !!room.passwordHash,
-        photo: room.photo || null,
-        memberCount: room.permanentMembers.size,
-        joinMode: room.joinMode || 'open'
-      });
-      if (roomsOut.length >= 30) break;
-    }
-
-    const usersRows = await query(
-      `SELECT nick_lower, nickname, username, avatar
-       FROM users
-       WHERE nick_lower LIKE ? OR nickname LIKE ? OR username LIKE ?
-       ORDER BY created_at DESC
-       LIMIT 30`,
-      [`%${queryStr}%`, `%${queryStr}%`, `%${queryStr}%`]
-    );
-
-    const usersOut = usersRows
-      .filter(u => u.nick_lower !== client.nickLower)
-      .map(u => ({
-        lower: u.nick_lower,
-        nickname: u.nickname,
-        username: u.username,
-        avatar: u.avatar || null
-      }));
-
-    cb({ ok: true, rooms: roomsOut, users: usersOut });
-  });
-
-  // PRIVATE CHATS
+  // ════════════════════════════
+  //  PRIVATE CHATS
+  // ════════════════════════════
   safeOn('private-chat-open', async ({ withNickname }, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
@@ -1514,18 +1467,12 @@ io.on('connection', (socket) => {
     if (!withUser) return cb({ ok: false, error: 'not_found' });
     if (realLower === client.nickLower) return cb({ ok: false, error: 'self' });
 
-    // Проверка блокировки
-    const blockedByMe = (await UserDB.getBlocked(client.nickLower)).includes(realLower);
-    const blockedByPeer = (await UserDB.getBlocked(realLower)).includes(client.nickLower);
-    if (blockedByMe || blockedByPeer) {
-      return cb({ ok: false, error: 'blocked' });
-    }
-
     const chatId = generateChatId(client.nickLower, realLower);
     await PrivateChatDB.create(chatId, client.nickLower, realLower);
 
     socket.join('pc:' + chatId);
 
+    // Подписываем собеседника
     for (const [sid, cl] of clients.entries()) {
       if (cl.authed && cl.nickLower === realLower) {
         const wsock = io.sockets.sockets.get(sid);
@@ -1542,18 +1489,6 @@ io.on('connection', (socket) => {
     });
   });
 
-  safeOn('private-chat-join', async ({ chatId }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
-    if (!chatId) return cb?.({ ok: false, error: 'bad_chat' });
-
-    const isMember = await PrivateChatDB.isMember(chatId, client.nickLower);
-    if (!isMember) return cb?.({ ok: false, error: 'not_member' });
-
-    socket.join('pc:' + chatId);
-    cb?.({ ok: true });
-  });
-
   safeOn('private-chat-list', async (cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
@@ -1568,7 +1503,6 @@ io.on('connection', (socket) => {
         withNickname: other?.nickname || otherLower,
         withAvatar: other?.avatar || null,
         withLower: otherLower,
-        wallpaper: row.wallpaper || null,
         createdAt: Number(row.created_at) || Date.now(),
         online: isOnline(otherLower),
         lastMessage: (row.last_type && lastTs && !isNaN(lastTs))
@@ -1580,266 +1514,116 @@ io.on('connection', (socket) => {
     cb({ ok: true, chats: list });
   });
 
-  safeOn('private-set-wallpaper', async ({ chatId, wallpaper }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
-    if (!chatId) return cb({ ok: false, error: 'bad_chat' });
-
-    const isMember = await PrivateChatDB.isMember(chatId, client.nickLower);
-    if (!isMember) return cb({ ok: false, error: 'not_member' });
-
-    const wp = wallpaper ? String(wallpaper) : null;
-    if (wp && wp.length > 5 * 1024 * 1024) return cb({ ok: false, error: 'wallpaper_too_large' });
-
-    await PrivateChatDB.setWallpaper(chatId, wp);
-    io.to('pc:' + chatId).emit('private-wallpaper-updated', { chatId, wallpaper: wp, by: client.nickLower });
-    cb({ ok: true, wallpaper: wp });
-  });
-
-  safeOn('private-get-wallpaper', async ({ chatId }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
-    if (!chatId) return cb({ ok: false, error: 'bad_chat' });
-    const isMember = await PrivateChatDB.isMember(chatId, client.nickLower);
-    if (!isMember) return cb({ ok: false, error: 'not_member' });
-
-    const wallpaper = await PrivateChatDB.getWallpaper(chatId);
-    cb({ ok: true, wallpaper: wallpaper || null });
-  });
-
-  safeOn('private-message', async (payload, cb) => {
+  safeOn('private-chat-history', async ({ chatId }, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
 
-    try {
-      const {
-        chatId,
-        encrypted,
-        iv,
-        captionEncrypted = null,
-        captionIv = null,
-        type = 'text',
-        fileName = null,
-        fileSize = null,
-        mimeType = null,
-        duration = 0,
-        seq = 0,
-        replyTo = null
-      } = payload || {};
-
-      if (!chatId || !encrypted || !iv) return cb?.({ ok: false, error: 'bad_payload' });
-
-      const v = validateMessagePayload({
-        encrypted, iv, type, fileSize, mimeType,
-        captionEncrypted, captionIv
-      });
-      if (!v.ok) return cb?.({ ok: false, error: v.error });
-
-      const isMember = await PrivateChatDB.isMember(chatId, client.nickLower);
-      if (!isMember) return cb?.({ ok: false, error: 'not_member' });
-
-      const chat = await PrivateChatDB.get(chatId);
-      if (!chat) return cb?.({ ok: false, error: 'chat_not_found' });
-
-      // Проверка блокировки
-      const peerLower = chat.member1 === client.nickLower ? chat.member2 : chat.member1;
-      const blockedByPeer = (await UserDB.getBlocked(peerLower)).includes(client.nickLower);
-      const blockedByMe = (await UserDB.getBlocked(client.nickLower)).includes(peerLower);
-      if (blockedByPeer || blockedByMe) {
-        return cb?.({ ok: false, error: 'blocked' });
-      }
-
-      // Rate limit
-      const now = Date.now();
-      let rate = msgRateMap.get(client.nickLower);
-      if (!rate || now > rate.resetTime) {
-        rate = { count: 0, resetTime: now + MSG_RATE_WINDOW };
-      }
-      rate.count++;
-      if (rate.count > MSG_RATE_LIMIT) {
-        return cb?.({ ok: false, error: 'rate_limited' });
-      }
-      msgRateMap.set(client.nickLower, rate);
-
-      const fromUser = await UserDB.get(client.nickLower);
-      const msgId = generateMsgId();
-      const timestamp = Date.now();
-
-      const msg = {
-        id: msgId,
-        chatId,
-        from: client.nickLower,
-        fromNick: fromUser?.nickname || client.nickname || client.nickLower,
-        fromAvatar: fromUser?.avatar || null,
-        encrypted,
-        iv,
-        captionEncrypted,
-        captionIv,
-        type,
-        fileName,
-        fileSize,
-        mimeType,
-        duration: Number(duration) || 0,
-        seq: Number(seq) || 0,
-        status: 'sent',
-        edited: false,
-        timestamp,
-        replyTo
-      };
-
-      await PrivateChatDB.saveMessage(msg);
-      // Не помечаем как прочитанное для отправителя
-
-      cb?.({ ok: true, msgId, timestamp });
-      socket.emit('chat-msg-id', { chatId, seq: Number(seq) || 0, msgId });
-
-      const out = {
-        ...msg,
-        readBy: [client.nickLower],
-        deletedFor: [],
-        reactions: getReactions(msgId)
-      };
-
-      io.to('pc:' + chatId).emit('private-message', out);
-
-      if (isOnline(peerLower)) {
-        socket.emit('msg-delivered', { chatId, msgId });
-      }
-    } catch (e) {
-      console.error('[private-message] error:', e);
-      cb?.({ ok: false, error: 'server_error' });
-    }
-  });
-
-  safeOn('private-chat-history', async ({ chatId, limit, beforeTs }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
     if (!await PrivateChatDB.isMember(chatId, client.nickLower)) {
       return cb({ ok: false, error: 'not_member' });
     }
 
-    const lim = Math.max(1, Math.min(200, Number(limit) || 50));
-    const hasBefore =
-      beforeTs !== null &&
-      beforeTs !== undefined &&
-      beforeTs !== '' &&
-      Number.isFinite(Number(beforeTs));
-    const before = hasBefore ? Number(beforeTs) : null;
-
-    const baseRows = await query(
-      `SELECT *
-       FROM private_messages
-       WHERE chat_id = ?
-         ${hasBefore ? 'AND timestamp < ?' : ''}
-       ORDER BY timestamp DESC
-       LIMIT ?`,
-      hasBefore ? [chatId, before, lim] : [chatId, lim]
-    );
-
-    if (!baseRows.length) return cb({ ok: true, messages: [], hasMore: false });
-
-    const msgIds = baseRows.map(r => r.msg_id);
-
-    const readRows = await query(
-      `SELECT msg_id, nick_lower
-       FROM private_msg_read_by
-       WHERE msg_id IN (${msgIds.map(() => '?').join(',')})`,
-      msgIds
-    );
-    const delRows = await query(
-      `SELECT msg_id, nick_lower
-       FROM private_msg_deleted_for
-       WHERE msg_id IN (${msgIds.map(() => '?').join(',')})`,
-      msgIds
-    );
-
-    const readMap = new Map();
-    for (const r of readRows) {
-      if (!readMap.has(r.msg_id)) readMap.set(r.msg_id, []);
-      readMap.get(r.msg_id).push(r.nick_lower);
-    }
-    const delMap = new Map();
-    for (const r of delRows) {
-      if (!delMap.has(r.msg_id)) delMap.set(r.msg_id, []);
-      delMap.get(r.msg_id).push(r.nick_lower);
-    }
-
-    const messages = baseRows.reverse().map(r => ({
-      id: r.msg_id,
-      chatId: r.chat_id,
-      from: r.from_lower,
-      fromNick: r.from_nick,
-      fromAvatar: r.from_avatar || null,
-      encrypted: r.encrypted || null,
-      iv: r.iv || null,
-      captionEncrypted: r.caption_encrypted || null,
-      captionIv: r.caption_iv || null,
-      type: r.type || 'text',
-      fileName: r.file_name || null,
-      fileSize: r.file_size ? Number(r.file_size) : null,
-      mimeType: r.mime_type || null,
-      duration: Number(r.duration) || 0,
-      seq: Number(r.seq) || 0,
-      status: r.status || 'sent',
-      edited: !!Number(r.edited),
-      timestamp: Number(r.timestamp),
-      readBy: readMap.get(r.msg_id) || [],
-      deletedFor: delMap.get(r.msg_id) || []
-    }));
-
+    const messages = await PrivateChatDB.getMessages(chatId, MAX_STORED_MESSAGES);
     const filtered = messages.filter(m => !m.deletedFor.includes(client.nickLower));
-    cb({
-      ok: true,
-      messages: filtered.map(m => ({ ...m, reactions: getReactions(m.id) })),
-      hasMore: filtered.length >= lim
-    });
+    cb({ ok: true, messages: filtered.map(m => ({ ...m, reactions: getReactions(m.id) })) });
+  });
+
+  safeOn('private-message', async ({ chatId, encrypted, iv, type, fileName, fileSize, mimeType, duration, seq, replyTo }, cb) => {
+    const client = requireAuthed(cb);
+    if (!client) return;
+
+    if (!await PrivateChatDB.isMember(chatId, client.nickLower)) {
+      return cb({ ok: false, error: 'not_member' });
+    }
+
+    const v = validateMessagePayload({ type, encrypted, fileSize, mimeType });
+    if (!v.ok) return cb({ ok: false, error: v.error });
+
+    const user = await UserDB.get(client.nickLower);
+    const msgId = generateMsgId();
+
+    const msg = {
+      id: msgId,
+      chatId,
+      from: client.nickLower,
+      fromNick: client.nickname,
+      fromAvatar: user?.avatar || null,
+      encrypted,
+      iv,
+      type: type || 'text',
+      fileName: fileName || null,
+      fileSize: fileSize || null,
+      mimeType: mimeType || null,
+      duration: duration || 0,
+      seq,
+      status: 'sent',
+      timestamp: Date.now(),
+      replyTo: replyTo || null
+    };
+
+    await PrivateChatDB.saveMessage(msg);
+
+    socket.to('pc:' + chatId).emit('private-message', { ...msg, reactions: {} });
+
+    const chat = await PrivateChatDB.get(chatId);
+    if (chat) {
+      const otherLower = chat.member1 === client.nickLower ? chat.member2 : chat.member1;
+      for (const [sid, cl] of clients.entries()) {
+        if (cl.authed && cl.nickLower === otherLower) {
+          const wsock = io.sockets.sockets.get(sid);
+          if (wsock && !wsock.rooms.has('pc:' + chatId)) wsock.join('pc:' + chatId);
+          io.to(sid).emit('msg-delivered', { chatId, msgId });
+        }
+      }
+    }
+
+    cb({ ok: true, msgId, timestamp: msg.timestamp });
   });
 
   safeOn('private-msg-read', async ({ chatId, msgId }, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
-    if (!chatId || !msgId) return cb?.({ ok: false, error: 'bad_payload' });
 
-    if (!await PrivateChatDB.isMember(chatId, client.nickLower)) return cb?.({ ok: false, error: 'not_member' });
+    if (!await PrivateChatDB.isMember(chatId, client.nickLower)) return cb && cb({ ok: false, error: 'not_member' });
 
-    await PrivateChatDB.markRead(msgId, client.nickLower);
-    io.to('pc:' + chatId).emit('msg-read', { chatId, msgId, by: client.nickLower });
-    cb?.({ ok: true });
+    if (!await PrivateChatDB.isReadBy(msgId, client.nickLower)) {
+      await PrivateChatDB.markRead(msgId, client.nickLower);
+      const msg = await PrivateChatDB.getMessage(msgId);
+      if (msg) {
+        for (const [sid, cl] of clients.entries()) {
+          if (cl.nickLower === msg.from) io.to(sid).emit('msg-read', { chatId, msgId, byNick: client.nickLower });
+        }
+      }
+    }
+
+    cb && cb({ ok: true });
   });
 
   safeOn('private-msg-delete', async ({ chatId, msgId, deleteFor }, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
-    if (!chatId || !msgId) return cb({ ok: false, error: 'bad_payload' });
+
     if (!await PrivateChatDB.isMember(chatId, client.nickLower)) return cb({ ok: false, error: 'not_member' });
 
     const msg = await PrivateChatDB.getMessage(msgId);
     if (!msg) return cb({ ok: false, error: 'not_found' });
 
-    const mine = msg.from === client.nickLower;
-
     if (deleteFor === 'all') {
-      if (!mine) return cb({ ok: false, error: 'not_allowed' });
-      await PrivateChatDB.deleteMessage(msgId); // мягкое удаление
+      if (msg.from !== client.nickLower) return cb({ ok: false, error: 'not_yours' });
+      await PrivateChatDB.deleteMessage(msgId);
       messageReactions.delete(msgId);
       io.to('pc:' + chatId).emit('private-msg-deleted', { chatId, msgId, deleteFor: 'all' });
-      return cb({ ok: true });
-    }
-
-    if (deleteFor === 'me') {
+    } else {
       await PrivateChatDB.addDeletedFor(msgId, client.nickLower);
       socket.emit('private-msg-deleted', { chatId, msgId, deleteFor: 'me' });
-      return cb({ ok: true });
     }
 
-    cb({ ok: false, error: 'invalid_delete_for' });
+    cb({ ok: true });
   });
 
   safeOn('private-msg-edit', async ({ chatId, msgId, newEncrypted, newIv }, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
-    if (!chatId || !msgId || !newEncrypted || !newIv) return cb({ ok: false, error: 'bad_payload' });
-    if (String(newEncrypted).length > MAX_ENCRYPTED_B64_LEN) return cb({ ok: false, error: 'payload_too_large' });
+
     if (!await PrivateChatDB.isMember(chatId, client.nickLower)) return cb({ ok: false, error: 'not_member' });
 
     const msg = await PrivateChatDB.getMessage(msgId);
@@ -1847,38 +1631,140 @@ io.on('connection', (socket) => {
     if (msg.from !== client.nickLower) return cb({ ok: false, error: 'not_yours' });
     if (msg.type !== 'text') return cb({ ok: false, error: 'not_text' });
 
+    if (!newEncrypted || String(newEncrypted).length > MAX_ENCRYPTED_B64_LEN) {
+      return cb({ ok: false, error: 'payload_too_large' });
+    }
+
     await PrivateChatDB.editMessage(msgId, newEncrypted, newIv);
     io.to('pc:' + chatId).emit('private-msg-edited', {
-      chatId, msgId, newEncrypted, newIv, editedAt: Date.now()
+      chatId,
+      msgId,
+      newEncrypted,
+      newIv,
+      editedAt: Date.now()
     });
+
     cb({ ok: true });
   });
 
-  safeOn('private-typing-start', async ({ chatId }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
-    if (!chatId) return cb?.({ ok: false, error: 'bad_chat' });
-    if (!await PrivateChatDB.isMember(chatId, client.nickLower)) return cb?.({ ok: false, error: 'not_member' });
-
+  // typing private
+  socket.on('private-typing-start', ({ chatId }) => {
+    const client = clients.get(socket.id);
+    if (!client?.authed) return;
     socket.to('pc:' + chatId).emit('private-typing-start', {
-      chatId, from: client.nickLower, fromNick: client.nickname
+      chatId,
+      fromNick: client.nickname,
+      fromLower: client.nickLower
     });
-    cb?.({ ok: true });
   });
 
-  safeOn('private-typing-stop', async ({ chatId }, cb) => {
+  socket.on('private-typing-stop', ({ chatId }) => {
+    const client = clients.get(socket.id);
+    if (!client?.authed) return;
+    socket.to('pc:' + chatId).emit('private-typing-stop', {
+      chatId,
+      fromLower: client.nickLower
+    });
+  });
+
+  safeOn('private-chat-join', async ({ chatId }, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
-    if (!chatId) return cb?.({ ok: false, error: 'bad_chat' });
-    if (!await PrivateChatDB.isMember(chatId, client.nickLower)) return cb?.({ ok: false, error: 'not_member' });
-
-    socket.to('pc:' + chatId).emit('private-typing-stop', {
-      chatId, from: client.nickLower
-    });
-    cb?.({ ok: true });
+    if (!await PrivateChatDB.isMember(chatId, client.nickLower)) return cb({ ok: false, error: 'not_member' });
+    socket.join('pc:' + chatId);
+    cb({ ok: true });
   });
 
-  // GROUPS
+  // ════════════════════════════
+  //  REACTIONS
+  // ════════════════════════════
+  safeOn('add-reaction', async ({ msgId, emoji, chatId, roomId }, cb) => {
+    const client = requireAuthed(cb);
+    if (!client) return;
+    if (!msgId || !emoji || String(emoji).length > 8) return cb({ ok: false, error: 'invalid_emoji' });
+
+    addReaction(msgId, String(emoji), client.nickLower);
+    const reactions = getReactions(msgId);
+
+    if (chatId) io.to('pc:' + chatId).emit('reaction-updated', { msgId, reactions, chatId });
+    else if (roomId) io.to(roomId).emit('reaction-updated', { msgId, reactions, roomId });
+
+    cb({ ok: true, reactions });
+  });
+
+  safeOn('remove-reaction', async ({ msgId, emoji, chatId, roomId }, cb) => {
+    const client = requireAuthed(cb);
+    if (!client) return;
+    if (!msgId || !emoji) return cb({ ok: false, error: 'invalid' });
+
+    removeReaction(msgId, String(emoji), client.nickLower);
+    const reactions = getReactions(msgId);
+
+    if (chatId) io.to('pc:' + chatId).emit('reaction-updated', { msgId, reactions, chatId });
+    else if (roomId) io.to(roomId).emit('reaction-updated', { msgId, reactions, roomId });
+
+    cb({ ok: true, reactions });
+  });
+
+  // ════════════════════════════
+  //  SEARCH (ограничено своими группами + пользователи)
+  // ════════════════════════════
+  safeOn('search-chats', async ({ query }, cb) => {
+    const client = requireAuthed(cb);
+    if (!client) return;
+
+    const q = String(query || '').trim().toLowerCase();
+    if (!q) return cb({ ok: true, rooms: [], users: [] });
+
+    const roomsMatched = [...rooms.values()]
+      .filter(r => (r.permanentMembers?.has(client.nickLower) || r.ownerNick === client.nickLower))
+      .filter(r => r.name.toLowerCase().includes(q))
+      .slice(0, 10)
+      .map(r => ({
+        id: r.id,
+        name: r.name,
+        photo: r.photo || null,
+        memberCount: r.members.size,
+        hasPassword: !!r.passwordHash,
+        joinMode: r.joinMode || 'open'
+      }));
+
+    const usersSeen = new Set();
+    const usersMatched = [];
+    for (const [, cl] of clients.entries()) {
+      if (!cl.authed) continue;
+      if (cl.nickLower === client.nickLower) continue;
+      if (usersSeen.has(cl.nickLower)) continue;
+      if (cl.nickname.toLowerCase().includes(q)) {
+        usersSeen.add(cl.nickLower);
+        usersMatched.push({ nickname: cl.nickname, lower: cl.nickLower });
+      }
+      if (usersMatched.length >= 10) break;
+    }
+
+    cb({ ok: true, rooms: roomsMatched, users: usersMatched });
+  });
+
+  // ════════════════════════════
+  //  SET-NICKNAME (guest mode)
+  // ════════════════════════════
+  socket.on('set-nickname', (nickname, cb) => {
+    if (!ALLOW_GUEST) return cb && cb({ ok: false, error: 'guest_disabled' });
+
+    const client = clients.get(socket.id);
+    const nick = String(nickname || '').trim().slice(0, 32);
+    if (!nick) return cb && cb({ ok: false, error: 'empty' });
+
+    client.nickname = nick;
+    client.nickLower = nick.toLowerCase();
+    client.authed = false;
+
+    cb && cb({ ok: true });
+  });
+
+  // ════════════════════════════
+  //  ROOMS (GROUP)
+  // ════════════════════════════
   safeOn('create-room', async ({ name, password, photo, autoDelete, joinMode }, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
@@ -1886,6 +1772,7 @@ io.on('connection', (socket) => {
     const roomName = String(name || '').trim().slice(0, 50);
     if (!roomName) return cb({ ok: false, error: 'empty_name' });
 
+    // password optional, но если указан — тоже проверка силы
     let passwordHash = null;
     if (password && String(password).length > 0) {
       const pwErr = validatePassword(String(password));
@@ -1912,17 +1799,13 @@ io.on('connection', (socket) => {
       autoDelete: autoDeleteMs,
       salt: roomSalt,
       createdAt: Date.now(),
-      voiceEnabled: true,
-      wallpaper: null,
-      descriptionText: '',
       members: new Set(),
       permanentMembers: new Set([client.nickLower]),
       pendingRequests: [],
       emptyTimer: null,
       emptyAt: null,
       lastSeq: new Map(),
-      messages: [],
-      roles: new Map([[client.nickLower, 'owner']])
+      messages: []
     };
 
     await RoomDB.create(roomId, roomData);
@@ -1940,7 +1823,7 @@ io.on('connection', (socket) => {
 
     const room = rooms.get(roomId);
     if (!room) return cb({ ok: false, error: 'not_found' });
-    if (room.ownerNick !== client.nickLower) return cb({ ok: false, error: 'not_owner' });
+    if (!isRoomOwner(client, room)) return cb({ ok: false, error: 'not_owner' });
 
     io.to(roomId).emit('room-deleted', { roomId, roomName: room.name });
 
@@ -1961,15 +1844,14 @@ io.on('connection', (socket) => {
   safeOn('leave-room-permanent', async ({ roomId }, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
+
     const room = rooms.get(roomId);
     if (!room) return cb({ ok: false, error: 'not_found' });
-    if (room.ownerNick === client.nickLower) return cb({ ok: false, error: 'owner_cannot_leave' });
+
+    if (isRoomOwner(client, room)) return cb({ ok: false, error: 'owner_cannot_leave' });
 
     room.permanentMembers.delete(client.nickLower);
-    room.roles.delete(client.nickLower);
-
     await RoomDB.removeMember(roomId, client.nickLower);
-    await RoomDB.removeRole(roomId, client.nickLower);
 
     socket.leave(roomId);
 
@@ -1979,6 +1861,7 @@ io.on('connection', (socket) => {
       client.roomId = null;
     }
 
+    // notify owner
     for (const [sid, cl] of clients.entries()) {
       if (cl.authed && cl.nickLower === room.ownerNick) {
         io.to(sid).emit('room-member-left', {
@@ -1993,13 +1876,13 @@ io.on('connection', (socket) => {
     cb({ ok: true });
   });
 
-  safeOn('room-settings-update', async ({ roomId, autoDelete, joinMode, voiceEnabled, wallpaper, descriptionText }, cb) => {
+  safeOn('room-settings-update', async ({ roomId, autoDelete, joinMode }, cb) => {
     const client = requireAuthed(cb);
     if (!client) return;
 
     const room = rooms.get(roomId);
     if (!room) return cb({ ok: false, error: 'not_found' });
-    if (!canManageRoom(room, client.nickLower)) return cb({ ok: false, error: 'not_allowed' });
+    if (!isRoomOwner(client, room)) return cb({ ok: false, error: 'not_owner' });
 
     const updates = {};
 
@@ -2018,53 +1901,15 @@ io.on('connection', (socket) => {
       updates.joinMode = room.joinMode;
     }
 
-    if (voiceEnabled !== undefined) {
-      room.voiceEnabled = !!voiceEnabled;
-      updates.voiceEnabled = !!voiceEnabled;
-    }
-
-    if (wallpaper !== undefined) {
-      const wp = wallpaper ? String(wallpaper) : null;
-      if (wp && wp.length > 5 * 1024 * 1024) return cb({ ok: false, error: 'wallpaper_too_large' });
-      room.wallpaper = wp;
-      updates.wallpaper = wp;
-    }
-
-    if (descriptionText !== undefined) {
-      room.descriptionText = String(descriptionText || '').slice(0, 2000);
-      updates.descriptionText = room.descriptionText;
-    }
-
     await RoomDB.update(roomId, updates);
     broadcastRoomList();
-
     io.to(roomId).emit('room-settings-changed', {
       roomId,
       autoDelete: room.autoDelete,
-      joinMode: room.joinMode,
-      voiceEnabled: room.voiceEnabled,
-      wallpaper: room.wallpaper,
-      descriptionText: room.descriptionText
+      joinMode: room.joinMode
     });
 
     cb({ ok: true });
-  });
-
-  safeOn('room-set-wallpaper', async ({ roomId, wallpaper }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
-    const room = rooms.get(roomId);
-    if (!room) return cb({ ok: false, error: 'not_found' });
-    if (!canManageRoom(room, client.nickLower)) return cb({ ok: false, error: 'not_allowed' });
-
-    const wp = wallpaper ? String(wallpaper) : null;
-    if (wp && wp.length > 5 * 1024 * 1024) return cb({ ok: false, error: 'wallpaper_too_large' });
-
-    room.wallpaper = wp;
-    await RoomDB.update(roomId, { wallpaper: wp });
-
-    io.to(roomId).emit('room-wallpaper-updated', { roomId, wallpaper: wp, by: client.nickLower });
-    cb({ ok: true, wallpaper: wp });
   });
 
   safeOn('room-rename', async ({ roomId, newName }, cb) => {
@@ -2073,7 +1918,7 @@ io.on('connection', (socket) => {
 
     const room = rooms.get(roomId);
     if (!room) return cb({ ok: false, error: 'not_found' });
-    if (!canManageRoom(room, client.nickLower)) return cb({ ok: false, error: 'not_allowed' });
+    if (!isRoomOwner(client, room)) return cb({ ok: false, error: 'not_owner' });
 
     const name = String(newName || '').trim().slice(0, 50);
     if (!name) return cb({ ok: false, error: 'empty_name' });
@@ -2083,6 +1928,7 @@ io.on('connection', (socket) => {
 
     broadcastRoomList();
     io.to(roomId).emit('room-renamed', { roomId, newName: name });
+
     cb({ ok: true });
   });
 
@@ -2092,7 +1938,7 @@ io.on('connection', (socket) => {
 
     const room = rooms.get(roomId);
     if (!room) return cb({ ok: false, error: 'not_found' });
-    if (!canManageRoom(room, client.nickLower)) return cb({ ok: false, error: 'not_allowed' });
+    if (!isRoomOwner(client, room)) return cb({ ok: false, error: 'not_owner' });
 
     const p = photo ? String(photo) : null;
     if (p && p.length > 3 * 1024 * 1024) return cb({ ok: false, error: 'photo_too_large' });
@@ -2102,6 +1948,7 @@ io.on('connection', (socket) => {
 
     broadcastRoomList();
     io.to(roomId).emit('room-photo-updated', { roomId, photo: p });
+
     cb({ ok: true });
   });
 
@@ -2112,140 +1959,24 @@ io.on('connection', (socket) => {
     const room = rooms.get(roomId);
     if (!room) return cb({ ok: false, error: 'not_found' });
 
-    const canAccess = room.permanentMembers.has(client.nickLower) || room.ownerNick === client.nickLower;
+    const canAccess = room.permanentMembers.has(client.nickLower) || isRoomOwner(client, room);
     if (!canAccess) return cb({ ok: false, error: 'not_member' });
 
-    const membersLower = [...room.permanentMembers];
-    const users = [];
-    for (const lower of membersLower) {
-      const u = await UserDB.get(lower);
-      users.push({
-        id: lower,
-        nickLower: lower,
-        nickname: u?.nickname || lower,
-        avatar: u?.avatar || null,
-        online: isOnline(lower),
-        isOwner: lower === room.ownerNick,
-        role: getRoomRole(room, lower) || 'member'
-      });
-    }
-
-    users.sort((a, b) => {
-      if (a.online !== b.online) return a.online ? -1 : 1; // online вверх
-      const rank = r => r === 'owner' ? 0 : r === 'admin' ? 1 : r === 'moderator' ? 2 : 3;
-      if (rank(a.role) !== rank(b.role)) return rank(a.role) - rank(b.role);
-      return a.nickname.localeCompare(b.nickname, 'ru');
+    const list = [...room.members].map(sid => {
+      const c = clients.get(sid);
+      return {
+        id: sid,
+        nickname: c?.nickname || shortId(sid),
+        avatar: null,
+        isOwner: c?.nickLower === room.ownerNick
+      };
     });
 
     cb({
       ok: true,
-      members: users,
-      pendingRequests: canManageRoom(room, client.nickLower) ? (room.pendingRequests || []) : [],
-      meRole: getRoomRole(room, client.nickLower) || 'member'
+      members: list,
+      pendingRequests: isRoomOwner(client, room) ? (room.pendingRequests || []) : []
     });
-  });
-
-  // Публичная информация о группе для неучастников (для кнопки "Вступить")
-  safeOn('room-public-info', async ({ roomId }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
-
-    const room = rooms.get(roomId);
-    if (!room) return cb({ ok: false, error: 'not_found' });
-
-    cb({
-      ok: true,
-      name: room.name,
-      photo: room.photo || null,
-      memberCount: room.permanentMembers.size,
-      joinMode: room.joinMode || 'open',
-      hasPassword: !!room.passwordHash
-    });
-  });
-
-  safeOn('room-roles', async ({ roomId }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
-    const room = rooms.get(roomId);
-    if (!room) return cb({ ok: false, error: 'not_found' });
-
-    const canAccess = room.permanentMembers.has(client.nickLower) || room.ownerNick === client.nickLower;
-    if (!canAccess) return cb({ ok: false, error: 'not_member' });
-
-    const roles = await RoomDB.getRoles(roomId);
-    cb({ ok: true, roles });
-  });
-
-  safeOn('room-set-role', async ({ roomId, nickLower, role }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
-    const room = rooms.get(roomId);
-    if (!room) return cb({ ok: false, error: 'not_found' });
-
-    const meRole = getRoomRole(room, client.nickLower);
-    if (meRole !== 'owner') return cb({ ok: false, error: 'only_owner' });
-
-    const target = String(nickLower || '').trim().toLowerCase();
-    if (!target || !room.permanentMembers.has(target)) return cb({ ok: false, error: 'not_member' });
-    if (target === room.ownerNick) return cb({ ok: false, error: 'cannot_change_owner' });
-
-    const normRole = String(role || '').trim().toLowerCase();
-    if (!['admin', 'moderator', 'member'].includes(normRole)) return cb({ ok: false, error: 'bad_role' });
-
-    if (normRole === 'member') {
-      room.roles.delete(target);
-      await RoomDB.removeRole(roomId, target);
-    } else {
-      room.roles.set(target, normRole);
-      await RoomDB.setRole(roomId, target, normRole, client.nickLower);
-    }
-
-    io.to(roomId).emit('room-role-updated', { roomId, nickLower: target, role: normRole });
-    cb({ ok: true });
-  });
-    safeOn('room-kick', async ({ roomId, nickLower }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
-    const room = rooms.get(roomId);
-    if (!room) return cb({ ok: false, error: 'not_found' });
-
-    const by = client.nickLower;
-    if (!canModerateRoom(room, by)) return cb({ ok: false, error: 'not_allowed' });
-
-    const target = String(nickLower || '').trim().toLowerCase();
-    if (!target || !room.permanentMembers.has(target)) return cb({ ok: false, error: 'not_member' });
-    if (target === room.ownerNick) return cb({ ok: false, error: 'cannot_kick_owner' });
-
-    const byRole = getRoomRole(room, by);
-    const targetRole = getRoomRole(room, target);
-    const rank = r => r === 'owner' ? 3 : r === 'admin' ? 2 : r === 'moderator' ? 1 : 0;
-    if (rank(targetRole) >= rank(byRole) && by !== room.ownerNick) return cb({ ok: false, error: 'cannot_kick_same_or_higher' });
-
-    room.permanentMembers.delete(target);
-    room.roles.delete(target);
-    await RoomDB.removeMember(roomId, target);
-    await RoomDB.removeRole(roomId, target);
-
-    // выгнать все сокеты пользователя из room
-    for (const [sid, c] of clients.entries()) {
-      if (c.authed && c.nickLower === target) {
-        const s = io.sockets.sockets.get(sid);
-        if (!s) continue;
-        s.leave(roomId);
-        if (c.roomId === roomId) c.roomId = null;
-        room.members.delete(sid);
-        io.to(sid).emit('room-kicked', { roomId, by });
-      }
-    }
-
-    io.to(roomId).emit('room-member-left', {
-      roomId,
-      nickname: target,
-      nickLower: target
-    });
-
-    broadcastRoomList();
-    cb({ ok: true });
   });
 
   safeOn('room-request-join', async ({ roomId }, cb) => {
@@ -2257,13 +1988,6 @@ io.on('connection', (socket) => {
     if (room.joinMode !== 'approval') return cb({ ok: false, error: 'not_approval_mode' });
 
     if (room.permanentMembers.has(client.nickLower)) return cb({ ok: true, autoAccepted: true });
-
-    // Проверка блокировки
-    const blockedByMe = (await UserDB.getBlocked(client.nickLower)).includes(room.ownerNick);
-    const blockedByPeer = (await UserDB.getBlocked(room.ownerNick)).includes(client.nickLower);
-    if (blockedByMe || blockedByPeer) {
-      return cb({ ok: false, error: 'blocked' });
-    }
 
     const exists = room.pendingRequests.find(r => r.nickLower === client.nickLower);
     if (exists) return cb({ ok: false, error: 'already_requested' });
@@ -2297,7 +2021,7 @@ io.on('connection', (socket) => {
 
     const room = rooms.get(roomId);
     if (!room) return cb({ ok: false, error: 'not_found' });
-    if (!canManageRoom(room, client.nickLower)) return cb({ ok: false, error: 'not_allowed' });
+    if (!isRoomOwner(client, room)) return cb({ ok: false, error: 'not_owner' });
 
     const idx = room.pendingRequests.findIndex(r => r.nickLower === nickLower);
     if (idx === -1) return cb({ ok: false, error: 'not_found' });
@@ -2316,7 +2040,6 @@ io.on('connection', (socket) => {
       }
     }
 
-    broadcastRoomList();
     cb({ ok: true });
   });
 
@@ -2327,17 +2050,10 @@ io.on('connection', (socket) => {
     const room = rooms.get(roomId);
     if (!room) return cb({ ok: false, error: 'room_not_found' });
 
-    const canInvite = room.permanentMembers.has(client.nickLower) || room.ownerNick === client.nickLower;
+    const canInvite = room.permanentMembers.has(client.nickLower) || isRoomOwner(client, room);
     if (!canInvite) return cb({ ok: false, error: 'not_member' });
 
     const toLower = String(toNickname || '').trim().toLowerCase();
-
-    // Проверка блокировки
-    const blockedByMe = (await UserDB.getBlocked(client.nickLower)).includes(toLower);
-    const blockedByPeer = (await UserDB.getBlocked(toLower)).includes(client.nickLower);
-    if (blockedByMe || blockedByPeer) {
-      return cb({ ok: true, online: false }); // просто не отправляем приглашение
-    }
 
     let sent = false;
     for (const [sid, cl] of clients.entries()) {
@@ -2376,7 +2092,7 @@ io.on('connection', (socket) => {
     recordSuccessAttempt(`${clientIp}:join-room`);
 
     const isMember = room.permanentMembers.has(client.nickLower);
-    const owner = room.ownerNick === client.nickLower;
+    const owner = isRoomOwner(client, room);
 
     if (room.joinMode === 'approval' && !owner && !isMember) {
       return cb({ ok: false, error: 'approval_required' });
@@ -2397,26 +2113,21 @@ io.on('connection', (socket) => {
     socket.join(roomId);
 
     const user = await UserDB.get(client.nickLower);
-
-    const others = [];
-    for (const lower of room.permanentMembers) {
-      if (lower === client.nickLower) continue;
-      const u = await UserDB.get(lower);
-      others.push({
-        id: lower,
-        nickLower: lower,
-        nickname: u?.nickname || lower,
-        avatar: u?.avatar || null,
-        online: isOnline(lower),
-        role: getRoomRole(room, lower) || 'member'
+    const others = [...room.members]
+      .filter(id => id !== socket.id)
+      .map(id => {
+        const c = clients.get(id);
+        return {
+          id,
+          nickname: c?.nickname || shortId(id),
+          avatar: null
+        };
       });
-    }
 
     socket.to(roomId).emit('room-user-joined', {
       id: socket.id,
       nickname: client.nickname,
-      avatar: user?.avatar || null,
-      nickLower: client.nickLower
+      avatar: user?.avatar || null
     });
 
     broadcastRoomList();
@@ -2430,13 +2141,9 @@ io.on('connection', (socket) => {
         members: others,
         roomSalt: room.salt,
         isOwner: owner,
-        myRole: getRoomRole(room, client.nickLower) || 'member',
         autoDelete: room.autoDelete,
         joinMode: room.joinMode,
-        voiceEnabled: room.voiceEnabled !== false,
-        wallpaper: room.wallpaper || null,
-        descriptionText: room.descriptionText || '',
-        pendingRequests: canManageRoom(room, client.nickLower) ? room.pendingRequests : []
+        pendingRequests: owner ? room.pendingRequests : []
       }
     });
   });
@@ -2445,7 +2152,7 @@ io.on('connection', (socket) => {
     const client = requireAuthed(cb);
     if (!client) return;
     if (client.roomId) leaveRoom(socket, client.roomId);
-    cb?.({ ok: true });
+    cb && cb({ ok: true });
   });
 
   safeOn('room-history', async ({ roomId }, cb) => {
@@ -2455,7 +2162,7 @@ io.on('connection', (socket) => {
     const room = rooms.get(roomId);
     if (!room) return cb({ ok: false, error: 'not_found' });
 
-    const canAccess = room.permanentMembers.has(client.nickLower) || room.ownerNick === client.nickLower;
+    const canAccess = room.permanentMembers.has(client.nickLower) || isRoomOwner(client, room);
     if (!canAccess) return cb({ ok: false, error: 'not_member' });
 
     if (!room.messages || room.messages.length === 0) {
@@ -2472,34 +2179,24 @@ io.on('connection', (socket) => {
     const client = requireAuthed(cb);
     if (!client) return;
 
-    if (!client.roomId) return cb?.({ ok: false, error: 'no_room' });
+    if (!client.roomId) return cb && cb({ ok: false, error: 'no_room' });
+
     const room = rooms.get(client.roomId);
-    if (!room) return cb?.({ ok: false, error: 'room_not_found' });
-    if (!(room.permanentMembers.has(client.nickLower) || room.ownerNick === client.nickLower)) {
-      return cb?.({ ok: false, error: 'not_member' });
+    if (!room) return cb && cb({ ok: false, error: 'room_not_found' });
+
+    if (!(room.permanentMembers.has(client.nickLower) || isRoomOwner(client, room))) {
+      return cb && cb({ ok: false, error: 'not_member' });
     }
 
     const seqNum = parseInt(data?.seq, 10);
-    if (!Number.isInteger(seqNum) || seqNum < 0) return cb?.({ ok: false, error: 'bad_seq' });
+    if (!Number.isInteger(seqNum) || seqNum < 0) return cb && cb({ ok: false, error: 'bad_seq' });
 
     const lastSeq = room.lastSeq.get(socket.id) || -1;
-    if (seqNum <= lastSeq) return cb?.({ ok: false, error: 'replay' });
+    if (seqNum <= lastSeq) return cb && cb({ ok: false, error: 'replay' });
     room.lastSeq.set(socket.id, seqNum);
 
     const v = validateMessagePayload(data || {});
-    if (!v.ok) return cb?.({ ok: false, error: v.error });
-
-    // Rate limit для групповых сообщений
-    const now = Date.now();
-    let rate = msgRateMap.get(client.nickLower);
-    if (!rate || now > rate.resetTime) {
-      rate = { count: 0, resetTime: now + MSG_RATE_WINDOW };
-    }
-    rate.count++;
-    if (rate.count > MSG_RATE_LIMIT) {
-      return cb?.({ ok: false, error: 'rate_limited' });
-    }
-    msgRateMap.set(client.nickLower, rate);
+    if (!v.ok) return cb && cb({ ok: false, error: v.error });
 
     const msgId = generateMsgId();
     const msg = {
@@ -2510,8 +2207,6 @@ io.on('connection', (socket) => {
       nickname: client.nickname,
       encrypted: data.encrypted || null,
       iv: data.iv || null,
-      captionEncrypted: data.captionEncrypted || null,
-      captionIv: data.captionIv || null,
       type: data.type || 'text',
       fileName: data.fileName || null,
       fileSize: data.fileSize || null,
@@ -2536,7 +2231,7 @@ io.on('connection', (socket) => {
     socket.to(client.roomId).emit('chat-message', { ...msg, reactions: {} });
     socket.emit('chat-msg-id', { seq: seqNum, msgId });
 
-    cb?.({ ok: true, msgId });
+    cb && cb({ ok: true, msgId });
   });
 
   safeOn('room-msg-delete', async ({ roomId, msgId, deleteFor }, cb) => {
@@ -2546,17 +2241,17 @@ io.on('connection', (socket) => {
     const room = rooms.get(roomId);
     if (!room) return cb({ ok: false, error: 'not_found' });
 
-    const canAccess = room.permanentMembers.has(client.nickLower) || room.ownerNick === client.nickLower;
+    const canAccess = room.permanentMembers.has(client.nickLower) || isRoomOwner(client, room);
     if (!canAccess) return cb({ ok: false, error: 'not_member' });
 
     const msg = await RoomDB.getMessage(msgId);
     if (!msg) return cb({ ok: false, error: 'not_found' });
 
     const mine = msg.nickLower === client.nickLower;
-    const moderator = canModerateRoom(room, client.nickLower);
+    const owner = isRoomOwner(client, room);
 
     if (deleteFor === 'all') {
-      if (!mine && !moderator) return cb({ ok: false, error: 'not_allowed' });
+      if (!mine && !owner) return cb({ ok: false, error: 'not_allowed' });
       await RoomDB.deleteMessage(msgId);
       messageReactions.delete(msgId);
       room.messages = room.messages.filter(m => m.id !== msgId);
@@ -2566,7 +2261,10 @@ io.on('connection', (socket) => {
 
     if (deleteFor === 'me') {
       await RoomDB.addDeletedFor(msgId, client.nickLower);
-      room.messages = room.messages.map(m => m.id !== msgId ? m : { ...m, deletedFor: [...(m.deletedFor || []), client.nickLower] });
+      room.messages = room.messages.map(m => {
+        if (m.id !== msgId) return m;
+        return { ...m, deletedFor: [...(m.deletedFor || []), client.nickLower] };
+      });
       socket.emit('room-msg-deleted', { roomId, msgId, deleteFor: 'me' });
       return cb({ ok: true });
     }
@@ -2581,7 +2279,7 @@ io.on('connection', (socket) => {
     const room = rooms.get(roomId);
     if (!room) return cb({ ok: false, error: 'not_found' });
 
-    const canAccess = room.permanentMembers.has(client.nickLower) || room.ownerNick === client.nickLower;
+    const canAccess = room.permanentMembers.has(client.nickLower) || isRoomOwner(client, room);
     if (!canAccess) return cb({ ok: false, error: 'not_member' });
 
     const msg = await RoomDB.getMessage(msgId);
@@ -2596,118 +2294,25 @@ io.on('connection', (socket) => {
     await RoomDB.editMessage(msgId, newEncrypted, newIv);
 
     room.messages = room.messages.map(m =>
-      m.id === msgId ? { ...m, encrypted: newEncrypted, iv: newIv, edited: true } : m
+      m.id === msgId
+        ? { ...m, encrypted: newEncrypted, iv: newIv, edited: true }
+        : m
     );
 
     io.to(roomId).emit('room-msg-edited', {
-      roomId, msgId, newEncrypted, newIv, editedAt: Date.now()
+      roomId,
+      msgId,
+      newEncrypted,
+      newIv,
+      editedAt: Date.now()
     });
 
     cb({ ok: true });
   });
 
-  // pinned media in group description
-  safeOn('room-pin-media', async ({ roomId, msgId, kind }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
-    const room = rooms.get(roomId);
-    if (!room) return cb({ ok: false, error: 'not_found' });
-    if (!canModerateRoom(room, client.nickLower)) return cb({ ok: false, error: 'not_allowed' });
-
-    const msg = await RoomDB.getMessage(msgId);
-    if (!msg || msg.roomId !== roomId) return cb({ ok: false, error: 'msg_not_found' });
-    if (!['image', 'video', 'file', 'voice'].includes(msg.type)) return cb({ ok: false, error: 'not_media' });
-
-    await RoomDB.pinMedia(roomId, msgId, client.nickLower, kind || 'media');
-    const pinned = await RoomDB.getPinnedMedia(roomId);
-    io.to(roomId).emit('room-pinned-media-updated', { roomId, pinned });
-    cb({ ok: true, pinned });
-  });
-
-  safeOn('room-unpin-media', async ({ roomId, msgId }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
-    const room = rooms.get(roomId);
-    if (!room) return cb({ ok: false, error: 'not_found' });
-    if (!canModerateRoom(room, client.nickLower)) return cb({ ok: false, error: 'not_allowed' });
-
-    await RoomDB.unpinMedia(roomId, msgId);
-    const pinned = await RoomDB.getPinnedMedia(roomId);
-    io.to(roomId).emit('room-pinned-media-updated', { roomId, pinned });
-    cb({ ok: true, pinned });
-  });
-
-  safeOn('room-pinned-media', async ({ roomId }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
-    const room = rooms.get(roomId);
-    if (!room) return cb({ ok: false, error: 'not_found' });
-
-    const canAccess = room.permanentMembers.has(client.nickLower) || room.ownerNick === client.nickLower;
-    if (!canAccess) return cb({ ok: false, error: 'not_member' });
-
-    const pinned = await RoomDB.getPinnedMedia(roomId);
-    cb({ ok: true, pinned });
-  });
-
-  // reactions
-  safeOn('add-reaction', async ({ msgId, emoji, chatId, roomId }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
-    const e = String(emoji || '').slice(0, 8);
-    if (!msgId || !e) return cb({ ok: false, error: 'bad_payload' });
-
-    if (chatId) {
-      if (!await PrivateChatDB.isMember(chatId, client.nickLower)) return cb({ ok: false, error: 'not_member' });
-      addReaction(msgId, e, client.nickLower);
-      const reactions = getReactions(msgId);
-      io.to('pc:' + chatId).emit('reaction-updated', { msgId, reactions, chatId });
-      return cb({ ok: true, reactions });
-    }
-
-    if (roomId) {
-      const room = rooms.get(roomId);
-      if (!room) return cb({ ok: false, error: 'not_found' });
-      if (!(room.permanentMembers.has(client.nickLower) || room.ownerNick === client.nickLower)) return cb({ ok: false, error: 'not_member' });
-
-      addReaction(msgId, e, client.nickLower);
-      const reactions = getReactions(msgId);
-      io.to(roomId).emit('reaction-updated', { msgId, reactions, roomId });
-      return cb({ ok: true, reactions });
-    }
-
-    cb({ ok: false, error: 'bad_target' });
-  });
-
-  safeOn('remove-reaction', async ({ msgId, emoji, chatId, roomId }, cb) => {
-    const client = requireAuthed(cb);
-    if (!client) return;
-    const e = String(emoji || '').slice(0, 8);
-    if (!msgId || !e) return cb({ ok: false, error: 'bad_payload' });
-
-    if (chatId) {
-      if (!await PrivateChatDB.isMember(chatId, client.nickLower)) return cb({ ok: false, error: 'not_member' });
-      removeReaction(msgId, e, client.nickLower);
-      const reactions = getReactions(msgId);
-      io.to('pc:' + chatId).emit('reaction-updated', { msgId, reactions, chatId });
-      return cb({ ok: true, reactions });
-    }
-
-    if (roomId) {
-      const room = rooms.get(roomId);
-      if (!room) return cb({ ok: false, error: 'not_found' });
-      if (!(room.permanentMembers.has(client.nickLower) || room.ownerNick === client.nickLower)) return cb({ ok: false, error: 'not_member' });
-
-      removeReaction(msgId, e, client.nickLower);
-      const reactions = getReactions(msgId);
-      io.to(roomId).emit('reaction-updated', { msgId, reactions, roomId });
-      return cb({ ok: true, reactions });
-    }
-
-    cb({ ok: false, error: 'bad_target' });
-  });
-
-  // GROUP VOICE / WEBRTC
+  // ════════════════════════════
+  //  GROUP VOICE / WEBRTC
+  // ════════════════════════════
   socket.on('offer', ({ to, offer }) => {
     const c = clients.get(socket.id);
     if (!c?.authed || !c?.roomId) return;
@@ -2731,12 +2336,6 @@ io.on('connection', (socket) => {
     if (!c?.authed || !c?.roomId) return;
     const room = rooms.get(c.roomId);
     if (!room) return;
-
-    // feature: admin can disable group voice
-    if (room.voiceEnabled === false) {
-      socket.emit('voice-disabled', { roomId: c.roomId });
-      return;
-    }
 
     const others = [...room.members]
       .filter(id => id !== socket.id)
@@ -2782,15 +2381,14 @@ io.on('connection', (socket) => {
     io.to(to).emit('key-fingerprint', { from: socket.id, nickname: c.nickname, fingerprint });
   });
 
-  // PRIVATE CALLS
-  socket.on('private-call-offer', async ({ chatId, to, offer, isVideo }) => {
+  // ════════════════════════════
+  //  PRIVATE CALLS
+  // ════════════════════════════
+  socket.on('private-call-offer', ({ chatId, to, offer, isVideo }) => {
     const c = clients.get(socket.id);
     if (!c?.authed) return;
 
-    const fromUser = await UserDB.get(c.nickLower);
     let sent = false;
-
-    // to can be nickLower
     for (const [sid, cl] of clients.entries()) {
       if (cl.authed && cl.nickLower === to) {
         io.to(sid).emit('private-call-offer', {
@@ -2798,22 +2396,20 @@ io.on('connection', (socket) => {
           from: socket.id,
           fromNick: c.nickname,
           fromNickLower: c.nickLower,
-          fromAvatar: fromUser?.avatar || null,
+          fromAvatar: null,
           offer,
           isVideo: !!isVideo
         });
         sent = true;
       }
     }
-
-    // fallback if to is socketId
     if (!sent && io.sockets.sockets.get(to)) {
       io.to(to).emit('private-call-offer', {
         chatId,
         from: socket.id,
         fromNick: c.nickname,
         fromNickLower: c.nickLower,
-        fromAvatar: fromUser?.avatar || null,
+        fromAvatar: null,
         offer,
         isVideo: !!isVideo
       });
@@ -2859,6 +2455,7 @@ io.on('connection', (socket) => {
   socket.on('private-call-ecdh', ({ to, pubkey }) => {
     const c = clients.get(socket.id);
     if (!c?.authed) return;
+
     if (io.sockets.sockets.get(to)) {
       io.to(to).emit('private-call-ecdh', { from: socket.id, pubkey });
     } else {
@@ -2868,14 +2465,13 @@ io.on('connection', (socket) => {
     }
   });
 
-  // DISCONNECT
+  // ════════════════════════════
+  //  DISCONNECT
+  // ════════════════════════════
   socket.on('disconnect', () => {
     const client = clients.get(socket.id);
     if (client?.roomId) leaveRoom(socket, client.roomId);
-    if (client?.nickLower) {
-      client.lastSeen = Date.now();
-      setOffline(client.nickLower, socket.id);
-    }
+    if (client?.nickLower) setOffline(client.nickLower, socket.id);
     clients.delete(socket.id);
     console.log('Disconnected:', socket.id);
   });
