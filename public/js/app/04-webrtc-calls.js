@@ -6,12 +6,7 @@
 let iceServers = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' },
-    { urls: 'stun:stun.voip.blackberry.com:3478' },
-    { urls: 'stun:stun.voipgate.com:3478' }
+    { urls: 'stun:stun1.l.google.com:19302' }
   ],
   iceCandidatePoolSize: 10,
   bundlePolicy: 'max-bundle',
@@ -38,36 +33,22 @@ async function refreshIceServers() {
   return false;
 }
 
-// Функция больше не используется – отключена для совместимости с iOS
 function forceOpusMaxQuality(sdp) {
-  return sdp; // возвращаем без изменений
-}
-
-// Улучшение совместимости видео между Android и iOS: предпочитаем H.264
-function preferH264(sdp) {
-  if (!sdp || typeof sdp !== 'string') return sdp;
-  // Ищем видео медиа-секции (m=video)
   const lines = sdp.split('\r\n');
-  let inVideo = false;
-  let videoMLine = -1;
+  const result = [];
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i].startsWith('m=')) {
-      inVideo = lines[i].startsWith('m=video');
-      if (inVideo) videoMLine = i;
+    const line = lines[i];
+    if (line.includes('a=rtpmap') && line.toLowerCase().includes('opus')) {
+      result.push(line);
+      const pt = line.split(':')[1].split(' ')[0];
+      if (i + 1 < lines.length && lines[i + 1].startsWith('a=fmtp:' + pt)) i++;
+      result.push('a=fmtp:' + pt + ' minptime=10;useinbandfec=1;stereo=0;sprop-stereo=0;maxaveragebitrate=40000;dtx=1;cbr=0');
+      continue;
     }
-    if (inVideo && lines[i].startsWith('a=rtpmap:')) {
-      // Если это H.264 (обычно 96-127), перемещаем его выше VP8/VP9
-      // Простая реализация: переупорядочиваем payload types в m=video строке
-      // Но для простоты просто убедимся, что H.264 присутствует
-      // Более сложная логика может быть добавлена позже
-    }
+    if (line.startsWith('b=AS:') || line.startsWith('b=TIAS:')) continue;
+    result.push(line);
   }
-  // Для iOS Safari важно, чтобы H.264 был первым в списке кодеков
-  // Мы можем модифицировать SDP, но это рискованно.
-  // Вместо этого добавим поддержку через RTCRtpTransceiver.setCodecPreferences
-  // Пока оставляем без изменений, но добавляем логирование
-  console.log('[SDP] Video codecs present');
-  return sdp;
+  return result.join('\r\n');
 }
 
 function calcLevel(rtt, lostRatio, jitter) {
@@ -293,10 +274,7 @@ async function getMicStream() {
         channelCount:     { ideal: 1 }
       }
     });
-  } catch (err) {
-    // Re-throw permission errors immediately — fallback call would bypass Android permission dialog
-    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') throw err;
-    // For constraint/hardware errors try simpler constraints
+  } catch (_) {
     return await navigator.mediaDevices.getUserMedia({
       video: false,
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
@@ -412,9 +390,9 @@ async function handleOffer(from, offer, nickname) {
   try {
     await peer.setRemoteDescription(new RTCSessionDescription(offer));
     const answer = await peer.createAnswer();
-    // Не модифицируем SDP
-    await peer.setLocalDescription(answer);
-    socket.emit('answer', { to: from, answer: answer });
+    const improved = { type: answer.type, sdp: forceOpusMaxQuality(answer.sdp) };
+    await peer.setLocalDescription(improved);
+    socket.emit('answer', { to: from, answer: improved });
   } catch (e) {
     console.error('handleOffer error:', e);
   }
@@ -509,9 +487,9 @@ function createPeer(userId, isInitiator) {
       offerSent = true;
       try {
         const offer = await peer.createOffer({ offerToReceiveAudio: true });
-        // Не модифицируем SDP
-        await peer.setLocalDescription(offer);
-        socket.emit('offer', { to: userId, offer: offer });
+        const improved = { type: offer.type, sdp: forceOpusMaxQuality(offer.sdp) };
+        await peer.setLocalDescription(improved);
+        socket.emit('offer', { to: userId, offer: improved });
       } catch (e) {
         console.error('createOffer error:', e);
         offerSent = false;
@@ -878,9 +856,8 @@ function ensureLocalVideo() {
 
 async function startLocalVideo() {
   try {
-    // Упрощённые ограничения для лучшей совместимости с iOS
     localVideoStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user' },
+      video: { facingMode:'user', width:{ideal:1280}, height:{ideal:720} },
       audio: false
     });
     const lv = ensureLocalVideo();
@@ -1350,11 +1327,7 @@ document.addEventListener('visibilitychange', async () => {
       stopVolumeAnalysis(socket.id);
       startVolumeAnalysis(socket.id, localStream);
       newTrack.enabled = micEnabled;
-    } catch (err) {
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        showToast('❌ Нет доступа к микрофону');
-      }
-    }
+    } catch (_) {}
   } else {
     tracks.forEach(t => { t.enabled = micEnabled; });
   }
