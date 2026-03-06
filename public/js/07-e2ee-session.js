@@ -59,6 +59,11 @@
   }
 
   async function hkdfAes(sharedBits) {
+    // Проверка длины sharedBits (256 бит = 32 байта)
+    if (sharedBits.byteLength !== 32) {
+      console.error('[E2EE] Invalid sharedBits length:', sharedBits.byteLength);
+      throw new Error('shared_bits_invalid_length');
+    }
     const ikm = await crypto.subtle.importKey('raw', sharedBits, 'HKDF', false, ['deriveKey']);
     return crypto.subtle.deriveKey(
       {
@@ -142,7 +147,9 @@
       console.log('[E2EE] Key self-test passed, decrypted:', decoded);
     } catch (testError) {
       console.error('[E2EE] Key self-test failed:', testError);
-      throw new Error('derived_key_invalid');
+      const err = new Error('derived_key_invalid');
+      err.name = 'DerivedKeyInvalidError';
+      throw err;
     }
     
     return key;
@@ -224,6 +231,36 @@
           console.log('[E2EE] Retry with inboundKey present:', !!s.inboundKey);
           const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, s.inboundKey, ct);
           await rotateKeysIfNeeded(peerId, 'inbound');
+          return td.decode(pt);
+        } catch (retryError) {
+          console.error('[E2EE] Retry also failed:', retryError);
+          throw retryError;
+        }
+      }
+      if (error.name === 'DerivedKeyInvalidError') {
+        console.log('[E2EE] DerivedKeyInvalidError, clearing peer cache and retrying...');
+        clearPeer(peerId);
+        try {
+          const s = await ensurePeer(peerId);
+          const iv = b64ToBytes(ivB64);
+          const ct = b64ToBytes(encryptedB64);
+          console.log('[E2EE] Retry with inboundKey present:', !!s.inboundKey);
+          const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, s.inboundKey, ct);
+          await rotateKeysIfNeeded(peerId, 'inbound');
+          return td.decode(pt);
+        } catch (retryError) {
+          console.error('[E2EE] Retry also failed:', retryError);
+          throw retryError;
+        }
+      }
+      if (error.name === 'DerivedKeyInvalidError') {
+        console.log('[E2EE] DerivedKeyInvalidError, clearing peer cache and retrying...');
+        clearPeer(peerId);
+        try {
+          const s = await ensurePeer(peerId);
+          const iv = b64ToBytes(ivB64);
+          const ct = b64ToBytes(encryptedB64);
+          const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, s.outboundKey, ct);
           return td.decode(pt);
         } catch (retryError) {
           console.error('[E2EE] Retry also failed:', retryError);
