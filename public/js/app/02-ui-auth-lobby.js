@@ -949,10 +949,30 @@ function stopPrivateTyping() {
 }
 
 async function decryptPrivateHistoryText(peerId, encrypted, iv) {
+  // Сначала пробуем E2EE сессию
   if (window.E2EESession?.decryptTextFromPeer && peerId) {
-    try { return await window.E2EESession.decryptTextFromPeer(peerId, encrypted, iv); } catch (_) {}
+    try {
+      return await window.E2EESession.decryptTextFromPeer(peerId, encrypted, iv);
+    } catch (e) {
+      console.warn('[E2EE history] decryptTextFromPeer failed for peer', peerId, e);
+      // Пробуем расшифровать своими ключами (для своих сообщений)
+      if (window.E2EESession?.decryptOwnTextForPeer) {
+        try {
+          return await window.E2EESession.decryptOwnTextForPeer(peerId, encrypted, iv);
+        } catch (e2) {
+          console.warn('[E2EE history] decryptOwnTextForPeer also failed', e2);
+        }
+      }
+    }
   }
-  return Crypto.decryptText(encrypted, iv);
+  
+  // Fallback на обычное шифрование
+  try {
+    return await Crypto.decryptText(encrypted, iv);
+  } catch (e) {
+    console.error('[Crypto history] decryptText failed', e);
+    throw e; // Пробрасываем ошибку дальше
+  }
 }
 async function decryptPrivateHistoryBlob(peerId, encrypted, iv, mime) {
   if (window.E2EESession?.decryptBlobFromPeer && peerId) {
@@ -971,9 +991,16 @@ function resolvePrivateHistoryPeerId(chatId, myLower, mine, msg) {
 }
 
 async function decryptPrivateHistoryTextByDirection(peerId, mine, encrypted, iv) {
+  // Для своих сообщений используем decryptOwnTextForPeer
   if (mine && window.E2EESession?.decryptOwnTextForPeer && peerId) {
-    try { return await window.E2EESession.decryptOwnTextForPeer(peerId, encrypted, iv); } catch (_) {}
+    try {
+      return await window.E2EESession.decryptOwnTextForPeer(peerId, encrypted, iv);
+    } catch (e) {
+      console.warn('[E2EE history] decryptOwnTextForPeer failed for own message', peerId, e);
+      // Fallback на обычное дешифрование
+    }
   }
+  // Для чужих сообщений используем общую функцию
   return decryptPrivateHistoryText(peerId, encrypted, iv);
 }
 async function decryptPrivateHistoryBlobByDirection(peerId, mine, encrypted, iv, mime) {
@@ -1032,7 +1059,38 @@ async function renderPrivateHistoryMessages(chatId, messages, { replace = false 
           peerId
         });
         if (msg.id) msgIdToDomId.set(msg.id, domId);
-      } catch (_) {
+      } catch (e) {
+        console.error('[private-history] Text decryption failed:', e, 'peerId:', peerId, 'mine:', mine);
+        
+        // Пробуем альтернативные методы
+        try {
+          // Пробуем другой peerId
+          const altPeerId = msg.fromNick || msg.from || currentChatWith || '';
+          if (altPeerId && altPeerId !== peerId) {
+            console.log('[private-history] Trying alternative peerId:', altPeerId);
+            const text = await decryptPrivateHistoryTextByDirection(altPeerId, mine, msg.encrypted, msg.iv);
+            const domId = appendMessage({
+              id: msg.id,
+              nickname: msg.fromNick,
+              text,
+              type: 'text',
+              timestamp: msg.timestamp,
+              mine,
+              status: 'ok',
+              msgStatus: mine ? (msg.status || 'sent') : null,
+              edited: msg.edited,
+              replyTo: msg.replyTo || null,
+              peerId: altPeerId
+            });
+            if (msg.id) msgIdToDomId.set(msg.id, domId);
+            console.log('[private-history] Decryption succeeded with alternative peerId');
+            continue;
+          }
+        } catch (e2) {
+          console.warn('[private-history] Alternative decryption also failed:', e2);
+        }
+        
+        // Если все попытки не удались, показываем "Зашифровано"
         appendMessage({
           id: msg.id, nickname: msg.fromNick, text: '[зашифровано]',
           type: 'text', timestamp: msg.timestamp, mine, status: 'error'
@@ -1940,7 +1998,6 @@ function openInviteModal() {
     });
   });
 }
-
 socket.on('room-invite', ({ fromNick, roomId, roomName, hasPassword, joinMode }) => {
   showToast(`📨 ${fromNick} приглашает в «${roomName}»`, 8000, () => {
     if (hasPassword) openRoomPasswordModal(roomId, roomName, joinMode);
