@@ -1,19 +1,14 @@
-const CACHE_NAME = 'privchat-v3';
+const CACHE_NAME = 'privchat-v2';
 const ASSETS = [
   '/',
   '/index.html',
   '/app.js',
   '/editor.js',
   '/audio-processor.js',
-
   '/js/core.js',
   '/js/ui.js',
   '/js/status.js',
   '/js/invitelink.js',
-
-  '/js/06-e2ee-keys.js',
-  '/js/07-e2ee-session.js',
-
   '/js/app/01-state.js',
   '/js/app/02-ui-auth-lobby.js',
   '/js/app/03-messaging.js',
@@ -22,20 +17,12 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(c => c.addAll(ASSETS))
-      .catch(() => {})
-  );
+  e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(ASSETS)).catch(() => {}));
   self.skipWaiting();
 });
 
 self.addEventListener('activate', e => {
-  e.waitUntil((async () => {
-    const keys = await caches.keys();
-    await Promise.all(keys.map(k => (k !== CACHE_NAME ? caches.delete(k) : Promise.resolve())));
-    await clients.claim();
-  })());
+  e.waitUntil(clients.claim());
 });
 
 self.addEventListener('fetch', e => {
