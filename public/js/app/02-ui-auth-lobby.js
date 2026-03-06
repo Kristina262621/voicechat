@@ -948,17 +948,30 @@ function stopPrivateTyping() {
   if (currentChatId && currentChatType === 'private') socket.emit('private-typing-stop', { chatId: currentChatId });
 }
 
+// Нормализация peerId (должна быть такой же как в 03-messaging.js)
+function normalizePeerId(peerId) {
+  if (!peerId) return '';
+  return String(peerId).trim().toLowerCase();
+}
+
 async function decryptPrivateHistoryText(peerId, encrypted, iv) {
+  const normalizedPeerId = normalizePeerId(peerId);
+  console.log('[E2EE history] decryptPrivateHistoryText, peerId:', peerId, 'normalized:', normalizedPeerId);
+  
   // Сначала пробуем E2EE сессию
-  if (window.E2EESession?.decryptTextFromPeer && peerId) {
+  if (window.E2EESession?.decryptTextFromPeer && normalizedPeerId) {
     try {
-      return await window.E2EESession.decryptTextFromPeer(peerId, encrypted, iv);
+      const result = await window.E2EESession.decryptTextFromPeer(normalizedPeerId, encrypted, iv);
+      console.log('[E2EE history] decryptTextFromPeer succeeded');
+      return result;
     } catch (e) {
-      console.warn('[E2EE history] decryptTextFromPeer failed for peer', peerId, e);
+      console.warn('[E2EE history] decryptTextFromPeer failed for peer', normalizedPeerId, e);
       // Пробуем расшифровать своими ключами (для своих сообщений)
       if (window.E2EESession?.decryptOwnTextForPeer) {
         try {
-          return await window.E2EESession.decryptOwnTextForPeer(peerId, encrypted, iv);
+          const result = await window.E2EESession.decryptOwnTextForPeer(normalizedPeerId, encrypted, iv);
+          console.log('[E2EE history] decryptOwnTextForPeer succeeded (own message)');
+          return result;
         } catch (e2) {
           console.warn('[E2EE history] decryptOwnTextForPeer also failed', e2);
         }
@@ -968,6 +981,7 @@ async function decryptPrivateHistoryText(peerId, encrypted, iv) {
   
   // Fallback на обычное шифрование
   try {
+    console.log('[E2EE history] Falling back to Crypto.decryptText');
     return await Crypto.decryptText(encrypted, iv);
   } catch (e) {
     console.error('[Crypto history] decryptText failed', e);
@@ -1998,6 +2012,7 @@ function openInviteModal() {
     });
   });
 }
+
 socket.on('room-invite', ({ fromNick, roomId, roomName, hasPassword, joinMode }) => {
   showToast(`📨 ${fromNick} приглашает в «${roomName}»`, 8000, () => {
     if (hasPassword) openRoomPasswordModal(roomId, roomName, joinMode);
