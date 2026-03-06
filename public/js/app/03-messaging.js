@@ -297,20 +297,49 @@ function hideChatUploadStatus() {
 async function encryptPrivateTextE2EE(peerId, text) {
   // Приводим peerId к нижнему регистру для consistency
   const normalizedPeerId = peerId ? String(peerId).toLowerCase().trim() : '';
+  
+  // Пробуем E2EE сессию
   if (window.E2EESession?.encryptTextForPeer && normalizedPeerId) {
-    return window.E2EESession.encryptTextForPeer(normalizedPeerId, text);
+    try {
+      return await window.E2EESession.encryptTextForPeer(normalizedPeerId, text);
+    } catch (e) {
+      console.warn('[E2EE] encryptTextForPeer failed for peer', normalizedPeerId, e);
+      // Fallback на обычное шифрование
+    }
   }
+  
+  // Fallback на обычное шифрование
   return Crypto.encrypt(text);
 }
 
 async function decryptPrivateTextE2EE(peerId, encrypted, iv) {
   // Приводим peerId к нижнему регистру для consistency
   const normalizedPeerId = peerId ? String(peerId).toLowerCase().trim() : '';
+  
+  // Сначала пробуем E2EE сессию
   if (window.E2EESession?.decryptTextFromPeer && normalizedPeerId) {
-    try { return await window.E2EESession.decryptTextFromPeer(normalizedPeerId, encrypted, iv); }
-    catch (_) {}
+    try {
+      return await window.E2EESession.decryptTextFromPeer(normalizedPeerId, encrypted, iv);
+    } catch (e) {
+      console.warn('[E2EE] decryptTextFromPeer failed for peer', normalizedPeerId, e);
+      // Пробуем расшифровать своими ключами (для своих сообщений)
+      if (window.E2EESession?.decryptOwnTextForPeer) {
+        try {
+          return await window.E2EESession.decryptOwnTextForPeer(normalizedPeerId, encrypted, iv);
+        } catch (e2) {
+          console.warn('[E2EE] decryptOwnTextForPeer also failed', e2);
+        }
+      }
+    }
   }
-  return Crypto.decryptText(encrypted, iv);
+  
+  // Fallback на обычное шифрование
+  try {
+    return await Crypto.decryptText(encrypted, iv);
+  } catch (e) {
+    console.error('[Crypto] decryptText failed', e);
+    throw e; // Пробрасываем ошибку дальше
+  }
 }
 
 async function encryptPrivateBytesE2EE(peerId, bytesLike) {
@@ -716,7 +745,26 @@ socket.on('private-message', async data => {
       }
       updateMessage(domId, { localUrl: URL.createObjectURL(blob), status: 'ok', caption });
     }
-  } catch (_) {
+  } catch (e) {
+    console.error('[private-message] Decryption failed:', e, 'peerId:', peerId, 'type:', data.type);
+    
+    // Пробуем альтернативные методы дешифрования
+    if (data.type === 'text') {
+      try {
+        // Пробуем использовать другой peerId (без нормализации)
+        const altPeerId = data.fromNick || data.from || currentChatWith || '';
+        if (altPeerId && altPeerId !== peerId) {
+          console.log('[private-message] Trying alternative peerId:', altPeerId);
+          const text = await decryptPrivateTextE2EE(altPeerId, data.encrypted, data.iv);
+          updateMessage(domId, { text, status: 'ok' });
+          console.log('[private-message] Decryption succeeded with alternative peerId');
+          return;
+        }
+      } catch (e2) {
+        console.warn('[private-message] Alternative decryption also failed:', e2);
+      }
+    }
+    
     // Не обновлять статус на ошибку, если сообщение уже успешно расшифровано
     const msgEl = document.getElementById(domId);
     if (msgEl) {
@@ -726,6 +774,11 @@ socket.on('private-message', async data => {
       }
     } else {
       updateMessage(domId, { status: 'error' });
+    }
+    
+    // Показываем уведомление пользователю
+    if (typeof showToast === 'function') {
+      showToast('⚠️ Не удалось расшифровать сообщение', 3000);
     }
   }
 
