@@ -24,7 +24,6 @@ function applyTheme(theme) {
   const root = document.documentElement;
 
   if (theme === 'light') {
-    // Стандартная светлая тема (День)
     root.style.setProperty('--bg',        '#f0f2f5');
     root.style.setProperty('--bg2',       '#ffffff');
     root.style.setProperty('--surface',   '#ffffff');
@@ -43,8 +42,7 @@ function applyTheme(theme) {
     root.style.setProperty('--green',     '#25d366');
     root.style.setProperty('--red',       '#e05252');
     root.style.setProperty('--orange',    '#e08a3c');
-  } else if (theme === 'dark') {
-    // Стандартная тёмная тема (Ночная)
+  } else {
     root.style.setProperty('--bg',        '#0a0a0f');
     root.style.setProperty('--bg2',       '#111118');
     root.style.setProperty('--surface',   '#16161f');
@@ -63,154 +61,20 @@ function applyTheme(theme) {
     root.style.setProperty('--green',     '#3dba6e');
     root.style.setProperty('--red',       '#e05252');
     root.style.setProperty('--orange',    '#e08a3c');
-  } else if (theme === 'light-beautiful') {
-    // Красивая светлая тема (пастельные тона)
-    root.style.setProperty('--bg',        '#f9f5ff');
-    root.style.setProperty('--bg2',       '#ffffff');
-    root.style.setProperty('--surface',   '#ffffff');
-    root.style.setProperty('--surface2',  '#f3edff');
-    root.style.setProperty('--surface3',  '#e9e0ff');
-    root.style.setProperty('--text',      '#2d1b69');
-    root.style.setProperty('--text2',     '#5a4b8c');
-    root.style.setProperty('--sub',       '#8a7cb0');
-    root.style.setProperty('--divider',   'rgba(45,27,105,0.08)');
-    root.style.setProperty('--bubble-in', '#ffffff');
-    root.style.setProperty('--bubble-me', '#e0d4ff');
-    root.style.setProperty('--glass',     'rgba(255,255,255,0.92)');
-    root.style.setProperty('--accent',    '#9d7bff');
-    root.style.setProperty('--accent2',   '#b59cff');
-    root.style.setProperty('--accent-g',  'linear-gradient(135deg,#9d7bff,#7b5bd6)');
-    root.style.setProperty('--green',     '#6bcf7f');
-    root.style.setProperty('--red',       '#ff6b8b');
-    root.style.setProperty('--orange',    '#ffa85c');
-  } else if (theme === 'dark-beautiful') {
-    // Красивая тёмная тема (глубокий фиолетовый)
-    root.style.setProperty('--bg',        '#0f0a1f');
-    root.style.setProperty('--bg2',       '#1a1430');
-    root.style.setProperty('--surface',   '#221c3c');
-    root.style.setProperty('--surface2',  '#2a2448');
-    root.style.setProperty('--surface3',  '#342e54');
-    root.style.setProperty('--text',      '#e8e0ff');
-    root.style.setProperty('--text2',     '#b8a8e8');
-    root.style.setProperty('--sub',       '#7a6ca0');
-    root.style.setProperty('--divider',   'rgba(232,224,255,0.06)');
-    root.style.setProperty('--bubble-in', '#221c3c');
-    root.style.setProperty('--bubble-me', '#3d2a6e');
-    root.style.setProperty('--glass',     'rgba(34,28,60,0.85)');
-    root.style.setProperty('--accent',    '#a07de0');
-    root.style.setProperty('--accent2',   '#c0a5ff');
-    root.style.setProperty('--accent-g',  'linear-gradient(135deg,#a07de0,#7c5cbf)');
-    root.style.setProperty('--green',     '#6bcf7f');
-    root.style.setProperty('--red',       '#ff6b8b');
-    root.style.setProperty('--orange',    '#ffa85c');
-  } else if (theme === 'telegram-dark') {
-    // Тёмная тема Telegram (сине-серая)
-    root.style.setProperty('--bg',        '#17212b');
-    root.style.setProperty('--bg2',       '#232f3d');
-    root.style.setProperty('--surface',   '#2b5278');
-    root.style.setProperty('--surface2',  '#3a5d82');
-    root.style.setProperty('--surface3',  '#4a6b8f');
-    root.style.setProperty('--text',      '#ffffff');
-    root.style.setProperty('--text2',     '#8f9ba8');
-    root.style.setProperty('--sub',       '#6b7b8c');
-    root.style.setProperty('--divider',   'rgba(255,255,255,0.08)');
-    root.style.setProperty('--bubble-in', '#2b5278');
-    root.style.setProperty('--bubble-me', '#2b5278');
-    root.style.setProperty('--glass',     'rgba(43,82,120,0.85)');
-    root.style.setProperty('--accent',    '#5288c1');
-    root.style.setProperty('--accent2',   '#6ba1e0');
-    root.style.setProperty('--accent-g',  'linear-gradient(135deg,#5288c1,#3a6ea5)');
-    root.style.setProperty('--green',     '#34c759');
-    root.style.setProperty('--red',       '#ff3b30');
-    root.style.setProperty('--orange',    '#ff9500');
-  } else if (theme === 'whatsapp-green') {
-    // Светлая тема WhatsApp (зелёная)
-    root.style.setProperty('--bg',        '#f0f2f5');
-    root.style.setProperty('--bg2',       '#ffffff');
-    root.style.setProperty('--surface',   '#ffffff');
-    root.style.setProperty('--surface2',  '#f7f8fa');
-    root.style.setProperty('--surface3',  '#eff1f3');
-    root.style.setProperty('--text',      '#111b21');
-    root.style.setProperty('--text2',     '#3b4a54');
-    root.style.setProperty('--sub',       '#8696a0');
-    root.style.setProperty('--divider',   'rgba(0,0,0,0.08)');
-    root.style.setProperty('--bubble-in', '#ffffff');
-    root.style.setProperty('--bubble-me', '#d9fdd3');
-    root.style.setProperty('--glass',     'rgba(255,255,255,0.92)');
-    root.style.setProperty('--accent',    '#00a884');
-    root.style.setProperty('--accent2',   '#00a884');
-    root.style.setProperty('--accent-g',  'linear-gradient(135deg,#00a884,#00856f)');
-    root.style.setProperty('--green',     '#25d366');
-    root.style.setProperty('--red',       '#e05252');
-    root.style.setProperty('--orange',    '#e08a3c');
-  } else if (theme === 'blue-dark') {
-    // Синяя тёмная тема
-    root.style.setProperty('--bg',        '#0d1b2a');
-    root.style.setProperty('--bg2',       '#1b263b');
-    root.style.setProperty('--surface',   '#415a77');
-    root.style.setProperty('--surface2',  '#4a6380');
-    root.style.setProperty('--surface3',  '#556b8a');
-    root.style.setProperty('--text',      '#e0e1dd');
-    root.style.setProperty('--text2',     '#a3b1c2');
-    root.style.setProperty('--sub',       '#778da9');
-    root.style.setProperty('--divider',   'rgba(224,225,221,0.08)');
-    root.style.setProperty('--bubble-in', '#415a77');
-    root.style.setProperty('--bubble-me', '#2d4a6e');
-    root.style.setProperty('--glass',     'rgba(65,90,119,0.85)');
-    root.style.setProperty('--accent',    '#4cc9f0');
-    root.style.setProperty('--accent2',   '#6bd4ff');
-    root.style.setProperty('--accent-g',  'linear-gradient(135deg,#4cc9f0,#2a9d8f)');
-    root.style.setProperty('--green',     '#2a9d8f');
-    root.style.setProperty('--red',       '#e63946');
-    root.style.setProperty('--orange',    '#f4a261');
-  } else if (theme === 'amber') {
-    // Янтарная тёплая тема
-    root.style.setProperty('--bg',        '#fff8e1');
-    root.style.setProperty('--bg2',       '#ffecb3');
-    root.style.setProperty('--surface',   '#ffd54f');
-    root.style.setProperty('--surface2',  '#ffca28');
-    root.style.setProperty('--surface3',  '#ffb300');
-    root.style.setProperty('--text',      '#5d4037');
-    root.style.setProperty('--text2',     '#8d6e63');
-    root.style.setProperty('--sub',       '#a1887f');
-    root.style.setProperty('--divider',   'rgba(93,64,55,0.1)');
-    root.style.setProperty('--bubble-in', '#ffecb3');
-    root.style.setProperty('--bubble-me', '#ffd54f');
-    root.style.setProperty('--glass',     'rgba(255,248,225,0.92)');
-    root.style.setProperty('--accent',    '#ff9800');
-    root.style.setProperty('--accent2',   '#ffb74d');
-    root.style.setProperty('--accent-g',  'linear-gradient(135deg,#ff9800,#f57c00)');
-    root.style.setProperty('--green',     '#4caf50');
-    root.style.setProperty('--red',       '#f44336');
-    root.style.setProperty('--orange',    '#ff9800');
   }
 
   // Обновляем иконки всех кнопок темы
   document.querySelectorAll('#btn-drawer-theme, .theme-toggle-btn').forEach(btn => {
-    // Устанавливаем иконку в зависимости от темы
-    let icon = '🌙';
-    if (theme === 'light') icon = '☀️';
-    else if (theme === 'light-beautiful') icon = '✨';
-    else if (theme === 'dark-beautiful') icon = '🌟';
-    btn.textContent = icon;
-    btn.title = theme === 'dark' ? 'Светлая тема' :
-                theme === 'light' ? 'Тёмная тема' :
-                theme === 'dark-beautiful' ? 'Красивая тёмная' : 'Красивая светлая';
+    btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+    btn.title = theme === 'dark' ? 'Светлая тема' : 'Тёмная тема';
   });
 
   const metaTheme = document.querySelector('meta[name="theme-color"]');
-  let themeColor = '#0a0a0f';
-  if (theme === 'light') themeColor = '#f0f2f5';
-  else if (theme === 'light-beautiful') themeColor = '#f9f5ff';
-  else if (theme === 'dark-beautiful') themeColor = '#0f0a1f';
-  if (metaTheme) metaTheme.content = themeColor;
+  if (metaTheme) metaTheme.content = theme === 'light' ? '#f0f2f5' : '#0a0a0f';
 }
 
 function toggleTheme() {
-  const themes = ['dark', 'light', 'dark-beautiful', 'light-beautiful', 'telegram-dark', 'whatsapp-green', 'blue-dark', 'amber'];
-  const currentIndex = themes.indexOf(currentTheme);
-  const nextIndex = (currentIndex + 1) % themes.length;
-  applyTheme(themes[nextIndex]);
+  applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
 }
 
 // Применяем сразу
