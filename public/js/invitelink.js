@@ -115,18 +115,15 @@ function checkInviteFromUrl() {
     if (!myNickname) { setTimeout(tryJoin, 500); return; }
     showToast(`🔗 Переход по ссылке-приглашению…`, 3000);
     if (typeof joinRoom === 'function') {
-      // joinRoom вызывает cb(ok, errorCode) — ok=false при ошибке
-      // При approval_required joinRoom сам вызывает handleApprovalJoin
       joinRoom(invite, '', (ok, err) => {
         if (!ok) {
-          if (err === 'not_found') {
-            showToast('❌ Группа не найдена или удалена', 4000);
-          } else if (err === 'wrong_password') {
+          if (err === 'not_found') showToast('❌ Группа не найдена или удалена', 4000);
+          else if (err === 'wrong_password') {
+            // Попросим пароль
             if (typeof openRoomPasswordModal === 'function') {
               openRoomPasswordModal(invite, 'Группа', 'open');
             }
           }
-          // approval_required обрабатывается внутри joinRoom автоматически
         }
       });
     }
