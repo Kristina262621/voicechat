@@ -46,7 +46,11 @@
   }
 
   async function verifySignedPreKey(bundle) {
-    if (!bundle.identitySignPublic) return true;
+    console.log('[E2EE] Verifying signed pre-key signature');
+    if (!bundle.identitySignPublic) {
+      console.log('[E2EE] No identitySignPublic, skipping verification');
+      return true;
+    }
     const verifyKey = await importEcdsaSpkiPublic(bundle.identitySignPublic);
     const ok = await crypto.subtle.verify(
       { name: 'ECDSA', hash: 'SHA-256' },
@@ -55,6 +59,7 @@
       b64ToBytes(bundle.signedPreKey.publicKey)
     );
     if (!ok) throw new Error('signed_prekey_invalid_signature');
+    console.log('[E2EE] Signed pre-key signature valid');
     return true;
   }
 
@@ -99,15 +104,35 @@
     if (!myIdentityDhPriv) throw new Error('identityDh.private_missing');
 
     const peerSignedPub = await importEcdhRawPublic(peerBundle.signedPreKey.publicKey);
+    console.log('[E2EE] deriveOutboundKey: myIdentityDhPriv present, peerSignedPub imported');
     const bits = await crypto.subtle.deriveBits(
       { name: 'ECDH', public: peerSignedPub },
       myIdentityDhPriv,
       256
     );
+    console.log('[E2EE] deriveOutboundKey derived bits, length:', bits.byteLength, 'first few bytes:', new Uint8Array(bits).slice(0, 4).join(','));
 
     // Ignore oneTimePreKey for simplicity and compatibility with deriveInboundKey
     console.log('[E2EE] deriveOutboundKey using only signed pre-key (oneTimePreKey ignored)');
-    return hkdfAes(bits);
+    const key = await hkdfAes(bits);
+    console.log('[E2EE] Outbound key derived successfully, key algorithm:', key.algorithm);
+    
+    // Тестируем ключ: шифруем и расшифровываем тестовые данные
+    try {
+      const testIv = crypto.getRandomValues(new Uint8Array(12));
+      const testData = te.encode('test');
+      const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: testIv }, key, testData);
+      const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: testIv }, key, encrypted);
+      const decoded = td.decode(decrypted);
+      console.log('[E2EE] Outbound key self-test passed, decrypted:', decoded);
+    } catch (testError) {
+      console.error('[E2EE] Outbound key self-test failed:', testError);
+      const err = new Error('derived_key_invalid');
+      err.name = 'DerivedKeyInvalidError';
+      throw err;
+    }
+    
+    return key;
   }
 
   async function deriveInboundKey(peerId) {
@@ -181,9 +206,12 @@
 
   async function encryptTextForPeer(peerId, text) {
     const s = await ensurePeer(peerId);
+    console.log('[E2EE] encryptTextForPeer: outboundKey algorithm:', s.outboundKey.algorithm);
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const pt = te.encode(String(text));
+    console.log('[E2EE] encryptTextForPeer: plaintext length:', pt.length);
     const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, s.outboundKey, pt);
+    console.log('[E2EE] encryptTextForPeer: ciphertext length:', ct.byteLength);
     await rotateKeysIfNeeded(peerId, 'outbound');
     return { encrypted: bytesToB64(new Uint8Array(ct)), iv: bytesToB64(iv) };
   }
@@ -210,6 +238,19 @@
       }
       
       console.log('[E2EE] Decrypting with algorithm:', { name: 'AES-GCM', iv: Array.from(iv) });
+      // Проверка длины IV (должно быть 12 байт для AES-GCM)
+      if (iv.length !== 12) {
+        console.error('[E2EE] Invalid IV length:', iv.length);
+        throw new Error('invalid_iv_length');
+      }
+      // Проверка, что ключ существует
+      if (!s.inboundKey) {
+        throw new Error('inbound_key_missing');
+      }
+      // Дополнительное логирование ключа
+      const keyAlgo = s.inboundKey.algorithm;
+      console.log('[E2EE] Inbound key algorithm:', keyAlgo);
+      
       const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, s.inboundKey, ct);
       console.log('[E2EE] Decryption successful, plaintext length:', pt.byteLength);
       
@@ -247,20 +288,6 @@
           console.log('[E2EE] Retry with inboundKey present:', !!s.inboundKey);
           const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, s.inboundKey, ct);
           await rotateKeysIfNeeded(peerId, 'inbound');
-          return td.decode(pt);
-        } catch (retryError) {
-          console.error('[E2EE] Retry also failed:', retryError);
-          throw retryError;
-        }
-      }
-      if (error.name === 'DerivedKeyInvalidError') {
-        console.log('[E2EE] DerivedKeyInvalidError, clearing peer cache and retrying...');
-        clearPeer(peerId);
-        try {
-          const s = await ensurePeer(peerId);
-          const iv = b64ToBytes(ivB64);
-          const ct = b64ToBytes(encryptedB64);
-          const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, s.outboundKey, ct);
           return td.decode(pt);
         } catch (retryError) {
           console.error('[E2EE] Retry also failed:', retryError);
