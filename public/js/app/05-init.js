@@ -48,7 +48,27 @@ function checkE2EEModulesSafe() {
 
 async function ensureE2EEKeysSafe() {
   try {
-    if (window.E2EEKeys?.ensurePreKeys) {
+    if (!window.E2EEKeys) {
+      console.warn('[E2EE] E2EEKeys module not loaded');
+      return;
+    }
+    
+    // Проверяем, есть ли локальные ключи
+    const hasLocalKeys = await window.E2EEKeys.dbGet('identityDh.private') !== null;
+    
+    if (!hasLocalKeys) {
+      console.log('[E2EE] No local keys found, generating...');
+      try {
+        await window.E2EEKeys.generateAndUpload({ oneTimeCount: 20 });
+        console.log('[E2EE] Keys generated and uploaded successfully');
+      } catch (genError) {
+        console.error('[E2EE] Failed to generate keys:', genError);
+        // Продолжаем, возможно ключи уже есть на сервере
+      }
+    }
+    
+    // Проверяем и пополняем prekeys на сервере
+    if (window.E2EEKeys.ensurePreKeys) {
       await window.E2EEKeys.ensurePreKeys(10, 20);
       console.log('[E2EE] ensurePreKeys done');
     }
@@ -978,7 +998,6 @@ function initEventListeners() {
 
   // Long press menu
   initLongPress();
-
   // Friend events
   socket.on('friend-request-incoming', ({ fromNick }) => {
     showToast(`👋 ${fromNick} хочет добавить тебя в друзья`, 6000, () => {
