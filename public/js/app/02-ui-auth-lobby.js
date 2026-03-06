@@ -2,6 +2,9 @@
 //  02-ui-auth-lobby.js — auth, профиль, лобби, комнаты, личные чаты
 // ═══════════════════════════════════════════════
 
+// Заглушка для saveChatState, если функция не определена (например, core.js не загрузился)
+if (typeof saveChatState !== 'function') window.saveChatState = function() {};
+
 // ───────────────────────────────────────────────
 //  ПРОФИЛЬ СОБЕСЕДНИКА
 // ───────────────────────────────────────────────
@@ -919,7 +922,7 @@ async function enterPrivateChat(chatId, withNickname, withAvatar) {
   isRoomOwner = false;
   memberCount = 2;
   clearUnread(chatId);
-  saveChatState();
+  if (typeof saveChatState === 'function') saveChatState();
 
   try { await Crypto.deriveKey('', chatId, chatId + '-private-v2'); } catch (e) { console.error(e); }
 
@@ -1268,7 +1271,7 @@ function joinRoom(roomId, password, cb) {
       currentChatWith = null;
       isRoomOwner     = res.room.isOwner || false;
       clearUnread(roomId);
-      saveChatState();
+      if (typeof saveChatState === 'function') saveChatState();
 
       const roomSalt = res.room.roomSalt || (roomId + '-default-salt');
       await Crypto.deriveKey(password, roomId, roomSalt);
