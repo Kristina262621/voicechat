@@ -985,6 +985,17 @@ async function decryptPrivateHistoryText(peerId, encrypted, iv) {
     return await Crypto.decryptText(encrypted, iv);
   } catch (e) {
     console.error('[Crypto history] decryptText failed', e);
+    // Если ошибка связана с отсутствием ключа, попробуем установить ключ для этого чата
+    if (e.message && e.message.includes('No decryption key available') && currentChatId) {
+      console.log('[Crypto history] Attempting to derive key for chat', currentChatId);
+      try {
+        await Crypto.deriveKey('', currentChatId, currentChatId + '-private-v2');
+        // Повторная попытка дешифрования
+        return await Crypto.decryptText(encrypted, iv);
+      } catch (deriveError) {
+        console.error('[Crypto history] Derive key failed', deriveError);
+      }
+    }
     throw e; // Пробрасываем ошибку дальше
   }
 }
