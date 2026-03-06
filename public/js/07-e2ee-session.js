@@ -87,34 +87,22 @@
   }
 
   async function deriveOutboundKey(peerId) {
-    const peerBundle = await fetchBundle(peerId, 1); // consume one-time
+    const peerBundle = await fetchBundle(peerId, 1); // consume one-time (but we ignore it)
     await verifySignedPreKey(peerBundle);
 
     const myIdentityDhPriv = await window.E2EEKeys.dbGet('identityDh.private');
     if (!myIdentityDhPriv) throw new Error('identityDh.private_missing');
 
     const peerSignedPub = await importEcdhRawPublic(peerBundle.signedPreKey.publicKey);
-    const bits1 = await crypto.subtle.deriveBits(
+    const bits = await crypto.subtle.deriveBits(
       { name: 'ECDH', public: peerSignedPub },
       myIdentityDhPriv,
       256
     );
 
-    let combinedBits = bits1;
-    if (peerBundle.oneTimePreKey) {
-      const peerOnePub = await importEcdhRawPublic(peerBundle.oneTimePreKey.publicKey);
-      const bits2 = await crypto.subtle.deriveBits(
-        { name: 'ECDH', public: peerOnePub },
-        myIdentityDhPriv,
-        256
-      );
-      const tmp = new Uint8Array(bits1.byteLength + bits2.byteLength);
-      tmp.set(new Uint8Array(bits1), 0);
-      tmp.set(new Uint8Array(bits2), bits1.byteLength);
-      combinedBits = tmp.buffer;
-    }
-
-    return hkdfAes(combinedBits);
+    // Ignore oneTimePreKey for simplicity and compatibility with deriveInboundKey
+    console.log('[E2EE] deriveOutboundKey using only signed pre-key (oneTimePreKey ignored)');
+    return hkdfAes(bits);
   }
 
   async function deriveInboundKey(peerId) {
@@ -202,6 +190,8 @@
       const iv = b64ToBytes(ivB64);
       const ct = b64ToBytes(encryptedB64);
       console.log('[E2EE] IV length:', iv.length, 'CT length:', ct.length);
+      console.log('[E2EE] IV (hex):', Array.from(iv).map(b => b.toString(16).padStart(2, '0')).join(''));
+      console.log('[E2EE] CT first 16 bytes (hex):', Array.from(ct.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(''));
       
       // Детальное логирование ключа
       if (s.inboundKey) {
