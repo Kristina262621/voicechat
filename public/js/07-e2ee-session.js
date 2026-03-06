@@ -118,20 +118,32 @@
   }
 
   async function deriveInboundKey(peerId) {
+    console.log('[E2EE] deriveInboundKey for peer:', peerId);
+    
     const peerBundle = await fetchBundle(peerId, 0); // не потребляем
+    console.log('[E2EE] Got peer bundle:', peerBundle ? 'yes' : 'no');
+    
     const mySignedPriv = await window.E2EEKeys.dbGet('signedPre.private');
+    console.log('[E2EE] mySignedPriv:', mySignedPriv ? 'present' : 'missing');
     if (!mySignedPriv) throw new Error('signedPre.private_missing');
 
     const peerIdentityDh = peerBundle.identityDhPublic || peerBundle.identityKeyPublic;
+    console.log('[E2EE] peerIdentityDh:', peerIdentityDh ? 'present' : 'missing');
     if (!peerIdentityDh) throw new Error('peer_identityDh_missing');
 
     const peerIdentityPub = await importEcdhRawPublic(peerIdentityDh);
+    console.log('[E2EE] Derived peerIdentityPub');
+    
     const bits = await crypto.subtle.deriveBits(
       { name: 'ECDH', public: peerIdentityPub },
       mySignedPriv,
       256
     );
-    return hkdfAes(bits);
+    console.log('[E2EE] Derived bits, length:', bits.byteLength);
+    
+    const key = await hkdfAes(bits);
+    console.log('[E2EE] Inbound key derived successfully');
+    return key;
   }
 
   async function ensurePeer(peerId) {
@@ -168,12 +180,26 @@
   }
 
   async function decryptTextFromPeer(peerId, encryptedB64, ivB64) {
-    const s = await ensurePeer(peerId);
-    const iv = b64ToBytes(ivB64);
-    const ct = b64ToBytes(encryptedB64);
-    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, s.inboundKey, ct);
-    await rotateKeysIfNeeded(peerId, 'inbound');
-    return td.decode(pt);
+    console.log('[E2EE] decryptTextFromPeer for peer:', peerId, 'encrypted length:', encryptedB64?.length);
+    try {
+      const s = await ensurePeer(peerId);
+      console.log('[E2EE] Session ensured, inboundKey:', s.inboundKey ? 'present' : 'missing');
+      
+      const iv = b64ToBytes(ivB64);
+      const ct = b64ToBytes(encryptedB64);
+      console.log('[E2EE] IV length:', iv.length, 'CT length:', ct.length);
+      
+      const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, s.inboundKey, ct);
+      console.log('[E2EE] Decryption successful, plaintext length:', pt.byteLength);
+      
+      await rotateKeysIfNeeded(peerId, 'inbound');
+      const result = td.decode(pt);
+      console.log('[E2EE] Decoded text length:', result.length);
+      return result;
+    } catch (error) {
+      console.error('[E2EE] decryptTextFromPeer failed:', error);
+      throw error;
+    }
   }
 
   async function decryptOwnTextForPeer(peerId, encryptedB64, ivB64) {
