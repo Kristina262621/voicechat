@@ -198,16 +198,51 @@
       return result;
     } catch (error) {
       console.error('[E2EE] decryptTextFromPeer failed:', error);
+      // При ошибке OperationError попробуем сбросить сессию и повторить
+      if (error.name === 'OperationError') {
+        console.log('[E2EE] OperationError, clearing peer cache and retrying...');
+        clearPeer(peerId);
+        try {
+          const s = await ensurePeer(peerId);
+          const iv = b64ToBytes(ivB64);
+          const ct = b64ToBytes(encryptedB64);
+          const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, s.inboundKey, ct);
+          await rotateKeysIfNeeded(peerId, 'inbound');
+          return td.decode(pt);
+        } catch (retryError) {
+          console.error('[E2EE] Retry also failed:', retryError);
+          throw retryError;
+        }
+      }
       throw error;
     }
   }
 
   async function decryptOwnTextForPeer(peerId, encryptedB64, ivB64) {
-    const s = await ensurePeer(peerId);
-    const iv = b64ToBytes(ivB64);
-    const ct = b64ToBytes(encryptedB64);
-    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, s.outboundKey, ct);
-    return td.decode(pt);
+    try {
+      const s = await ensurePeer(peerId);
+      const iv = b64ToBytes(ivB64);
+      const ct = b64ToBytes(encryptedB64);
+      const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, s.outboundKey, ct);
+      return td.decode(pt);
+    } catch (error) {
+      console.error('[E2EE] decryptOwnTextForPeer failed:', error);
+      if (error.name === 'OperationError') {
+        console.log('[E2EE] OperationError, clearing peer cache and retrying...');
+        clearPeer(peerId);
+        try {
+          const s = await ensurePeer(peerId);
+          const iv = b64ToBytes(ivB64);
+          const ct = b64ToBytes(encryptedB64);
+          const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, s.outboundKey, ct);
+          return td.decode(pt);
+        } catch (retryError) {
+          console.error('[E2EE] Retry also failed:', retryError);
+          throw retryError;
+        }
+      }
+      throw error;
+    }
   }
 
   async function encryptBytesForPeer(peerId, bytesLike) {
