@@ -117,27 +117,6 @@ function openMsgContextMenu(domId, msgEl) {
     const firstItem = sheet.querySelector('.msg-ctx-item[data-action]');
     if (firstItem) firstItem.insertAdjacentElement('beforebegin', replyBtn);
     else sheet.appendChild(replyBtn);
-
-    // Кнопка "Закрепить" — только в групповом чате для медиа-сообщений, если пользователь owner/admin
-    const canPin = currentChatType === 'group' && currentRoomId && msgIdAttr &&
-      (typeof myRole !== 'undefined' ? (myRole === 'owner' || myRole === 'admin') : isRoomOwner);
-    const isMedia = ['image', 'video', 'file', 'voice'].includes(msgType);
-    if (canPin && isMedia) {
-      const pinBtn = document.createElement('button');
-      pinBtn.className = 'msg-ctx-item';
-      pinBtn.style.cssText = 'display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:12px;border:none;background:none;color:var(--text);font-size:15px;cursor:pointer;width:100%;text-align:left;';
-      pinBtn.innerHTML = '<span style="font-size:20px">📌</span><span>Закрепить в описании</span>';
-      pinBtn.addEventListener('click', () => {
-        menu.remove();
-        socket.emit('room-pin-media', { roomId: currentRoomId, msgId: msgIdAttr, kind: msgType }, res => {
-          if (!res?.ok) showToast('❌ Не удалось закрепить');
-          else showToast('📌 Медиа закреплено в описании группы');
-        });
-      });
-      const cancelBtn = sheet.querySelector('.msg-ctx-cancel');
-      if (cancelBtn) cancelBtn.insertAdjacentElement('beforebegin', pinBtn);
-      else sheet.appendChild(pinBtn);
-    }
   });
 }
 
@@ -168,13 +147,7 @@ function openMsgEditDialog(domId, msgEl, msgId) {
     const newText = input.value.trim();
     if (!newText) return;
     try {
-      let encrypted, iv;
-      if (currentChatType === 'private' && currentChatWith) {
-        ({ encrypted, iv } = await encryptPrivateTextE2EE(currentChatWith, newText));
-      } else {
-        ({ encrypted, iv } = await Crypto.encrypt(newText));
-      }
-
+      const { encrypted, iv } = await Crypto.encrypt(newText);
       if (currentChatType === 'private' && currentChatId) {
         socket.emit('private-msg-edit', { chatId: currentChatId, msgId, newEncrypted: encrypted, newIv: iv }, res => {
           if (res.ok) {
@@ -275,6 +248,7 @@ function hideUploadProgress() {
   setTimeout(() => el.remove(), 350);
 }
 
+// маленький индикатор статуса загрузки (безопасный fallback)
 function showChatUploadStatus(type) {
   let badge = document.getElementById('chat-upload-status');
   if (!badge) {
@@ -289,103 +263,6 @@ function showChatUploadStatus(type) {
 }
 function hideChatUploadStatus() {
   document.getElementById('chat-upload-status')?.remove();
-}
-
-// ───────────────────────────────────────────────
-//  E2EE helper для private (text+bytes)
-// ───────────────────────────────────────────────
-async function encryptPrivateTextE2EE(peerId, text) {
-  const normalizedPeerId = normalizePeerId(peerId);
-  console.log('[E2EE] encryptPrivateTextE2EE called, peerId:', peerId, 'normalized:', normalizedPeerId, 'text length:', text?.length);
-  
-  // Пробуем E2EE сессию
-  if (window.E2EESession?.encryptTextForPeer && normalizedPeerId) {
-    try {
-      const result = await window.E2EESession.encryptTextForPeer(normalizedPeerId, text);
-      console.log('[E2EE] encryptTextForPeer succeeded');
-      return result;
-    } catch (e) {
-      console.warn('[E2EE] encryptTextForPeer failed for peer', normalizedPeerId, e);
-      // Fallback на обычное шифрование
-    }
-  } else {
-    console.warn('[E2EE] E2EESession or peerId missing for encryption:', {
-      hasE2EESession: !!window.E2EESession,
-      hasEncryptTextForPeer: !!(window.E2EESession?.encryptTextForPeer),
-      normalizedPeerId
-    });
-  }
-  
-  // Fallback на обычное шифрование
-  console.log('[E2EE] Falling back to Crypto.encrypt');
-  return Crypto.encrypt(text);
-}
-
-// Нормализация peerId для consistency
-function normalizePeerId(peerId) {
-  if (!peerId) return '';
-  // Приводим к строке, обрезаем пробелы, приводим к нижнему регистру
-  return String(peerId).trim().toLowerCase();
-}
-
-async function decryptPrivateTextE2EE(peerId, encrypted, iv) {
-  const normalizedPeerId = normalizePeerId(peerId);
-  console.log('[E2EE] decryptPrivateTextE2EE called, peerId:', peerId, 'normalized:', normalizedPeerId);
-  
-  // Сначала пробуем E2EE сессию
-  if (window.E2EESession?.decryptTextFromPeer && normalizedPeerId) {
-    try {
-      const result = await window.E2EESession.decryptTextFromPeer(normalizedPeerId, encrypted, iv);
-      console.log('[E2EE] decryptTextFromPeer succeeded');
-      return result;
-    } catch (e) {
-      console.warn('[E2EE] decryptTextFromPeer failed for peer', normalizedPeerId, e);
-      // Пробуем расшифровать своими ключами (для своих сообщений)
-      if (window.E2EESession?.decryptOwnTextForPeer) {
-        try {
-          const result = await window.E2EESession.decryptOwnTextForPeer(normalizedPeerId, encrypted, iv);
-          console.log('[E2EE] decryptOwnTextForPeer succeeded (own message)');
-          return result;
-        } catch (e2) {
-          console.warn('[E2EE] decryptOwnTextForPeer also failed', e2);
-        }
-      }
-    }
-  } else {
-    console.warn('[E2EE] E2EESession or peerId missing:', {
-      hasE2EESession: !!window.E2EESession,
-      hasDecryptTextFromPeer: !!(window.E2EESession?.decryptTextFromPeer),
-      normalizedPeerId
-    });
-  }
-  
-  // Fallback на обычное шифрование
-  try {
-    console.log('[E2EE] Falling back to Crypto.decryptText');
-    return await Crypto.decryptText(encrypted, iv);
-  } catch (e) {
-    console.error('[Crypto] decryptText failed', e);
-    throw e; // Пробрасываем ошибку дальше
-  }
-}
-
-async function encryptPrivateBytesE2EE(peerId, bytesLike) {
-  // Приводим peerId к нижнему регистру для consistency
-  const normalizedPeerId = peerId ? String(peerId).toLowerCase().trim() : '';
-  if (window.E2EESession?.encryptBytesForPeer && normalizedPeerId) {
-    return window.E2EESession.encryptBytesForPeer(normalizedPeerId, bytesLike);
-  }
-  return Crypto.encrypt(bytesLike);
-}
-
-async function decryptPrivateBlobE2EE(peerId, encrypted, iv, mime) {
-  // Приводим peerId к нижнему регистру для consistency
-  const normalizedPeerId = peerId ? String(peerId).toLowerCase().trim() : '';
-  if (window.E2EESession?.decryptBlobFromPeer && normalizedPeerId) {
-    try { return await window.E2EESession.decryptBlobFromPeer(normalizedPeerId, encrypted, iv, mime); }
-    catch (_) {}
-  }
-  return Crypto.decryptBlob(encrypted, iv, mime);
 }
 
 // ───────────────────────────────────────────────
@@ -404,8 +281,7 @@ async function sendTextMessage() {
 
   try {
     if (currentChatType === 'private' && currentChatId) {
-      const peerId = currentChatWith || '';
-      const { encrypted, iv } = await encryptPrivateTextE2EE(peerId, text);
+      const { encrypted, iv } = await Crypto.encrypt(text);
       const seq = ++outgoingSeq;
 
       const domId = appendMessage({
@@ -461,14 +337,7 @@ async function sendTextMessage() {
 async function sendVoiceMessage(blob, duration, mimeType) {
   try {
     const ab = await blob.arrayBuffer();
-
-    let encrypted, iv;
-    if (currentChatType === 'private' && currentChatWith) {
-      ({ encrypted, iv } = await encryptPrivateBytesE2EE(currentChatWith, ab));
-    } else {
-      ({ encrypted, iv } = await Crypto.encrypt(ab));
-    }
-
+    const { encrypted, iv } = await Crypto.encrypt(ab);
     const localUrl = URL.createObjectURL(new Blob([ab], { type: mimeType }));
     const seq = ++outgoingSeq;
 
@@ -591,7 +460,7 @@ function stopVoiceRecording() {
 // ───────────────────────────────────────────────
 //  ФАЙЛЫ / МЕДИА
 // ───────────────────────────────────────────────
-async function sendMediaBlob(blob, mimeType, fileName, type, caption) {
+async function sendMediaBlob(blob, mimeType, fileName, type) {
   showUploadProgress(fileName, mimeType);
   showChatUploadStatus(type);
 
@@ -604,27 +473,9 @@ async function sendMediaBlob(blob, mimeType, fileName, type, caption) {
       updateUploadProgress(fakeProgress);
     }, 100);
 
-    let encrypted, iv;
-    if (currentChatType === 'private' && currentChatWith) {
-      ({ encrypted, iv } = await encryptPrivateBytesE2EE(currentChatWith, ab));
-    } else {
-      ({ encrypted, iv } = await Crypto.encrypt(ab));
-    }
-
+    const { encrypted, iv } = await Crypto.encrypt(ab);
     clearInterval(progressInterval);
     updateUploadProgress(95);
-
-    // Шифруем подпись если есть
-    let captionEncrypted = null, captionIv = null;
-    if (caption && caption.trim()) {
-      try {
-        if (currentChatType === 'private' && currentChatWith) {
-          ({ encrypted: captionEncrypted, iv: captionIv } = await encryptPrivateTextE2EE(currentChatWith, caption.trim()));
-        } else {
-          ({ encrypted: captionEncrypted, iv: captionIv } = await Crypto.encrypt(caption.trim()));
-        }
-      } catch (_) {}
-    }
 
     const localUrl = URL.createObjectURL(new Blob([ab], { type: mimeType }));
     const seq = ++outgoingSeq;
@@ -633,15 +484,12 @@ async function sendMediaBlob(blob, mimeType, fileName, type, caption) {
       encrypted, iv, type, seq,
       fileName: fileName || 'file',
       fileSize: blob.size,
-      mimeType,
-      captionEncrypted: captionEncrypted || null,
-      captionIv: captionIv || null
+      mimeType
     };
 
     const domId = appendMessage({
       from: socket.id, nickname: myNickname, type, localUrl,
       fileName: fileName || 'file', fileSize: blob.size, mimeType,
-      caption: caption || null,
       timestamp: Date.now(), mine: true, status: 'ok', msgStatus: 'sending'
     });
     msgIdToDomId.set('pending-' + seq, domId);
@@ -677,31 +525,14 @@ async function sendMediaBlob(blob, mimeType, fileName, type, caption) {
     showToast('❌ Ошибка отправки: ' + e.message);
   }
 }
+
 // ───────────────────────────────────────────────
 //  ВХОДЯЩИЕ СООБЩЕНИЯ (ЛИЧНЫЕ)
 // ───────────────────────────────────────────────
 socket.on('private-message', async data => {
   const isCurrentChat = currentChatType === 'private' && currentChatId === data.chatId;
 
-  // Проверка на дублирование: если сообщение от текущего пользователя, пропускаем
-  const isFromMe = data.fromNick === myNickname || data.from === myUsername;
-  if (isFromMe && isCurrentChat) {
-    // Сообщение уже добавлено локально при отправке, не добавляем дубль
-    // Но обновим статус прочтения, если нужно
-    if (data.id) socket.emit('private-msg-read', { chatId: data.chatId, msgId: data.id });
-    return;
-  }
-
-  // Проверка на дублирование по msgId (если сообщение уже есть в чате)
-  if (data.id && msgIdToDomId.has(data.id)) {
-    // Дубликат, игнорируем
-    return;
-  }
-
   if (!isCurrentChat) {
-    // Если сообщение от меня, не показываем уведомление
-    if (isFromMe) return;
-    
     const setting = getNotifSetting(data.chatId);
     if (setting !== 'none') {
       showToast('💬 ' + (data.fromNick || '?') + ': новое сообщение', 4000, () => {
@@ -718,31 +549,12 @@ socket.on('private-message', async data => {
   if (getNotifSetting(data.chatId) !== 'none') playMsgSound(data.chatId);
   if (data.id) socket.emit('private-msg-read', { chatId: data.chatId, msgId: data.id });
 
-  const peerIdRaw = data.from || data.fromNick || currentChatWith || '';
-  const peerId = peerIdRaw.toLowerCase().trim();
-
   if (data.type === 'voice') {
-    // Проверка на дублирование для голосовых сообщений
-    if (isFromMe || (data.id && msgIdToDomId.has(data.id))) {
-      return;
-    }
-    try {
-      const blob = await decryptPrivateBlobE2EE(peerId, data.encrypted, data.iv, data.mimeType || 'audio/webm');
-      const localUrl = URL.createObjectURL(blob);
-      appendMessage({
-        id: data.id, nickname: data.fromNick, type: 'voice',
-        duration: data.duration || 0, timestamp: data.timestamp,
-        mine: false, status: 'ok', localUrl, mimeType: data.mimeType,
-        peerId
-      });
-    } catch (_) {
-      appendMessage({
-        id: data.id, nickname: data.fromNick, type: 'voice',
-        duration: data.duration || 0, timestamp: data.timestamp,
-        mine: false, status: 'error', encrypted: data.encrypted, iv: data.iv, mimeType: data.mimeType,
-        peerId
-      });
-    }
+    appendMessage({
+      id: data.id, nickname: data.fromNick, type: 'voice',
+      duration: data.duration || 0, timestamp: data.timestamp,
+      mine: false, status: 'ok', encrypted: data.encrypted, iv: data.iv, mimeType: data.mimeType
+    });
     return;
   }
 
@@ -750,63 +562,21 @@ socket.on('private-message', async data => {
     id: data.id, nickname: data.fromNick, type: data.type,
     fileName: data.fileName, fileSize: data.fileSize, mimeType: data.mimeType,
     timestamp: data.timestamp, mine: false, status: 'decrypting',
-    replyTo: data.replyTo || null, peerId
+    replyTo: data.replyTo || null
   });
 
   try {
     if (data.type === 'text') {
-      const text = await decryptPrivateTextE2EE(peerId, data.encrypted, data.iv);
+      const text = await Crypto.decryptText(data.encrypted, data.iv);
       updateMessage(domId, { text, status: 'ok' });
       showBrowserNotif('💬 ' + (data.fromNick || '?'), text, data.chatId);
     } else {
       const mime = data.mimeType || 'application/octet-stream';
-      const blob = await decryptPrivateBlobE2EE(peerId, data.encrypted, data.iv, mime);
-      // Расшифровываем подпись если есть
-      let caption = null;
-      if (data.captionEncrypted && data.captionIv) {
-        try {
-          caption = await decryptPrivateTextE2EE(peerId, data.captionEncrypted, data.captionIv);
-        } catch (e) {
-          console.warn('[private-message] caption decrypt error', e);
-        }
-      }
-      updateMessage(domId, { localUrl: URL.createObjectURL(blob), status: 'ok', caption });
+      const blob = await Crypto.decryptBlob(data.encrypted, data.iv, mime);
+      updateMessage(domId, { localUrl: URL.createObjectURL(blob), status: 'ok' });
     }
-  } catch (e) {
-    console.error('[private-message] Decryption failed:', e, 'peerId:', peerId, 'type:', data.type);
-    
-    // Пробуем альтернативные методы дешифрования
-    if (data.type === 'text') {
-      try {
-        // Пробуем использовать другой peerId (без нормализации)
-        const altPeerId = data.fromNick || data.from || currentChatWith || '';
-        if (altPeerId && altPeerId !== peerId) {
-          console.log('[private-message] Trying alternative peerId:', altPeerId);
-          const text = await decryptPrivateTextE2EE(altPeerId, data.encrypted, data.iv);
-          updateMessage(domId, { text, status: 'ok' });
-          console.log('[private-message] Decryption succeeded with alternative peerId');
-          return;
-        }
-      } catch (e2) {
-        console.warn('[private-message] Alternative decryption also failed:', e2);
-      }
-    }
-    
-    // Не обновлять статус на ошибку, если сообщение уже успешно расшифровано
-    const msgEl = document.getElementById(domId);
-    if (msgEl) {
-      const statusEl = msgEl.querySelector('.msg-decrypt-status');
-      if (!statusEl || !statusEl.classList.contains('ok')) {
-        updateMessage(domId, { status: 'error' });
-      }
-    } else {
-      updateMessage(domId, { status: 'error' });
-    }
-    
-    // Показываем уведомление пользователю
-    if (typeof showToast === 'function') {
-      showToast('⚠️ Не удалось расшифровать сообщение', 3000);
-    }
+  } catch (_) {
+    updateMessage(domId, { status: 'error' });
   }
 
   loadPrivateChatsList();
@@ -837,8 +607,7 @@ socket.on('private-msg-edited', async ({ chatId, msgId, newEncrypted, newIv }) =
   const domId = msgIdToDomId.get(msgId);
   if (!domId) return;
   try {
-    const peerId = currentChatWith || '';
-    const text = await decryptPrivateTextE2EE(peerId, newEncrypted, newIv);
+    const text = await Crypto.decryptText(newEncrypted, newIv);
     const el = document.getElementById(domId);
     if (el) {
       const c = el.querySelector('.msg-content');
@@ -919,29 +688,11 @@ socket.on('chat-message', async data => {
     } else {
       const mime = data.mimeType || 'application/octet-stream';
       const blob = await Crypto.decryptBlob(data.encrypted, data.iv, mime);
-      // Расшифровываем подпись если есть
-      let caption = null;
-      if (data.captionEncrypted && data.captionIv) {
-        try {
-          caption = await Crypto.decryptText(data.captionEncrypted, data.captionIv);
-        } catch (e) {
-          console.warn('[chat-message] caption decrypt error', e);
-        }
-      }
-      updateMessage(domId, { localUrl: URL.createObjectURL(blob), status: 'ok', caption });
+      updateMessage(domId, { localUrl: URL.createObjectURL(blob), status: 'ok' });
       if (document.visibilityState !== 'visible') addUnread(chatId, 1);
     }
   } catch (_) {
-    // Не обновлять статус на ошибку, если сообщение уже успешно расшифровано
-    const msgEl = document.getElementById(domId);
-    if (msgEl) {
-      const statusEl = msgEl.querySelector('.msg-decrypt-status');
-      if (!statusEl || !statusEl.classList.contains('ok')) {
-        updateMessage(domId, { status: 'error' });
-      }
-    } else {
-      updateMessage(domId, { status: 'error' });
-    }
+    updateMessage(domId, { status: 'error' });
   }
 });
 
@@ -962,8 +713,6 @@ function appendMessage(msg) {
   div.dataset.encrypted = msg.encrypted || '';
   div.dataset.iv = msg.iv || '';
   div.dataset.msgId = msg.id || '';
-  div.dataset.peerId = msg.peerId || '';
-  div.dataset.caption = msg.caption || '';
   div.innerHTML = buildMsgHTML(msg);
   chatMessages.appendChild(div);
   scrollToBottom();
@@ -992,11 +741,8 @@ function updateMessage(id, updates) {
       fileName: div.dataset.fileName,
       fileSize: div.dataset.fileSize,
       duration: div.dataset.duration,
-      caption: div.dataset.caption || null,
       ...updates
     };
-    // Сохраняем caption в dataset для последующих обновлений
-    if (updates.caption !== undefined) div.dataset.caption = updates.caption || '';
     content.innerHTML = buildContentHTML(merged);
     bindMediaEvents(div);
   }
@@ -1041,38 +787,23 @@ function buildMsgHTML(msg) {
     ${st}`;
 }
 
-function buildCaptionHTML(caption) {
-  if (!caption) return '';
-  return `<div class="msg-caption" style="margin-top:6px;font-size:14px;color:var(--text);line-height:1.5;word-break:break-word;">${escapeHtml(caption)}</div>`;
-}
-
 function buildContentHTML(msg) {
-  if (msg.type === 'text') {
-    // Если текст есть, показываем его
-    if (msg.text) return escapeHtml(msg.text);
-    // Если текста нет и статус не 'ok', показываем placeholder
-    if (msg.status !== 'ok') return '<span style="opacity:0.6;font-style:italic">[зашифровано]</span>';
-    // Иначе пустая строка
-    return '';
-  }
+  if (msg.type === 'text') return escapeHtml(msg.text || '');
 
   if (msg.type === 'image') {
-    const caption = buildCaptionHTML(msg.caption);
     return msg.localUrl
-      ? `<img class="msg-media" src="${msg.localUrl}" alt="фото" loading="lazy">${caption}`
+      ? `<img class="msg-media" src="${msg.localUrl}" alt="фото" loading="lazy">`
       : `<div style="display:flex;align-items:center;gap:8px;color:var(--sub);font-size:13px"><span>🖼</span><span>Загрузка…</span></div>`;
   }
 
   if (msg.type === 'video') {
-    const caption = buildCaptionHTML(msg.caption);
     return msg.localUrl
-      ? `<video class="msg-media" src="${msg.localUrl}" controls playsinline></video>${caption}`
+      ? `<video class="msg-media" src="${msg.localUrl}" controls playsinline></video>`
       : `<div style="display:flex;align-items:center;gap:8px;color:var(--sub);font-size:13px"><span>🎬</span><span>Загрузка…</span></div>`;
   }
 
   if (msg.type === 'file') {
     const size = msg.fileSize ? formatSize(parseInt(msg.fileSize)) : '';
-    const caption = buildCaptionHTML(msg.caption);
     return msg.localUrl
       ? `<div class="msg-file">
           <span class="msg-file-icon">📄</span>
@@ -1081,7 +812,7 @@ function buildContentHTML(msg) {
             <div class="msg-file-size">${size}</div>
           </div>
           <a class="msg-file-dl" href="${msg.localUrl}" download="${escapeHtml(msg.fileName || 'file')}">⬇️</a>
-         </div>${caption}`
+         </div>`
       : `<div style="display:flex;align-items:center;gap:8px;color:var(--sub);font-size:13px"><span>📎</span><span>${escapeHtml(msg.fileName || 'файл')} · Загрузка…</span></div>`;
   }
 
@@ -1107,7 +838,7 @@ function buildVoiceMessageHTML(msg) {
     </div>`;
   }
 
-  return `<div class="voice-msg" id="${vmId}" data-encrypted="${msg.encrypted || ''}" data-iv="${msg.iv || ''}" data-mime="${msg.mimeType || 'audio/webm'}" data-peer="${msg.peerId || ''}" data-dur="${dur}">
+  return `<div class="voice-msg" id="${vmId}" data-encrypted="${msg.encrypted || ''}" data-iv="${msg.iv || ''}" data-mime="${msg.mimeType || 'audio/webm'}" data-dur="${dur}">
     <button class="voice-msg-btn voice-decrypt-btn">▶️</button>
     <div class="voice-msg-waveform">${bars}</div>
     <span class="voice-msg-duration">${durStr}</span>
@@ -1180,14 +911,10 @@ function bindMediaEvents(container) {
       const enc = wrap.dataset.encrypted;
       const iv = wrap.dataset.iv;
       const mime = wrap.dataset.mime || 'audio/webm';
-      const peerId = wrap.dataset.peer || '';
       if (!enc || !iv) return;
       btn.textContent = '⏳';
       try {
-        let blob;
-        if (peerId) blob = await decryptPrivateBlobE2EE(peerId, enc, iv, mime);
-        else blob = await Crypto.decryptBlob(enc, iv, mime);
-
+        const blob = await Crypto.decryptBlob(enc, iv, mime);
         const url = URL.createObjectURL(blob);
         btn.classList.remove('voice-decrypt-btn');
         btn.dataset.url = url;
@@ -1257,6 +984,7 @@ function buildReactionsHTML(msgId, reactions) {
     ? `<div class="msg-reactions" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;">${html}</div>`
     : '';
 }
+
 function openReactionPicker(msgId, msgEl) {
   document.querySelector('.reaction-picker-popup')?.remove();
 
