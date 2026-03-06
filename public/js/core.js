@@ -232,6 +232,63 @@ function saveNotifSettings() {
 function getNotifSetting(id) { return notifSettings[id] || 'all'; }
 function setNotifSetting(id, val) { notifSettings[id] = val; saveNotifSettings(); }
 
+// ─── СОХРАНЕНИЕ СОСТОЯНИЯ ЧАТА ───
+const CHAT_STATE_KEY = 'chat_state';
+const CHAT_PASSWORD_KEY = 'chat_password';
+
+function saveChatState() {
+  try {
+    const state = {
+      roomId: currentRoomId,
+      chatType: currentChatType,
+      chatId: currentChatId,
+      chatWith: currentChatWith,
+      roomData: currentRoomData ? {
+        room_id: currentRoomData.room_id,
+        name: currentRoomData.name,
+        photo: currentRoomData.photo,
+        roomSalt: currentRoomData.roomSalt
+      } : null
+    };
+    localStorage.setItem(CHAT_STATE_KEY, JSON.stringify(state));
+    if (currentPassword) {
+      sessionStorage.setItem(CHAT_PASSWORD_KEY, currentPassword);
+    } else {
+      sessionStorage.removeItem(CHAT_PASSWORD_KEY);
+    }
+  } catch (_) {}
+}
+
+function loadChatState() {
+  try {
+    const saved = localStorage.getItem(CHAT_STATE_KEY);
+    if (!saved) return null;
+    const state = JSON.parse(saved);
+    const password = sessionStorage.getItem(CHAT_PASSWORD_KEY) || '';
+    return { ...state, password };
+  } catch (_) {
+    return null;
+  }
+}
+
+// Восстановление состояния при загрузке страницы
+const savedState = loadChatState();
+if (savedState) {
+  currentRoomId = savedState.roomId;
+  currentChatType = savedState.chatType;
+  currentChatId = savedState.chatId;
+  currentChatWith = savedState.chatWith;
+  currentRoomData = savedState.roomData;
+  currentPassword = savedState.password;
+}
+
+function clearChatState() {
+  try {
+    localStorage.removeItem(CHAT_STATE_KEY);
+    sessionStorage.removeItem(CHAT_PASSWORD_KEY);
+  } catch (_) {}
+}
+
 // ─── СЧЁТЧИК НЕПРОЧИТАННЫХ ───
 function updateTabBadge() {
   totalUnread = Object.values(unreadCounts).reduce((a,b)=>a+b, 0);
